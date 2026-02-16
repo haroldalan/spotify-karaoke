@@ -1,0 +1,96 @@
+/* Ultra-Slick Glassmorphism Container */
+.spotify-lyrics-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    /* Tighter gap */
+    padding: 6px;
+    /* Minimal padding */
+
+    /* Sticky Positioning */
+    position: sticky;
+    top: 12px;
+    /* 20px from top when scrolling */
+    z-index: 1000;
+
+    /* Layout & Spacing */
+    width: fit-content;
+    /* Remove top margin to fix "too much space above", add bottom space to separate from lyrics */
+    margin: -20px auto 30px auto !important;
+
+    /* Transparent Glassmorphism */
+    background: rgba(0, 0, 0, 0.4);
+    /* Much more transparent */
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+
+    /* Subtle Border */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 32px;
+    /* Pill */
+
+    /* Lighter Shadow */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.spotify-lyrics-controls:hover {
+    background: rgba(0, 0, 0, 0.6);
+    /* Darker on hover for contrast */
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Spotify Chip Button */
+.spotify-lyrics-btn {
+    background: transparent;
+    border: none;
+    border-radius: 20px;
+    /* Matching inner radius */
+    color: rgba(255, 255, 255, 0.7);
+    /* Subtle text */
+    cursor: pointer;
+    font-size: 0.90rem;
+    /* 12px */
+    padding: 8px 16px;
+    /* Comfortable hit area */
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.spotify-lyrics-btn:hover {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.spotify-lyrics-btn.active {
+    background-color: #fff;
+    color: #000;
+    font-weight: 600;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.spotify-lyrics-btn:active {
+    transform: scale(0.96);
+}
+
+/* Specific fix for spacing if needed via content script manipulation */
+/* If the parent has padding-top, we might need negative margin on this element */
+/* But '0' is safer than guessing negative values unless confirmed */
+
+/* Shimmer Effect for Translation Loading - Subtle Pulse */
+.lyrics-shimmer {
+    animation: shimmerPulse 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes shimmerPulse {
+    from {
+        opacity: 0.3;
+    }
+
+    to {
+        opacity: 1;
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+    }
+}
