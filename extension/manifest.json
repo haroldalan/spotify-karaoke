@@ -41,6 +41,13 @@
                 "content/modules/ui.js",
                 "content/modules/observer.js",
                 "content/modules/attribution.js",
+                "content/lib/kuroshiro.min.js",
+                "content/lib/kuromoji.js",
+                "content/lib/kuroshiro-analyzer-kuromoji.min.js",
+                "content/lib/aromanize.js",
+                "content/modules/romanization/japanese.js",
+                "content/modules/romanization/korean.js",
+                "content/modules/romanization/manager.js",
                 "content/content.js"
             ],
             "css": [
