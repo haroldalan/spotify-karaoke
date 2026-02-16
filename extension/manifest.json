@@ -30,6 +30,10 @@
             ],
             "js": [
                 "content/lib/transliteration.min.js",
+                "content/lib/kuroshiro.min.js",
+                "content/lib/kuromoji.js",
+                "content/lib/kuroshiro-analyzer-kuromoji.min.js",
+                "content/lib/aromanize.js",
                 "content/translation.js",
                 "content/modules/constants.js",
                 "content/modules/eager_cache.js",
@@ -37,21 +41,28 @@
                 "content/modules/utils.js",
                 "content/modules/state.js",
                 "content/modules/shimmer.js",
+                "content/modules/romanization/japanese.js",
+                "content/modules/romanization/korean.js",
+                "content/modules/romanization/manager.js",
                 "content/modules/processor.js",
                 "content/modules/ui.js",
                 "content/modules/observer.js",
                 "content/modules/attribution.js",
-                "content/lib/kuroshiro.min.js",
-                "content/lib/kuromoji.js",
-                "content/lib/kuroshiro-analyzer-kuromoji.min.js",
-                "content/lib/aromanize.js",
-                "content/modules/romanization/japanese.js",
-                "content/modules/romanization/korean.js",
-                "content/modules/romanization/manager.js",
                 "content/content.js"
             ],
             "css": [
                 "content/style.css"
+            ]
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "assets/icon128.png",
+                "content/dict/*.dat.gz"
+            ],
+            "matches": [
+                "*://open.spotify.com/*"
             ]
         }
     ],

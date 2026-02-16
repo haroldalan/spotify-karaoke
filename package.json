@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@sglkc/kuroshiro": "^1.0.1",
+    "@sglkc/kuroshiro-analyzer-kuromoji": "^1.0.1"
+  }
+}

@@ -15,11 +15,19 @@ window.SpotifyLyrics.Romanization = window.SpotifyLyrics.Romanization || {};
 
         getStrategy: function (text) {
             const Rom = window.SpotifyLyrics.Romanization;
-            if (Rom.Japanese && Rom.Japanese.check(text)) {
-                return 'japanese';
+            try {
+                if (Rom.Japanese && Rom.Japanese.check(text)) {
+                    return 'japanese';
+                }
+            } catch (e) {
+                console.error("Japanese check failed", e);
             }
-            if (Rom.Korean && Rom.Korean.check(text)) {
-                return 'korean';
+            try {
+                if (Rom.Korean && Rom.Korean.check(text)) {
+                    return 'korean';
+                }
+            } catch (e) {
+                console.error("Korean check failed", e);
             }
             return 'generic';
         },

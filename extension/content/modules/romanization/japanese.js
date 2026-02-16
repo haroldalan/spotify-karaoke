@@ -22,15 +22,23 @@ window.SpotifyLyrics.Romanization = window.SpotifyLyrics.Romanization || {};
             initPromise = new Promise((resolve, reject) => {
                 try {
                     if (typeof Kuroshiro === 'undefined' || typeof KuromojiAnalyzer === 'undefined') {
-                        // Might be loaded later or failed
                         console.warn('Kuroshiro/Kuromoji not found in global scope');
-                        // Attempt to wait? For now reject or just retry later
                         throw new Error('Kuroshiro or KuromojiAnalyzer not loaded');
                     }
 
                     kuroshiro = new Kuroshiro();
-                    // chrome.runtime.getURL is available in content scripts
+
+                    // DEBUG: Log the dictionary URL
                     const dictPath = chrome.runtime.getURL('content/dict/');
+                    console.log('[JapaneseRomanization] Initializing with dictPath:', dictPath);
+
+                    // Verify we can actually fetch a file from here
+                    fetch(dictPath + 'base.dat.gz')
+                        .then(response => {
+                            console.log('[JapaneseRomanization] Dict fetch test:', response.status, response.statusText);
+                            if (!response.ok) console.error('[JapaneseRomanization] Dict fetch failed');
+                        })
+                        .catch(err => console.error('[JapaneseRomanization] Dict fetch validation error:', err));
 
                     kuroshiro.init(new KuromojiAnalyzer({ dictPath: dictPath }))
                         .then(() => {
@@ -52,9 +60,6 @@ window.SpotifyLyrics.Romanization = window.SpotifyLyrics.Romanization || {};
             return initPromise;
         },
 
-        /**
-         * Check if text contains Japanese characters
-         */
         check: function (text) {
             if (typeof Kuroshiro !== 'undefined' && Kuroshiro.Util) {
                 return Kuroshiro.Util.hasJapanese(text);
@@ -62,11 +67,6 @@ window.SpotifyLyrics.Romanization = window.SpotifyLyrics.Romanization || {};
             return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/.test(text);
         },
 
-        /**
-         * Convert Japense text to Romaji
-         * @param {string} text 
-         * @returns {Promise<string>}
-         */
         convert: function (text) {
             return this.init().then(() => {
                 return kuroshiro.convert(text, { to: 'romaji', mode: 'spaced' });
