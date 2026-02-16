@@ -12,7 +12,12 @@
 -   **Lyrics Caching**: Cache Translated Lyrics to improve performance and reduce API calls.
 -   **Sleek Design**: A dark-themed component that blends perfectly with Spotify's native UI.
 
-## Installation
+## Download
+
+[![Chrome Web Store](https://img.shields.io/badge/Chrome-Web%20Store-blue?style=for-the-badge&logo=google-chrome)](https://chromewebstore.google.com/detail/spotify-karaoke-romanize/bhhkohameknlmcgdfafkjplpjalfedie)
+[![Firefox Add-ons](https://img.shields.io/badge/Firefox-Add--ons-orange?style=for-the-badge&logo=firefox)](https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/)
+
+## Installation (Manual)
 
 ### Chrome / Edge / Brave
 
