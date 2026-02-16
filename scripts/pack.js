@@ -2,20 +2,31 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// Simple zip script using system zip command (available in GitHub Actions ubuntu-latest)
-// Only zips the 'extension' folder content into 'extension.zip'
+// Script to pack extension for Chrome and Firefox
+// Usages: node scripts/pack.js [version]
+
+const version = process.argv[2] || 'unknown';
 
 try {
-    console.log('Packing extension...');
-    // We use the zip command which is standard in linux environments (GitHub Actions)
-    // -r: recursive
-    // -j: junk paths (store just filenames)? No, we want the structure relative to extension/
-    // But actually, usually extensions are zipped so that manifest.json is at root of zip.
+    console.log('Packing extension for Chrome and Firefox...');
 
-    // Navigate to extension dir and zip everything to ../extension.zip
-    execSync('cd extension && zip -r ../extension.zip ./*');
+    // Create output directory if it doesn't exist
+    // actually we just output to root for simplicity in CI
 
-    console.log('✅ Created extension.zip');
+    // Chrome (v3)
+    const chromeZip = `spotify-karaoke-${version}-chrome.zip`;
+    console.log(`Creating ${chromeZip}...`);
+    // -r recursive, -j junk paths (no), but we want relative to extension/
+    // zip target source
+    execSync(`cd extension && zip -r ../${chromeZip} ./*`);
+
+    // Firefox (v2/v3) - currently identical source, but we name it distinct
+    // In future, we might copy extension/ to extension-firefox/, modify manifest, then zip.
+    const firefoxZip = `spotify-karaoke-${version}-firefox.zip`;
+    console.log(`Creating ${firefoxZip}...`);
+    execSync(`cd extension && zip -r ../${firefoxZip} ./*`);
+
+    console.log('✅ Created release artifacts.');
 } catch (error) {
     console.error('❌ Failed to pack extension:', error.message);
     process.exit(1);
