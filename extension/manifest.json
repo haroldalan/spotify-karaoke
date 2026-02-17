@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Spotify Karaoke - Romanize & Translate Lyrics",
     "version": "1.2.0",
-    "description": "Easily switch between Original, Romanized, and Translated Lyrics on Spotify Web Player.",
+    "description": "Upgrade your lyrical experience! Romanize (Korean, Japanese, etc.) and Translate lyrics seamlessly on Spotify Web Player.",
     "permissions": [
         "storage"
     ],
