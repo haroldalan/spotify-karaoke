@@ -6,6 +6,7 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
     const State = {
         currentMode: 'original', // 'original', 'romanized', 'translated'
         targetLanguage: 'en', // Default
+        dualLyrics: false, // Default
         translationCache: new Map(),
 
         /**
@@ -44,16 +45,20 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                             this.targetLanguage = items.targetLanguage;
                             this.translationCache.clear();
                             // Re-scan items for the correct language
+                            // Re-scan items for the correct language
                             for (const [key, value] of Object.entries(items)) {
                                 if (key.startsWith(`trans_${this.targetLanguage}_`)) {
                                     const originalText = key.substring(`trans_${this.targetLanguage}_`.length);
                                     this.translationCache.set(originalText, value);
                                 }
                             }
-                            console.log(`[Spotify Lyrics Extension] Re-loaded ${this.translationCache.size} translations for ${this.targetLanguage}.`);
                         } else {
-                            console.log(`[Spotify Lyrics Extension] Target Language: ${this.targetLanguage}`);
                         }
+                    }
+
+                    // Load Dual Lyrics
+                    if (items.dualLyrics !== undefined) {
+                        this.dualLyrics = items.dualLyrics;
                     }
 
                     resolve();
@@ -94,6 +99,9 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
         onChange: function (callback) {
             chrome.storage.onChanged.addListener((changes, namespace) => {
                 if (namespace === 'local') {
+                    if (changes.dualLyrics) {
+                        this.dualLyrics = changes.dualLyrics.newValue;
+                    }
                     callback(changes);
                 }
             });

@@ -136,14 +136,33 @@ document.addEventListener('DOMContentLoaded', () => {
     languageSelect.addEventListener('change', (e) => {
         const selectedLang = e.target.value;
         chrome.storage.local.set({ targetLanguage: selectedLang }, () => {
-            // Show status feedback
-            statusMsg.textContent = 'Saved';
-            statusMsg.classList.add('visible');
-            setTimeout(() => {
-                statusMsg.classList.remove('visible');
-            }, 1500);
+            showSaved();
         });
     });
+
+    // Dual Lyrics Logic
+    const dualLyricsCheck = document.getElementById('dual-lyrics-check');
+
+    // Load setting
+    chrome.storage.local.get(['dualLyrics'], (result) => {
+        dualLyricsCheck.checked = result.dualLyrics === true;
+    });
+
+    // Save setting
+    dualLyricsCheck.addEventListener('change', (e) => {
+        const isChecked = e.target.checked;
+        chrome.storage.local.set({ dualLyrics: isChecked }, () => {
+            showSaved();
+        });
+    });
+
+    function showSaved() {
+        statusMsg.textContent = 'Saved';
+        statusMsg.classList.add('visible');
+        setTimeout(() => {
+            statusMsg.classList.remove('visible');
+        }, 1500);
+    }
 
     // Storage Usage & Reset Logic
     const storageInfo = document.getElementById('storage-info');

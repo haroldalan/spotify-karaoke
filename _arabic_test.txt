@@ -1,5 +1,0 @@
-ISO: kalaama äyanayaha faya alaġaraama ˀaḧala mana alaˀaġaanaya
-IAST: kalaama äyanayaha faya alaġaraama ˀaḧala mana alaˀaġaanaya
-RomanReadable: kalaama ayanayaha faya alagaaraama ˀahala mana alaˀagaaanaya
-RomanColloquial: kalaama ayanayaha faya alagaaraama ˀahala mana alaˀagaaanaya
-HarvardKyoto: كلام عينيه في الغرام أحلى من الأغاني

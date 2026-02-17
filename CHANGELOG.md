@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -   Updated attribution text to "Romanized by Spotify Karaoke".
 -   `manifest.json` now declares `web_accessible_resources` for kuromoji dictionary files.
 
+## [1.2.0] - 2026-02-17
+
+### Added
+-   **Dual Lyrics**: Added support for displaying original lyrics below Romanized/Translated text.
+-   **UI Improvements**: Added a toggle for Dual Lyrics in the popup.
+
+### Fixed
+-   **Stability**: Fixed dependency loading issues and improved error handling.
+-   **Renderer**: Fixed syntax errors in DOM manipulation logic.
+
 ## [1.1.0] - 2026-02-16
 
 ### Added

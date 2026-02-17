@@ -4,8 +4,7 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
 
 (function () {
     const State = window.SpotifyLyrics.State;
-    const Utils = window.SpotifyLyrics.Utils;
-    const Shimmer = window.SpotifyLyrics.Shimmer;
+    const Renderer = window.SpotifyLyrics.Renderer; // NEW Dependency
     const EagerCache = window.SpotifyLyrics.EagerCache;
     const ScriptDetection = window.SpotifyLyrics.ScriptDetection;
 
@@ -20,8 +19,6 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
         // Romanization Batching
         romanizationBatches: new Map(), // providerName -> Map<lineElement, text>
         romanizationTimeout: null,
-
-        isTranslating: false,
 
         /**
          * Get romanized version of text using the provider system.
@@ -157,7 +154,7 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                     } catch (err) {
                         console.warn("Batch Translation failed", err);
                         // Remove shimmers
-                        batch.forEach(([line, _]) => Shimmer.remove(line));
+                        batch.forEach(([line, _]) => Renderer.resetLine(line, line.getAttribute('data-original-text')));
                         return;
                     }
                 }
@@ -167,27 +164,23 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
 
             } catch (e) {
                 console.error("Batch processing error", e);
-                batch.forEach(([line, _]) => Shimmer.remove(line));
+                // Clean up shimmer if error
+                batch.forEach(([line, _]) => Renderer.resetLine(line, line.getAttribute('data-original-text')));
             }
         },
 
         applyBatchResults: function (batch) {
-            Utils.ignoreMutations(() => {
-                batch.forEach(([line, originalText]) => {
-                    // Re-verify line is still in DOM and state matches
-                    if (!line.isConnected) return;
+            batch.forEach(([line, originalText]) => {
+                // Re-verify line is still in DOM and state matches
+                if (!line.isConnected) return;
 
-                    if (State.translationCache.has(originalText)) {
-                        const translated = State.translationCache.get(originalText);
-                        line.innerText = translated;
-                        line.setAttribute('data-processed-text', translated);
-                        Shimmer.remove(line);
-                        EagerCache.cacheLyricElement(line);
-                    } else {
-                        // Failed to translate this specific one?
-                        Shimmer.remove(line);
-                    }
-                });
+                if (State.translationCache.has(originalText)) {
+                    const translated = State.translationCache.get(originalText);
+                    Renderer.applyText(line, translated, originalText);
+                } else {
+                    // Failed to translate this specific one?
+                    Renderer.resetLine(line, originalText);
+                }
             });
         },
 
@@ -250,22 +243,17 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                 }
 
                 // Apply results
-                Utils.ignoreMutations(() => {
-                    lines.forEach(line => {
-                        if (!line.isConnected) return;
-                        const original = batchMap.get(line);
-                        if (romanizationCache.has(original)) {
-                            const result = romanizationCache.get(original);
-                            if (State.currentMode === 'romanized') {
-                                line.innerText = result;
-                                line.setAttribute('data-processed-text', result);
-                                Shimmer.remove(line);
-                                EagerCache.cacheLyricElement(line);
-                            }
-                        } else {
-                            Shimmer.remove(line); // Failed
+                lines.forEach(line => {
+                    if (!line.isConnected) return;
+                    const original = batchMap.get(line);
+                    if (romanizationCache.has(original)) {
+                        const result = romanizationCache.get(original);
+                        if (State.currentMode === 'romanized') {
+                            Renderer.applyText(line, result, original);
                         }
-                    });
+                    } else {
+                        Renderer.resetLine(line, original); // Failed
+                    }
                 });
             }
         },
@@ -281,8 +269,6 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
 
             // 1. Manage Data Source of Truth
             if (isExternalUpdate) {
-                const textKey = knownOriginal || currentText;
-
                 // EAGER RESTORE
                 if (EagerCache.restoreLyricFromCache(line)) return;
 
@@ -322,90 +308,60 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
             if (!originalText) return;
 
             // 2. Apply Transformation
-            Utils.ignoreMutations(() => {
+            if (currentMode === 'romanized') {
+                // Check if we have a cached result to apply immediately
+                const cachedRomanized = this.getCachedRomanizedText(originalText);
+                if (cachedRomanized) {
+                    Renderer.applyText(line, cachedRomanized, originalText);
+                } else {
+                    // Show shimmer while waiting
+                    Renderer.setLoading(line);
 
-                if (currentMode === 'romanized') {
-                    // Check if we have a cached result to apply immediately
-                    const cachedRomanized = this.getCachedRomanizedText(originalText);
-                    if (cachedRomanized) {
-                        if (line.innerText !== cachedRomanized) {
-                            line.innerText = cachedRomanized;
-                            line.setAttribute('data-processed-text', cachedRomanized);
-                        }
-                        Shimmer.remove(line);
-                        EagerCache.cacheLyricElement(line);
-                    } else {
-                        // Show shimmer while waiting
-                        Shimmer.add(line);
+                    // Attempt batching
+                    const Providers = window.SpotifyLyrics.Providers;
+                    const ScriptDetection = window.SpotifyLyrics.ScriptDetection;
 
-                        // Attempt batching
-                        const Providers = window.SpotifyLyrics.Providers;
-                        const ScriptDetection = window.SpotifyLyrics.ScriptDetection;
-
-                        let queued = false;
-                        if (ScriptDetection && Providers) {
-                            const segments = ScriptDetection.splitTextByScript(originalText);
-                            // Only batch if single script segment (simple case)
-                            if (segments.length === 1) {
-                                const script = segments[0].script;
-                                const providerName = ScriptDetection.getProviderForScript(script);
-                                if (providerName !== 'none' && Providers[providerName] && typeof Providers[providerName].convertBatch === 'function') {
-                                    this.addToRomanizationBatch(providerName, line, originalText);
-                                    queued = true;
-                                }
+                    let queued = false;
+                    if (ScriptDetection && Providers) {
+                        const segments = ScriptDetection.splitTextByScript(originalText);
+                        // Only batch if single script segment (simple case)
+                        if (segments.length === 1) {
+                            const script = segments[0].script;
+                            const providerName = ScriptDetection.getProviderForScript(script);
+                            if (providerName !== 'none' && Providers[providerName] && typeof Providers[providerName].convertBatch === 'function') {
+                                this.addToRomanizationBatch(providerName, line, originalText);
+                                queued = true;
                             }
                         }
+                    }
 
-                        if (!queued) {
-                            // Immediate processing fallback
-                            this.getRomanizedText(originalText).then(romanized => {
-                                Utils.ignoreMutations(() => {
-                                    if (!line.isConnected) return;
-                                    if (State.currentMode !== 'romanized') return; // Mode changed
-                                    if (line.innerText !== romanized) {
-                                        line.innerText = romanized;
-                                        line.setAttribute('data-processed-text', romanized);
-                                    }
-                                    Shimmer.remove(line);
-                                    EagerCache.cacheLyricElement(line);
-                                });
-                            }).catch(err => {
-                                console.warn('[Romanization] Error processing line:', err);
-                                Shimmer.remove(line);
-                            });
-                        }
+                    if (!queued) {
+                        // Immediate processing fallback
+                        this.getRomanizedText(originalText).then(romanized => {
+                            if (State.currentMode !== 'romanized') return; // Mode changed
+                            Renderer.applyText(line, romanized, originalText);
+                        }).catch(err => {
+                            console.warn('[Romanization] Error processing line:', err);
+                            Renderer.resetLine(line, originalText);
+                        });
                     }
                 }
-                else if (currentMode === 'translated') {
-                    if (State.translationCache.has(originalText)) {
-                        const translated = State.translationCache.get(originalText);
-                        if (line.innerText !== translated) {
-                            line.innerText = translated;
-                            line.setAttribute('data-processed-text', translated);
-                        }
-                        Shimmer.remove(line);
-                        EagerCache.cacheLyricElement(line);
-                    } else {
-                        // UX: Reset to original text immediately
-                        if (line.innerText !== originalText) {
-                            line.innerText = originalText;
-                            line.setAttribute('data-processed-text', originalText);
-                        }
+            }
+            else if (currentMode === 'translated') {
+                if (State.translationCache.has(originalText)) {
+                    Renderer.applyText(line, State.translationCache.get(originalText), originalText);
+                } else {
+                    // UX: Reset to original text immediately
+                    Renderer.resetLine(line, originalText);
 
-                        // QUEUE FOR BATCH TRANSLATION
-                        Shimmer.add(line);
-                        this.addToBatch(line, originalText);
-                    }
+                    // QUEUE FOR BATCH TRANSLATION
+                    Renderer.setLoading(line);
+                    this.addToBatch(line, originalText);
                 }
-                else if (currentMode === 'original') {
-                    if (line.innerText !== originalText) {
-                        line.innerText = originalText;
-                        line.setAttribute('data-processed-text', originalText);
-                    }
-                    Shimmer.remove(line);
-                    EagerCache.cacheLyricElement(line);
-                }
-            });
+            }
+            else if (currentMode === 'original') {
+                Renderer.resetLine(line, originalText);
+            }
         },
 
         applyModeToAll: function () {
@@ -420,9 +376,9 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
             lyricsLines.forEach(line => {
                 const original = line.getAttribute('data-original-text');
                 if (original) {
-                    line.innerText = original;
+                    // Use renderer to reset
+                    Renderer.resetLine(line, original);
                 }
-                Shimmer.remove(line);
             });
             // Clear batch
             if (this.batchMap) this.batchMap.clear();

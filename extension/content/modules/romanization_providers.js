@@ -304,11 +304,12 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                         text: text
                     });
 
-                    const url = 'https://aksharamukha-plugin.appspot.com/api/public?' + params.toString();
+                    const url = 'https://aksharamukha-plugin.appspot.com/api/public';
 
                     const response = await fetch(url, {
-                        method: 'GET',
-                        headers: { 'Accept': 'text/plain' }
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString()
                     });
 
                     if (!response.ok) {
@@ -329,11 +330,9 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
              */
             convertBatch: async function (texts) {
                 if (!texts || texts.length === 0) return [];
-                // Use the script of the first item to determine source
-                // (Assumption: batch is grouped by provider, and Aksharamukha handles specific scripts)
+
                 const firstText = texts[0];
                 const sourceScript = this._detectScript(firstText);
-
                 if (!sourceScript) return texts;
 
                 try {
@@ -344,9 +343,14 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                         text: joined
                     });
 
-                    const url = 'https://aksharamukha-plugin.appspot.com/api/public?' + params.toString();
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error('API Error');
+                    const url = 'https://aksharamukha-plugin.appspot.com/api/public';
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString()
+                    });
+
+                    if (!response.ok) throw new Error(`API Error ${response.status}`);
 
                     const result = await response.text();
                     if (!result) return texts;
@@ -354,12 +358,18 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                     const split = result.split('\n');
                     if (split.length !== texts.length) {
                         console.warn('[Aksharamukha] Batch length mismatch, falling back to sequential');
-                        return texts; // Should probably sequential fallback here, but current design returns original on fail
+                        throw new Error('Length mismatch');
                     }
                     return split;
                 } catch (e) {
-                    console.warn('[Aksharamukha] Batch error:', e);
-                    return texts;
+                    console.warn('[Aksharamukha] Batch error, falling back to sequential:', e);
+                    // Sequential Fallback
+                    const results = [];
+                    for (const t of texts) {
+                        // We use the single convert method which now also supports POST
+                        results.push(await this.convert(t));
+                    }
+                    return results;
                 }
             }
         },
