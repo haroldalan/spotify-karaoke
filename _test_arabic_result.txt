@@ -1,0 +1,6 @@
+﻿Testing Arabic Provider...
+
+--- Tier 1: Google Translate ---
+Input: ┘â┘ä╪º┘à ╪╣┘è┘å┘è┘ç
+Output: kalaama a╠êyanayaha
+PASS: Output contains vowels (likely Google/Aksharamukha)

@@ -37,8 +37,32 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
             // Cyrillic: 0400-04FF
             if (code >= 0x0400 && code <= 0x04FF) return 'Cyrillic';
 
+            // Devanagari (Hindi, Marathi): 0900-097F
+            if (code >= 0x0900 && code <= 0x097F) return 'Devanagari';
+
+            // Bengali: 0980-09FF
+            if (code >= 0x0980 && code <= 0x09FF) return 'Bengali';
+
+            // Telugu: 0C00-0C7F
+            if (code >= 0x0C00 && code <= 0x0C7F) return 'Telugu';
+
+            // Kannada: 0C80-0CFF
+            if (code >= 0x0C80 && code <= 0x0CFF) return 'Kannada';
+
             // Tamil: 0B80-0BFF
             if (code >= 0x0B80 && code <= 0x0BFF) return 'Tamil';
+
+            // Malayalam: 0D00-0D7F
+            if (code >= 0x0D00 && code <= 0x0D7F) return 'Malayalam';
+
+            // Thai: 0E00-0E7F
+            if (code >= 0x0E00 && code <= 0x0E7F) return 'Thai';
+
+            // Arabic: 0600-06FF (Arabic) + 0750-077F (Arabic Supplement)
+            if ((code >= 0x0600 && code <= 0x06FF) || (code >= 0x0750 && code <= 0x077F)) return 'Arabic';
+
+            // Georgian: 10A0-10FF
+            if (code >= 0x10A0 && code <= 0x10FF) return 'Georgian';
 
             return 'Common'; // Treat others as Common for now
         },
@@ -146,15 +170,25 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                 case 'Hangul':
                     return 'korean';
                 case 'Han':
-                    return 'chinese'; // Fallback to Chinese for pure Han, but Japanese context might prefer Japanese
+                    return 'chinese';
                 case 'Cyrillic':
                     return 'cyrillic';
+                case 'Devanagari':
+                case 'Telugu':
+                case 'Kannada':
+                case 'Thai':
+                    return 'indic';
                 case 'Tamil':
-                    return 'any'; // Use generic romanizer for Tamil
+                case 'Malayalam':
+                case 'Bengali':
+                    return 'aksharamukha';
+                case 'Arabic':
+                    return 'arabic';
                 case 'Latin':
                 case 'Common':
-                default:
                     return 'none';
+                default:
+                    return 'any'; // Fallback to generic transliteration
             }
         }
     };

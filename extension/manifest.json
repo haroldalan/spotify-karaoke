@@ -21,7 +21,8 @@
     },
     "host_permissions": [
         "https://open.spotify.com/*",
-        "https://translate.googleapis.com/*"
+        "https://translate.googleapis.com/*",
+        "https://aksharamukha-plugin.appspot.com/*"
     ],
     "content_scripts": [
         {
@@ -29,21 +30,21 @@
                 "https://open.spotify.com/*"
             ],
             "js": [
-                "content/lib/transliteration.min.js",
+                "content/lib/korean-romanize.min.js",
                 "content/lib/kuroshiro.min.js",
-                "content/lib/kuromoji.js",
-                "content/lib/kuroshiro-analyzer-kuromoji.min.js",
-                "content/lib/aromanize.js",
+                "content/lib/pinyin-pro.min.js",
+                "content/lib/cyrillic-to-translit.min.js",
+                "content/lib/sanscript.min.js",
+                "content/lib/arabic-services.min.js",
+                "content/lib/transliteration.min.js",
                 "content/translation.js",
                 "content/modules/constants.js",
                 "content/modules/eager_cache.js",
                 "content/modules/script_detection.js",
+                "content/modules/romanization_providers.js",
                 "content/modules/utils.js",
                 "content/modules/state.js",
                 "content/modules/shimmer.js",
-                "content/modules/romanization/japanese.js",
-                "content/modules/romanization/korean.js",
-                "content/modules/romanization/manager.js",
                 "content/modules/processor.js",
                 "content/modules/ui.js",
                 "content/modules/observer.js",
@@ -57,12 +58,11 @@
     ],
     "web_accessible_resources": [
         {
-            "resources": [
-                "assets/icon128.png",
-                "content/dict/*.dat.gz"
-            ],
             "matches": [
-                "*://open.spotify.com/*"
+                "https://open.spotify.com/*"
+            ],
+            "resources": [
+                "dict/*"
             ]
         }
     ],

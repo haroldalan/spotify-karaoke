@@ -8,3 +8,7 @@ node_modules/
 
 # AI Context
 AI_INSTRUCTIONS.md
+.gemini/
+
+# Moegi reference clone (temporary)
+_moegi_ref/

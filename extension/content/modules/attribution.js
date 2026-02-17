@@ -57,7 +57,7 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
                 }
                 // If it's the same element, check if the text was reset by Spotify to something native
                 else if (el.textContent.includes('Lyrics provided by') &&
-                    !el.textContent.includes('Transliteration library') &&
+                    !el.textContent.includes('Romanized by') &&
                     !el.textContent.includes('Google Translate')) {
                     // It looks like original text. Update our originalText just in case.
                     this.originalText = el.textContent;
@@ -71,7 +71,8 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
         cleanOriginalText: function () {
             if (this.originalText) {
                 this.originalText = this.originalText
-                    .replace(' Romanized using Transliteration library by yf-hk', '')
+                    .replace(' Romanized by Spotify Karaoke', '')
+                    .replace(' Romanized using Transliteration library by yf-hk', '') // Legacy cleanup
                     .replace(' Translated using Google Translate', '');
             }
         },
@@ -86,7 +87,7 @@ window.SpotifyLyrics = window.SpotifyLyrics || {};
             let suffix = '';
 
             if (mode === 'romanized') {
-                suffix = ' & Romanized using Transliteration library by yf-hk';
+                suffix = ' & Romanized by Spotify Karaoke';
             } else if (mode === 'translated') {
                 suffix = ' & Translated using Google Translate';
             }

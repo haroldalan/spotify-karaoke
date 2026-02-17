@@ -1,0 +1,5 @@
+﻿Testing Arabic Provider (DEBUG MODE)...
+[DEBUG] Google Status: 200
+[DEBUG] Google Data: [[[null,null,null,"kalam eaynayh"]],null,"ar",null,null,null,0.9890135,[],[["ar"],null,[0.9890135],["ar"]]]
+
+Final Output: kalaama a╠êyanayaha

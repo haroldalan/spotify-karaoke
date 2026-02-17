@@ -10,7 +10,8 @@
             window.SpotifyLyrics.Processor &&
             window.SpotifyLyrics.Constants &&
             window.SpotifyLyrics.EagerCache &&
-            window.SpotifyLyrics.ScriptDetection;
+            window.SpotifyLyrics.ScriptDetection &&
+            window.SpotifyLyrics.Providers;
     };
 
     if (!checkDeps()) {

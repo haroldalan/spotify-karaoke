@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+-   **Multi-Provider Romanization**: Replaced single transliteration library with 8 language-specific romanization providers:
+    -   Korean: `@romanize/korean` (Revised Romanization)
+    -   Japanese: `@sglkc/kuroshiro` + kuromoji (romaji with morphological analysis)
+    -   Chinese: `pinyin-pro` (Mandarin pinyin)
+    -   Cyrillic: `cyrillic-to-translit-js` (Russian, Ukrainian, etc.)
+    -   Hindi/Telugu/Kannada/Marathi/Thai: `@indic-transliteration/sanscript` (IAST)
+    -   Tamil/Malayalam/Bengali: Aksharamukha online API (IAST)
+    -   Arabic: Google Translate API (Phonetic) > Aksharamukha (ISO) > Local Fallback
+    -   **Batch Processing**: Implemented batch API requests for Google and Aksharamukha to improve performance and rate limits.
+    -   Fallback: `yf-hk/transliteration` for all other scripts
+-   **Extended Script Detection**: Added Unicode ranges for Devanagari, Bengali, Telugu, Kannada, Malayalam, Thai, Arabic, and Georgian scripts.
+-   **Romanization Cache**: In-memory cache prevents re-romanizing identical text on DOM repaints.
+-   **Async Provider Dispatch**: Romanization providers now run asynchronously with shimmer loading indicators.
+
+### Changed
+-   Refactored `processor.js` to use async provider dispatch with per-line error handling.
+-   Updated attribution text to "Romanized by Spotify Karaoke".
+-   `manifest.json` now declares `web_accessible_resources` for kuromoji dictionary files.
+
 ## [1.1.0] - 2026-02-16
 
 ### Added
