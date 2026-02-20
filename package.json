@@ -1,6 +1,7 @@
 {
   "name": "spotify-karaoke",
   "version": "2.0.1",
+  "description": "Romanize & translate Spotify lyrics effortlessly.",
   "private": true,
   "type": "module",
   "scripts": {
