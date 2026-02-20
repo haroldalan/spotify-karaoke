@@ -28,7 +28,11 @@ export default defineConfig({
     browser_specific_settings: {
       gecko: {
         id: 'spotify-karaoke@example.com',
-        strict_min_version: '109.0',
+        strict_min_version: '142.0',
+        // @ts-ignore: WXT types missing the new Firefox AMO compliance flag
+        data_collection_permissions: {
+          required: ['none']
+        },
       },
     },
   },

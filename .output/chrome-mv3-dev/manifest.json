@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Spotify Karaoke",
   "description": "Romanize and translate Spotify lyrics in your browser.",
-  "version": "0.0.1",
+  "version": "2.0.1",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
@@ -24,8 +24,13 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "sly-lyrics@haroldalan",
-      "strict_min_version": "109.0"
+      "id": "spotify-karaoke@example.com",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
     }
   },
   "commands": {

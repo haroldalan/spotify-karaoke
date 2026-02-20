@@ -1,6 +1,6 @@
 {
   "name": "spotify-karaoke",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -26,6 +26,7 @@
   "devDependencies": {
     "@preact/preset-vite": "^2.8.2",
     "typescript": "^5.7.3",
+    "vite-plugin-string-replace": "^1.1.5",
     "wxt": "^0.20.5"
   }
 }
