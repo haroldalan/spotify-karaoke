@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Spotify Karaoke",
+  "description": "Romanize and translate Spotify lyrics in your browser.",
+  "version": "0.0.1",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://open.spotify.com/*",
+    "*://translate.googleapis.com/*",
+    "*://translate.google.com/*",
+    "*://www.google.com/*",
+    "*://api.mymemory.translated.net/*",
+    "*://cdn.jsdelivr.net/*",
+    "http://localhost/*"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sly-lyrics@haroldalan",
+      "strict_min_version": "109.0"
+    }
+  },
+  "commands": {
+    "wxt:reload-extension": {
+      "description": "Reload the extension during development",
+      "suggested_key": {
+        "default": "Alt+R"
+      }
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Spotify Karaoke",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval' http://localhost:3000; object-src 'self';",
+    "sandbox": "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3000; sandbox allow-scripts allow-forms allow-popups allow-modals; child-src 'self';"
+  }
+}

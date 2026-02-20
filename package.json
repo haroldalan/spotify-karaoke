@@ -1,0 +1,31 @@
+{
+  "name": "spotify-karaoke",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "prepare": "wxt prepare"
+  },
+  "dependencies": {
+    "@dehoist/romanize-thai": "^1.0.0",
+    "@indic-transliteration/sanscript": "^1.3.3",
+    "@romanize/korean": "^0.1.3",
+    "@sglkc/kuroshiro": "^1.0.1",
+    "@sglkc/kuroshiro-analyzer-kuromoji": "^1.0.1",
+    "cyrillic-to-translit-js": "^3.2.1",
+    "pinyin-pro": "^3.28.0",
+    "preact": "^10.25.4",
+    "transliteration": "^2.3.5"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.8.2",
+    "typescript": "^5.7.3",
+    "wxt": "^0.20.5"
+  }
+}
