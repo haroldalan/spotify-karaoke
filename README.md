@@ -1,7 +1,7 @@
 <div align="center">
   <img src="public/icon128.png" alt="Spotify Karaoke Logo" width="128">
   <h1>🎤 Spotify Karaoke</h1>
-  <p><strong>A high-performance browser extension seamlessly injecting real-time translated and romanized lyrics directly into Spotify's React render tree.</strong><br>Engineered with WXT, Preact, and massive local offline translation dictionaries.</p>
+  <p><strong>A high-performance browser extension seamlessly injecting real-time translated and romanized lyrics directly into Spotify's React render tree.</strong><br>Engineered with WXT, Preact, and massive local offline translation dictionaries. Now with native-script restoration for Indian-language songs.</p>
 
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke-romanize/"><img src="https://img.shields.io/badge/Chrome-Extension-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome"></a>
   <a href="https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Addon-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox"></a>
@@ -61,6 +61,20 @@ We execute dynamic regex script detection to route the song to the most accurate
 | **Thai** | [`@dehoist/romanize-thai`](https://www.npmjs.com/package/@dehoist/romanize-thai) | Local Regex ⚡ |
 | **Tamil, Bengali, Arabic** | Google Translate (`dt=rm`) | Remote Batch payload ☁️ |
 | *(Error Fallback)* | [`transliteration`](https://www.npmjs.com/package/transliteration) | Local ⚡ |
+
+### 🇮🇳 Native Script Restoration for Indian Languages
+Many Indian-language songs on Spotify display only romanized text (e.g. *"un peyaryl en perai cherttu"*) even though Musixmatch — Spotify's lyrics provider — has the original native-script version on file. This is caused by Spotify serving a romanized fallback when it detects an `isDenseTypeface` language code.
+
+Spotify Karaoke fixes this transparently, with zero user configuration:
+
+1. **Intercepts** Spotify's internal lyrics API call (`spclient.wg.spotify.com/color-lyrics/v2/track/*`) from the page's main world by monkey-patching `window.fetch` at page boot.
+2. **Detects** that the response is a romanized fallback (`isDenseTypeface: false` on a supported Indian-script language).
+3. **Fetches** native-script synced subtitles directly from Musixmatch's API using an anonymous token and the `providerLyricsId` embedded in Spotify's own response. Three fallback strategies are tried in order: synced subtitle via `commontrack_id`, subtitle via Spotify track ID lookup, and unsynced lyrics.
+4. **Replaces** Spotify's response entirely with a synthetic `Response` object containing the native lines — so Spotify's React renderer displays Tamil, Hindi, Telugu, etc. as the primary lyrics, not the romanized fallback.
+
+This means **Romanize** and **Translate** now operate on the actual source script, producing far more accurate results.
+
+Supported scripts: Hindi (Devanagari), Tamil, Telugu, Kannada, Malayalam, Gujarati, Punjabi (Gurmukhi), Marathi, Sanskrit, Bengali.
 
 ---
 

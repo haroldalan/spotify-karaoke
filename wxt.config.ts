@@ -19,12 +19,18 @@ export default defineConfig({
     permissions: ['storage'],
     host_permissions: [
       '*://open.spotify.com/*',
+      '*://spclient.wg.spotify.com/*',
+      '*://apic-desktop.musixmatch.com/*',
       '*://translate.googleapis.com/*',
       '*://translate.google.com/*',
       '*://www.google.com/*',
       '*://api.mymemory.translated.net/*',
       '*://cdn.jsdelivr.net/*',
     ],
+    web_accessible_resources: [{
+      resources: ['fetchInterceptor.js'],
+      matches: ['*://open.spotify.com/*'],
+    }],
     browser_specific_settings: {
       gecko: {
         id: 'spotify-karaoke@example.com',

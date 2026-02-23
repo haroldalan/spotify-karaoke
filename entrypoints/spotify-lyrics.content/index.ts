@@ -38,6 +38,14 @@ let setupDebounceTimer: number | null = null;
 let pollId: number | null = null;
 let isApplying = false;
 
+// ─── Native Lyrics State ──────────────────────────────────────────────────────
+
+// Spotify track ID parsed from the color-lyrics API URL by fetchInterceptor.js
+let currentTrackId = '';
+// Native-script lines pending for a track that haven't been snapshotted yet
+// (Scenario A: interceptor fires before trySetup)
+const pendingNativeLines = new Map<string, string[]>();
+
 // ─── DOM Queries ──────────────────────────────────────────────────────────────
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -322,6 +330,78 @@ function autoSwitchIfNeeded(): void {
   }
 }
 
+// ─── Native Lyrics Override ───────────────────────────────────────────────────
+
+/**
+ * Scenario A helper — called from trySetup() right after snapshotOriginals().
+ * If native lines are already waiting for the current track, swap them into
+ * cache.original and rewrite the DOM before controls are injected.
+ */
+function applyNativeOverride(): void {
+  const native = pendingNativeLines.get(currentTrackId);
+  if (!native || native.length === 0) return;
+
+  pendingNativeLines.delete(currentTrackId);
+  cache.original = native;
+
+  // Rewrite the DOM lines so Spotify shows native script
+  getLyricsLines().forEach((el, i) => {
+    if (native[i] !== undefined) el.textContent = native[i];
+  });
+}
+
+/**
+ * Called when the fetch interceptor posts a SKL_NATIVE_LYRICS message.
+ *
+ * Scenario A — trySetup() hasn't fired yet:
+ *   Store lines in pendingNativeLines; applyNativeOverride() will pick them up.
+ *
+ * Scenario B — trySetup() already ran with romanized lines as source:
+ *   Overwrite cache.original, invalidate stale processed data, cancel any
+ *   in-flight PROCESS request, rewrite the DOM immediately, and re-trigger
+ *   the current mode so it re-processes from the correct native lines.
+ */
+async function handleNativeLyrics(
+  trackId: string,
+  nativeLines: string[]
+): Promise<void> {
+  // Always store in the pending map (Scenario A pick-up).
+  pendingNativeLines.set(trackId, nativeLines);
+
+  // Scenario B: the song is already active and its lines have been snapshotted.
+  if (trackId !== currentTrackId || cache.original.length === 0) return;
+
+  // Remove from pending — we're handling it now.
+  pendingNativeLines.delete(trackId);
+
+  // Overwrite the snapshot with real native-script lines.
+  cache.original = nativeLines;
+
+  // Discard all processed data derived from the wrong (romanized) source.
+  cache.processed.clear();
+
+  // Cancel any in-flight PROCESS request that used the old lines.
+  processGen++;
+
+  // Immediately show native script in the DOM so the user isn't stuck
+  // staring at romanized text while the new API round-trip completes.
+  getLyricsLines().forEach((el, i) => {
+    if (nativeLines[i] !== undefined) el.textContent = nativeLines[i];
+  });
+
+  // Update the data-sly-original attributes to match
+  getLyricsLines().forEach((el, i) => {
+    if (nativeLines[i] !== undefined) {
+      el.setAttribute('data-sly-original', nativeLines[i]);
+    }
+  });
+
+  // If a processed mode was active, re-trigger it from the correct originals.
+  if (mode !== 'original') {
+    await switchMode(mode, currentActiveLang);
+  }
+}
+
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
 async function trySetup(): Promise<void> {
@@ -329,6 +409,8 @@ async function trySetup(): Promise<void> {
   const container = getLyricsContainer();
   if (!container) return;
   if (cache.original.length === 0) snapshotOriginals();
+  // Scenario A: apply any native lines that arrived before the DOM was ready
+  applyNativeOverride();
   injectControls(container);
   startLyricsObserver();
   await reapplyMode();
@@ -356,6 +438,7 @@ function onSongChange(newKey: string): void {
   songKey = newKey;
   mode = 'original';
   processGen++;
+  currentTrackId = ''; // will be set when SKL_NATIVE_LYRICS arrives
   lyricsObserver?.disconnect();
   lyricsObserver = null;
   cache = { original: [], processed: new Map() };
@@ -461,6 +544,16 @@ async function main(): Promise<void> {
     currentActiveLang = 'en';
     preferredMode = 'original';
   }
+
+  // Listen for native-script lines posted by the main-world fetchInterceptor
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const msg = event.data;
+    if (msg?.type !== 'SKL_NATIVE_LYRICS') return;
+    // Update currentTrackId the first time we hear about this track
+    if (!currentTrackId) currentTrackId = msg.trackId as string;
+    handleNativeLyrics(msg.trackId as string, msg.nativeLines as string[]);
+  });
 
   startObserver();
   startStorageListener();
