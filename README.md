@@ -3,8 +3,8 @@
   <h1>🎤 Spotify Karaoke</h1>
   <p><strong>A high-performance browser extension seamlessly injecting real-time translated and romanized lyrics directly into Spotify's React render tree.</strong><br>Engineered with WXT, Preact, and massive local offline translation dictionaries. Now with native-script restoration for Indian-language songs.</p>
 
-  <a href="https://chromewebstore.google.com/detail/spotify-karaoke-romanize/"><img src="https://img.shields.io/badge/Chrome-Extension-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome"></a>
-  <a href="https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Addon-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox"></a>
+  <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie"><img src="https://img.shields.io/badge/Chrome-Extension-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome"></a>
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Addon-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox"></a>
 </div>
 
 ## 🧠 Core Architecture & Technical Implementation
