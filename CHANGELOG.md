@@ -5,6 +5,37 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.0.3] — 2026-03-01
+
+### Fixed
+
+- **Synchronous fetch-interceptor injection.** The previous approach loaded `fetchInterceptor.js` via `<script src="...URL...">`, which triggered an asynchronous browser fetch. On warm service-worker–cached Spotify loads, Spotify captured `window.fetch` inside React closures before the script finished downloading, silently bypassing the interceptor. Migrated to a WXT `world: 'MAIN'` content script (`fetchInterceptor.content.ts`) registered directly in the extension manifest — the browser injects it synchronously at `document_start`, guaranteeing `window.fetch` is patched before Spotify's JS ever evaluates.
+- **Flash of original lyrics on song switch.** The previous `preloadedCacheEntry` mechanism started an async `browser.storage.local.get()` on song change, then expected the result to be available when the synchronous `syncSetup()` ran milliseconds later. The storage promise always arrived too late, causing a cache miss and a visible flash of original lyrics. Replaced with a synchronous in-memory `runtimeCache` Map that `saveSongCache` populates immediately after every API round-trip. `syncSetup` now reads from this Map with zero latency.
+- **MutationObserver batch-ordering race.** Spotify can emit the `aria-label` attribute mutation (song key change) and `lyrics-line` childList mutations in the same observer batch, in any order. If lyrics nodes arrived first, `syncSetup` looked up the wrong (previous) song key in the runtime cache. Split the observer callback into two explicit passes — Pass 1 processes all attribute mutations (song key update), Pass 2 processes all childList mutations (lyrics injection) — ensuring `onSongChange` always completes before `syncSetup` reads `songKey`.
+- **Gap between shimmer ending and translated lyrics appearing.** `setLoadingState(false)` was called before `applyLinesToDOM`, briefly exposing raw original lyrics after the shimmer stopped. Reversed the call order: DOM text is now updated while `.sly-loading` is still active (text content is hidden via `-webkit-text-fill-color: transparent`), then the shimmer is removed, revealing already-correct text in a single paint frame.
+- **Stale `data-sly-original` attributes in Scenario A.** When `applyNativeOverride` rewrote DOM lines with native-script text, the `data-sly-original` attributes were not updated, leaving the extension's snapshot and the DOM permanently out of sync. Attributes are now updated alongside `el.textContent`.
+- **Double-fetch race condition.** `syncSetup` and `trySetup` could both reach `autoSwitchIfNeeded()` for the same song and fire duplicate `PROCESS` IPC requests. A `pollId` guard now cancels the rAF chain after `syncSetup` handles a cache hit, preventing the redundant call.
+- **`characterData: true` observer overhead.** The `lyricsObserver` was observing text-node mutations, firing on every karaoke highlight tick. Dropped `characterData: true` — `childList: true` alone is sufficient to detect Spotify overwriting the extension's injected text.
+- **Firefox LRU cache eviction.** `getBytesInUse` is not available in Firefox, causing `evictIfNeeded` to silently fail and the cache to grow without bound. Added a count-based LRU fallback that triggers when the total entry count exceeds a threshold, compatible with both Chrome and Firefox.
+- **Google Translate romanization-block detection.** The heuristic for identifying Google Translate's `dt=rm` output block was too narrow and could drop the last translated line of a chunk. Tightened the detection condition.
+- **Odia language support.** Added `'or'` to `INDIAN_LANGUAGE_CODES` in the fetch interceptor so Odia songs served with romanized fallbacks correctly trigger native-script restoration.
+- **Musixmatch token invalidation.** On a 401/402 response from Musixmatch, `_tokenExpiry` was not reset to `0`, so the stale token would be reused until its original TTL expired. Now resets to `0` immediately so the next call fetches a fresh token.
+
+### Added
+
+- **Tamil romanization via `tamil-romanizer`.** Tamil is now romanized locally using the `tamil-romanizer` library (practical phonetic output: `zh`, `th`, `aa` digraphs) instead of Google Translate's `dt=rm` (ISO 15919 diacritics). Romanization and translation now run in parallel, matching the pattern used for Japanese, Korean, Chinese, and other scripts. A `'tamil': 'ta'` entry is also added to the native-language fast-path so translation is skipped when the user's target language is already Tamil.
+- Odia (`or`) added to the list of supported Indian-language scripts for native-script restoration.
+
+### Changed
+
+- **Popup reset confirmation.** Replaced the browser `window.confirm()` dialog with an inline two-step confirmation UI in the popup. Avoids upcoming browser restrictions on synchronous dialogs in extension contexts.
+- `fetchInterceptor.js` removed from `public/` and `web_accessible_resources`; its logic now lives in `entrypoints/fetchInterceptor.content.ts`.
+- `CHUNK_DELAY_MS` annotated with a rationale comment explaining the empirical rate-limit basis.
+- Synchronized `NON_LATIN_SCRIPT_RE` in `index.ts` with `detectScript()` ranges in `background.ts` via a maintenance comment.
+- Removed duplicate `.wxt` entry from `.gitignore`.
+
+---
+
 ## [2.0.2] — 2026-02-23
 
 ### Added

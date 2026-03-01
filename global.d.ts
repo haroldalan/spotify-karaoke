@@ -1,3 +1,7 @@
+declare module 'tamil-romanizer' {
+  export function romanize(input: string): string;
+}
+
 declare module 'cyrillic-to-translit-js' {
   interface CyrillicToTranslit {
     transform(input: string): string;

@@ -144,6 +144,7 @@ export default function App() {
   const [dualLyrics, setDualLyrics] = useState(true); // ← default ON
   const [storageInfo, setStorageInfo] = useState('Calculating...');
   const [showSaved, setShowSaved] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
     browser.storage.sync.get(['targetLang', 'dualLyrics']).then((data) => {
@@ -162,15 +163,27 @@ export default function App() {
 
   async function refreshStorageInfo() {
     try {
-      let bytes: number;
+      // Settings in sync storage
+      let syncBytes: number;
       if (typeof browser.storage.sync.getBytesInUse === 'function') {
-        bytes = await browser.storage.sync.getBytesInUse(null);
+        syncBytes = await browser.storage.sync.getBytesInUse(null);
       } else {
         const all = await browser.storage.sync.get(null);
-        bytes = new TextEncoder().encode(JSON.stringify(all)).length;
+        syncBytes = new TextEncoder().encode(JSON.stringify(all)).length;
       }
-      const kb = (bytes / 1024).toFixed(1);
-      setStorageInfo(`${bytes} bytes · ${kb} / 100 KB used`);
+
+      // Lyrics cache in local storage
+      let localBytes: number;
+      if (typeof browser.storage.local.getBytesInUse === 'function') {
+        localBytes = await browser.storage.local.getBytesInUse(null);
+      } else {
+        const all = await browser.storage.local.get(null);
+        localBytes = new TextEncoder().encode(JSON.stringify(all)).length;
+      }
+
+      const syncKb = (syncBytes / 1024).toFixed(1);
+      const cacheKb = (localBytes / 1024).toFixed(1);
+      setStorageInfo(`Settings: ${syncKb} KB / 100 KB  ·  Cache: ${cacheKb} KB / 10 MB`);
     } catch {
       setStorageInfo('Unable to calculate');
     }
@@ -196,11 +209,29 @@ export default function App() {
   }
 
   async function handleReset() {
-    if (!confirm('Reset all settings to defaults?')) return;
+    // First click arms the button; second click within 3 s executes the reset.
+    // This avoids window.confirm(), which is deprecated in extension contexts.
+    if (!confirmReset) {
+      setConfirmReset(true);
+      setTimeout(() => setConfirmReset(false), 3000);
+      return;
+    }
+    setConfirmReset(false);
     await browser.storage.sync.clear();
     // Write defaults explicitly so onChanged fires with real values,
     // not undefined. Without this the content script can't react correctly.
     await browser.storage.sync.set({ targetLang: 'en', dualLyrics: true, preferredMode: 'original' });
+
+    // Clear lyrics cache from local storage via the index (targeted removal
+    // so any future local storage keys we add are not affected).
+    try {
+      const d = await browser.storage.local.get('lc_index');
+      const idx = (d['lc_index'] ?? {}) as Record<string, unknown>;
+      const lcKeys = Object.keys(idx).map((k) => `lc:${k}`);
+      if (lcKeys.length > 0) await browser.storage.local.remove(lcKeys);
+      await browser.storage.local.remove('lc_index');
+    } catch { /* ignore — settings reset still succeeded */ }
+
     setTargetLang('en');
     setDualLyrics(true);
     flashSaved();
@@ -252,8 +283,11 @@ export default function App() {
           <label>Storage Usage</label>
           <div className="storage-row">
             <span className="info-text">{storageInfo}</span>
-            <button className="text-btn danger" onClick={handleReset}>
-              Reset Data
+            <button
+              className={`text-btn${confirmReset ? ' danger' : ''}`}
+              onClick={handleReset}
+            >
+              {confirmReset ? 'Confirm?' : 'Reset Data'}
             </button>
           </div>
         </div>

@@ -6,6 +6,7 @@ import Sanscript from '@indic-transliteration/sanscript';
 import { romanize as romanizeKorean } from '@romanize/korean';
 import romanizeThai from '@dehoist/romanize-thai';
 import { transliterate } from 'transliteration';
+import { romanize as romanizeTamil } from 'tamil-romanizer';
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
@@ -35,11 +36,11 @@ type ScriptType =
   | 'devanagari' | 'gujarati' | 'gurmukhi' | 'telugu' | 'kannada' | 'odia'
   | 'tamil' | 'malayalam' | 'bengali'
   | 'arabic' | 'hebrew' | 'thai'
-  | 'other';
+  | 'latin' | 'other';
 
 // These scripts use Google dt=rm — no adequate local library exists
 const GOOGLE_ROMANIZE_SCRIPTS = new Set<ScriptType>([
-  'tamil', 'malayalam', 'bengali', 'arabic', 'hebrew', 'other',
+  'malayalam', 'bengali', 'arabic', 'hebrew', 'other',
 ]);
 
 function detectScript(lines: string[]): ScriptType {
@@ -51,25 +52,28 @@ function detectScript(lines: string[]): ScriptType {
 
   // Score every other script by character count, pick the dominant one
   const scores: [ScriptType, number][] = [
-    ['chinese',    (text.match(/[\u4E00-\u9FFF]/g) ?? []).length],
-    ['korean',     (text.match(/[\uAC00-\uD7AF]/g) ?? []).length],
-    ['cyrillic',   (text.match(/[\u0400-\u04FF]/g) ?? []).length],
+    ['chinese', (text.match(/[\u4E00-\u9FFF]/g) ?? []).length],
+    ['korean', (text.match(/[\uAC00-\uD7AF]/g) ?? []).length],
+    ['cyrillic', (text.match(/[\u0400-\u04FF]/g) ?? []).length],
     ['devanagari', (text.match(/[\u0900-\u097F]/g) ?? []).length],
-    ['gujarati',   (text.match(/[\u0A80-\u0AFF]/g) ?? []).length],
-    ['gurmukhi',   (text.match(/[\u0A00-\u0A7F]/g) ?? []).length],
-    ['telugu',     (text.match(/[\u0C00-\u0C7F]/g) ?? []).length],
-    ['kannada',    (text.match(/[\u0C80-\u0CFF]/g) ?? []).length],
-    ['odia',       (text.match(/[\u0B00-\u0B7F]/g) ?? []).length],
-    ['tamil',      (text.match(/[\u0B80-\u0BFF]/g) ?? []).length],
-    ['malayalam',  (text.match(/[\u0D00-\u0D7F]/g) ?? []).length],
-    ['bengali',    (text.match(/[\u0980-\u09FF]/g) ?? []).length],
-    ['arabic',     (text.match(/[\u0600-\u06FF]/g) ?? []).length],
-    ['hebrew',     (text.match(/[\u0590-\u05FF]/g) ?? []).length],
-    ['thai',       (text.match(/[\u0E00-\u0E7F]/g) ?? []).length],
+    ['gujarati', (text.match(/[\u0A80-\u0AFF]/g) ?? []).length],
+    ['gurmukhi', (text.match(/[\u0A00-\u0A7F]/g) ?? []).length],
+    ['telugu', (text.match(/[\u0C00-\u0C7F]/g) ?? []).length],
+    ['kannada', (text.match(/[\u0C80-\u0CFF]/g) ?? []).length],
+    ['odia', (text.match(/[\u0B00-\u0B7F]/g) ?? []).length],
+    ['tamil', (text.match(/[\u0B80-\u0BFF]/g) ?? []).length],
+    ['malayalam', (text.match(/[\u0D00-\u0D7F]/g) ?? []).length],
+    ['bengali', (text.match(/[\u0980-\u09FF]/g) ?? []).length],
+    ['arabic', (text.match(/[\u0600-\u06FF]/g) ?? []).length],
+    ['hebrew', (text.match(/[\u0590-\u05FF]/g) ?? []).length],
+    ['thai', (text.match(/[\u0E00-\u0E7F]/g) ?? []).length],
   ];
 
   const dominant = scores.reduce((best, curr) => curr[1] > best[1] ? curr : best);
-  return dominant[1] > 0 ? dominant[0] : 'other';
+  if (dominant[1] > 0) return dominant[0];
+  // No non-Latin script detected — treat as Latin if there are any letters at all.
+  // This covers English, French, Spanish, Portuguese, Italian, German, etc.
+  return /\p{L}/u.test(text) ? 'latin' : 'other';
 }
 
 // ─── Kuroshiro Lazy Init ──────────────────────────────────────────────────────
@@ -101,11 +105,32 @@ const cyrillicTranslit = CyrillicToTranslit({ preset: 'ru' });
 // @indic-transliteration/sanscript scheme IDs for each Indic script
 const SANSCRIPT_SCHEME: Partial<Record<ScriptType, string>> = {
   devanagari: 'devanagari',
-  gujarati:   'gujarati',
-  gurmukhi:   'gurmukhi',
-  telugu:     'telugu',
-  kannada:    'kannada',
-  odia:       'oriya', // Package uses legacy name 'oriya' for Odia/Oriya script
+  gujarati: 'gujarati',
+  gurmukhi: 'gurmukhi',
+  telugu: 'telugu',
+  kannada: 'kannada',
+  odia: 'oriya', // Package uses legacy name 'oriya' for Odia/Oriya script
+};
+
+// Script types that map to exactly one Google Translate language code.
+// When targetLang matches, translation returns the original text unchanged
+// — so we skip the API call and return the original lines directly.
+// Scripts in GOOGLE_ROMANIZE_SCRIPTS are intentionally excluded: they still
+// need a fetch for dt=rm romanization, so we can't skip the call.
+const SCRIPT_NATIVE_LANG: Partial<Record<ScriptType, string>> = {
+  korean: 'ko',
+  japanese: 'ja',
+  thai: 'th',
+  telugu: 'te',
+  kannada: 'kn',
+  gujarati: 'gu',
+  gurmukhi: 'pa',
+  odia: 'or',
+  tamil: 'ta',
+  // Excluded — script maps to multiple languages (ambiguous):
+  //   devanagari (hi/mr/sa/ne), cyrillic (ru/uk/bg/sr), chinese (zh-CN/zh-TW)
+  // Excluded — in GOOGLE_ROMANIZE_SCRIPTS (need fetch for romanization anyway):
+  //   malayalam, bengali, arabic, hebrew
 };
 
 // ─── Main Orchestrator ────────────────────────────────────────────────────────
@@ -115,6 +140,20 @@ async function processLines(
   targetLang: string
 ): Promise<{ translated: string[]; romanized: string[] }> {
   const script = detectScript(lines);
+
+  if (script === 'latin') {
+    // Already Roman script — romanization is a no-op. Only translate.
+    const { translated } = await googleProcess(lines, targetLang, false);
+    return { translated, romanized: lines };
+  }
+
+  // Translation no-op fast-path: script maps to exactly one language and it
+  // matches targetLang, so Google would return the original text unchanged.
+  // These scripts all have local romanizers, so we skip Google entirely.
+  if (SCRIPT_NATIVE_LANG[script] === targetLang) {
+    const romanized = await romanizeLocally(lines, script);
+    return { translated: lines, romanized };
+  }
 
   if (GOOGLE_ROMANIZE_SCRIPTS.has(script)) {
     // One Google call with dt=t&dt=rm → get translation AND romanization
@@ -165,6 +204,9 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         // 'iast' = International Alphabet of Sanskrit Transliteration
         return scheme ? Sanscript.t(line, scheme, 'iast') : transliterate(line);
       }
+      case 'tamil':
+        return romanizeTamil(line);
+
       case 'thai':
         return romanizeThai(line);
 
@@ -181,6 +223,7 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
 
 const GOOGLE_MAX_CHARS = 500;
 const MYMEMORY_MAX_CHARS = 450;
+// 120 ms inter-chunk delay — empirically keeps Google below its undocumented rate-limit threshold
 const CHUNK_DELAY_MS = 120;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -290,7 +333,9 @@ async function googleTranslate(
   if (
     includeRomanization &&
     allSegments.length > 0 &&
-    allSegments[allSegments.length - 1][0] === null
+    allSegments[allSegments.length - 1][0] === null &&
+    allSegments[allSegments.length - 1][1] === null &&
+    typeof allSegments[allSegments.length - 1][3] === 'string'
   ) {
     const last = allSegments[allSegments.length - 1];
     romanized = (last[3] as string | null | undefined) ?? null;
@@ -330,6 +375,9 @@ function chunkByCharCount(lines: string[], maxChars: number): string[][] {
   let currentLen = 0;
 
   for (const line of lines) {
+    if (line.length > maxChars) {
+      console.warn(`[SlyLyrics BG] Line exceeds chunk limit (${line.length} > ${maxChars} chars), sending as-is`);
+    }
     if (currentLen + line.length + 1 > maxChars && current.length > 0) {
       chunks.push(current);
       current = [line];

@@ -27,10 +27,7 @@ export default defineConfig({
       '*://api.mymemory.translated.net/*',
       '*://cdn.jsdelivr.net/*',
     ],
-    web_accessible_resources: [{
-      resources: ['fetchInterceptor.js'],
-      matches: ['*://open.spotify.com/*'],
-    }],
+
     browser_specific_settings: {
       gecko: {
         id: 'spotify-karaoke@example.com',
