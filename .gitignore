@@ -1,3 +1,5 @@
 node_modules
 .wxt
 .output
+.agent
+store_description.md

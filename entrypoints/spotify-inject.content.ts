@@ -1,10 +1,15 @@
 /**
- * spotify-inject.content.ts — runs at document_start (before Spotify's app boots).
+ * spotify-inject.content.ts
  *
- * Its sole job is to inject fetchInterceptor.js into the page's main world so
- * that window.fetch is patched before Spotify makes its first color-lyrics API
- * call. Content scripts live in an isolated world and cannot patch window.fetch
- * directly — injecting a <script> tag is the standard cross-browser workaround.
+ * Runs in the ISOLATED world at document_start. Injects fetchInterceptor.js
+ * into the page's MAIN world via a <script src="chrome-extension://..."> tag.
+ *
+ * script.textContent (inline) cannot be used — Spotify's CSP blocks 'unsafe-inline'
+ * but explicitly whitelists the extension's chrome-extension:// origin in script-src,
+ * so loading by URL is the only CSP-compliant injection path.
+ *
+ * The extension file is local (no network round-trip), so it loads far faster
+ * than Spotify's own service-worker-cached scripts, reliably winning the race.
  */
 export default defineContentScript({
     matches: ['*://open.spotify.com/*'],
@@ -13,7 +18,7 @@ export default defineContentScript({
     main() {
         const script = document.createElement('script');
         script.src = browser.runtime.getURL('/fetchInterceptor.js');
-        (document.documentElement ?? document).prepend(script);
+        (document.documentElement ?? document.head).prepend(script);
         script.onload = () => script.remove();
     },
 });

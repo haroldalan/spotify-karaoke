@@ -10,7 +10,7 @@ export default defineConfig({
   }),
   manifest: {
     name: 'Spotify Karaoke',
-    description: 'Romanize and translate Spotify lyrics in your browser.',
+    description: 'Romanize & translate Spotify lyrics effortlessly.',
     icons: {
       16: "icon16.png",
       48: "icon48.png",
@@ -27,10 +27,12 @@ export default defineConfig({
       '*://api.mymemory.translated.net/*',
       '*://cdn.jsdelivr.net/*',
     ],
+
     web_accessible_resources: [{
       resources: ['fetchInterceptor.js'],
       matches: ['*://open.spotify.com/*'],
     }],
+
     browser_specific_settings: {
       gecko: {
         id: 'spotify-karaoke@example.com',

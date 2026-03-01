@@ -1,5 +1,15 @@
+/**
+ * fetchInterceptor.js
+ *
+ * Plain-JS IIFE — no imports, no exports, no TypeScript.
+ * Imported as a raw string (?raw) by spotify-inject.content.ts and injected
+ * into the page via script.textContent, which is synchronous and blocking.
+ *
+ * This runs in the page's MAIN world, patching window.fetch before Spotify's
+ * React bundle can capture a reference to the original.
+ */
 (function () {
-    const INDIAN_LANGUAGE_CODES = new Set(['hi', 'mr', 'sa', 'gu', 'pa', 'kn', 'ml', 'ta', 'te', 'bn']);
+    const INDIAN_LANGUAGE_CODES = new Set(['hi', 'mr', 'sa', 'gu', 'pa', 'kn', 'ml', 'ta', 'te', 'bn', 'or']);
     const MXM_APP_ID = 'web-desktop-app-v1.0';
     const MXM_BASE = 'https://apic-desktop.musixmatch.com/ws/1.1';
 
@@ -28,6 +38,7 @@
         const statusCode = data?.message?.header?.status_code;
         if (statusCode === 401 || statusCode === 402) {
             _tokenCache = null;
+            _tokenExpiry = 0;
             return false;
         }
         return true;
@@ -119,10 +130,11 @@
     }
 
     async function fetchNativeLines(providerLyricsId, spotifyTrackId, token) {
-        const lines = await fetchSubtitle(providerLyricsId, token)
-            ?? await fetchSubtitleViaSpotifyId(spotifyTrackId, token)
-            ?? await fetchUnsyncedLyrics(providerLyricsId, token);
-        return lines;
+        return (
+            await fetchSubtitle(providerLyricsId, token) ??
+            await fetchSubtitleViaSpotifyId(spotifyTrackId, token) ??
+            await fetchUnsyncedLyrics(providerLyricsId, token)
+        );
     }
 
     window.fetch = async function (input, init) {
@@ -144,7 +156,6 @@
         const providerLyricsId = data?.lyrics?.providerLyricsId;
         const spotifyTrackId = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1] ?? null;
 
-        // isDenseTypeface: false = Spotify serving romanized fallback for a native-script song
         if (!INDIAN_LANGUAGE_CODES.has(language) || isDenseTypeface !== false
             || !providerLyricsId || !spotifyTrackId) {
             return response;
@@ -155,6 +166,14 @@
 
         const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId, token);
         if (!nativeLines) return response;
+
+        // Notify the content-script world so it can apply native lines even if
+        // snapshotOriginals() already ran before we finished (Scenario B recovery).
+        window.postMessage({
+            type: 'SKL_NATIVE_LYRICS',
+            trackId: spotifyTrackId,
+            nativeLines: nativeLines.map(l => l.words),
+        }, '*');
 
         const modified = {
             ...data,

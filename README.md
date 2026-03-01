@@ -1,148 +1,150 @@
 <div align="center">
-  <img src="public/icon128.png" alt="Spotify Karaoke Logo" width="128">
-  <h1>🎤 Spotify Karaoke</h1>
-  <p><strong>A high-performance browser extension seamlessly injecting real-time translated and romanized lyrics directly into Spotify's React render tree.</strong><br>Engineered with WXT, Preact, and massive local offline translation dictionaries. Now with native-script restoration for Indian-language songs.</p>
+  <img src="public/icon128.png" alt="Spotify Karaoke" width="96">
+  <h1>Spotify Karaoke</h1>
+  <p>Romanize, translate, and sing along to any song on Spotify - right in the web player.</p>
 
-  <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie"><img src="https://img.shields.io/badge/Chrome-Extension-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome"></a>
-  <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Addon-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox"></a>
+  <a href="https://chromewebstore.google.com/detail/spotify-karaoke-romanize/"><img src="https://img.shields.io/badge/Chrome-Install-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome Web Store"></a>
+  <a href="https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
 </div>
 
-## 🧠 Core Architecture & Technical Implementation
+---
 
-Spotify Karaoke isn't just a simple UI overlay; it's a sophisticated DOM manipulation engine built to withstand Spotify's complex state changes and heavy React Single Page App (SPA) architecture.
+## What it does
 
-### 💉 React Tree DOM Injection
-Standard CSS overlays break and flicker during Spotify's aggressive DOM recycling when the user scrolls lyrics.
-Instead, we utilize a highly optimized `MutationObserver` attached directly to Spotify's `<main>` container. Our engine intercepts newly rendered lyrics, diffs them against our internal `Map` caches, and natively injects perfectly interleaved `<span>` elements directly into the existing React components. This achieves a 0ms perceived lag time and zero UI flickering during "Dual Lyrics" mode.
+Spotify Karaoke adds three lyric display modes to the Spotify web player:
 
-### 🌗 Dual Lyrics Mode
-Dual Lyrics mode elegantly displays the translation or romanization as the primary line, with the original lyrics positioned directly below it.
-> Dynamically injected straight into Spotify's React tree using a dedicated `MutationObserver`. **No UI flickering, just pure karaoke.**
+- **Original** - lyrics as Spotify shows them, unchanged.
+- **Romanized** - non-Latin scripts (Japanese, Korean, Tamil, Hindi, etc.) rendered phonetically in the Latin alphabet so you can sing along.
+- **Translated** - lyrics translated into any of 100+ languages.
 
-| Dual Lyrics (ON) | Dual Lyrics (OFF) |
+Switch between modes with a single click using the pill controls injected directly into the lyrics panel. No page reload, no flicker.
+
+**Dual Lyrics mode** overlays the romanized or translated line above each original line simultaneously - useful for learning both the meaning and the pronunciation at the same time.
+
+| Dual Lyrics On | Dual Lyrics Off |
 | :---: | :---: |
-| <img src="assets/popup-dual-lyrics-on.jpg" width="400" alt="Popup with Dual Lyrics active"> | <img src="assets/popup-dual-lyrics-off.jpg" width="400" alt="Popup with Dual Lyrics inactive"> |
+| <img src="assets/popup-dual-lyrics-on.jpg" width="380" alt="Dual Lyrics enabled"> | <img src="assets/popup-dual-lyrics-off.jpg" width="380" alt="Dual Lyrics disabled"> |
 
-### 🌐 Advanced Translation Chunking Engine
-Translating lyrics line-by-line triggers catastrophic API rate limits globally (`429 Too Many Requests`).
-To bypass this, our background worker orchestrates a **Smart Chunking Algorithm** that:
-1. Concatenates the active lyrics.
-2. Formats them dynamically to preserve whitespace and sync timings.
-3. Fires minimal batch payloads through Google's Translation APIs.
-4. Auto-failovers to MyMemory APIs on timeout.
-5. Re-hydrates the AST string back into the specific line arrays demanded by the content script.
-
-### 📖 Translation Engine
-Seamlessly translate lyrics into your preferred language (**100+ languages supported**) while preserving the original line structure.
-> Powered by the **Google Translate API** (`translate.googleapis.com`), with automated failovers to the MyMemory API if rate-limited. Smart chunking ensures rigid limits are bypassed elegantly, and translated lyrics are cached per song for instant mode-switching.
-
-| Mode Switching | 100+ Supported Languages |
+| Original (Korean) | Romanized |
 | :---: | :---: |
-| <img src="assets/mode-translated.jpg" width="400" alt="Translated Lyrics Mode"> | <img src="assets/popup-language-dropdown.jpg" width="400" alt="Popup Language Dropdown"> |
+| <img src="assets/mode-original.jpg" width="380" alt="Original lyrics"> | <img src="assets/mode-romanized.jpg" width="380" alt="Romanized lyrics"> |
 
-### 🔤 Intelligent Romanization
-Sing along to your favorite international songs! The extension detects the script of the playing lyrics on-the-fly and applies the most accurate romanization system.
+| Translated |
+| :---: |
+| <img src="assets/mode-translated.jpg" width="380" alt="Translated lyrics"> |
 
-| Original Script (Hangul) | Romanized Overlay |
-| :---: | :---: |
-| <img src="assets/mode-original.jpg" width="400" alt="Original Korean Lyrics"> | <img src="assets/mode-romanized.jpg" width="400" alt="Romanized Korean Lyrics"> |
+---
 
-Rather than pinging an API 3,000 times for every song just to display Japanese or Korean text, Spotify Karaoke uses `fflate` and ArrayBuffer unboxing mechanisms to securely load massive local linguistic dictionaries straight into the browser's memory—bypassing cross-origin isolation traps on Firefox.
+## Installation
 
-We execute dynamic regex script detection to route the song to the most accurate bundled parser instantly:
+**From the browser store (recommended):**
+- [Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke-romanize/) - Chrome, Edge, Brave, and other Chromium browsers
+- [Firefox Add-ons](https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/)
 
-| Language / Script | Transliteration Engine | Execution Flow |
+**Manual install (Developer Mode):**
+1. Download the latest `.zip` from the [Releases page](../../releases) and extract it.
+2. Open your browser's extensions page (`chrome://extensions` or `about:debugging`).
+3. Enable **Developer Mode**, then click **Load unpacked** (Chrome) or **Load Temporary Add-on** (Firefox) and select the extracted folder.
+
+---
+
+## Native Script Restoration for Indian Languages
+
+Spotify often serves romanized fallback lyrics for Indian-language songs (e.g. *"un peyaryl en perai cherttu"* instead of Tamil script) even when the original native-script version exists on Musixmatch.
+
+Spotify Karaoke fixes this automatically. When you play a supported Indian-language song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The Tamil, Hindi, or Telugu lyrics appear natively in the lyrics panel - no user action required.
+
+Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
+
+**Supported languages:** Hindi, Tamil, Telugu, Kannada, Malayalam, Gujarati, Punjabi, Marathi, Sanskrit, Bengali, Odia.
+
+---
+
+## Romanization Coverage
+
+| Script | Library | Mode |
 | :--- | :--- | :--- |
-| **Japanese** *(Kanji, Kana)* | [`@sglkc/kuroshiro`](https://github.com/sglkc/kuroshiro-ts) + Kuromoji | Local Dictionary Buffer ⚡ |
-| **Korean** *(Hangul)* | [`@romanize/korean`](https://www.npmjs.com/package/@romanize/korean) | Local Bundle ⚡ |
-| **Chinese** *(Hanzi)* | [`pinyin-pro`](https://www.npmjs.com/package/pinyin-pro) | Local AST Matcher ⚡ |
-| **Indic Scripts** *(Telugu, Gujarati, Devanagari)* | [`@indic-transliteration/sanscript`](https://www.npmjs.com/package/@indic-transliteration/sanscript) | Local Mapping ⚡ |
-| **Cyrillic** *(Russian, etc.)* | [`cyrillic-to-translit-js`](https://www.npmjs.com/package/cyrillic-to-translit-js) | Local Map ⚡ |
-| **Thai** | [`@dehoist/romanize-thai`](https://www.npmjs.com/package/@dehoist/romanize-thai) | Local Regex ⚡ |
-| **Tamil, Bengali, Arabic** | Google Translate (`dt=rm`) | Remote Batch payload ☁️ |
-| *(Error Fallback)* | [`transliteration`](https://www.npmjs.com/package/transliteration) | Local ⚡ |
+| **Japanese** (Kanji + Kana) | `@sglkc/kuroshiro` + Kuromoji | Local |
+| **Korean** (Hangul) | `@romanize/korean` | Local |
+| **Chinese** (Hanzi) | `pinyin-pro` | Local |
+| **Tamil** | `tamil-romanizer` | Local |
+| **Indic** (Devanagari, Telugu, Gujarati, Gurmukhi, Kannada, Odia) | `@indic-transliteration/sanscript` | Local |
+| **Cyrillic** (Russian, Ukrainian, etc.) | `cyrillic-to-translit-js` | Local |
+| **Thai** | `@dehoist/romanize-thai` | Local |
+| **Malayalam, Bengali, Arabic, Hebrew** | Google Translate (`dt=rm`) | API |
+| *Fallback* | `transliteration` | Local |
 
-### 🇮🇳 Native Script Restoration for Indian Languages
-Many Indian-language songs on Spotify display only romanized text (e.g. *"un peyaryl en perai cherttu"*) even though Musixmatch — Spotify's lyrics provider — has the original native-script version on file. This is caused by Spotify serving a romanized fallback when it detects an `isDenseTypeface` language code.
-
-Spotify Karaoke fixes this transparently, with zero user configuration:
-
-1. **Intercepts** Spotify's internal lyrics API call (`spclient.wg.spotify.com/color-lyrics/v2/track/*`) from the page's main world by monkey-patching `window.fetch` at page boot.
-2. **Detects** that the response is a romanized fallback (`isDenseTypeface: false` on a supported Indian-script language).
-3. **Fetches** native-script synced subtitles directly from Musixmatch's API using an anonymous token and the `providerLyricsId` embedded in Spotify's own response. Three fallback strategies are tried in order: synced subtitle via `commontrack_id`, subtitle via Spotify track ID lookup, and unsynced lyrics.
-4. **Replaces** Spotify's response entirely with a synthetic `Response` object containing the native lines — so Spotify's React renderer displays Tamil, Hindi, Telugu, etc. as the primary lyrics, not the romanized fallback.
-
-This means **Romanize** and **Translate** now operate on the actual source script, producing far more accurate results.
-
-Supported scripts: Hindi (Devanagari), Tamil, Telugu, Kannada, Malayalam, Gujarati, Punjabi (Gurmukhi), Marathi, Sanskrit, Bengali.
+Translation for all languages goes through Google Translate, with automatic failover to MyMemory if rate-limited.
 
 ---
 
-## 🚀 Installation
+## Developer Setup
 
-### Official Stores
-The easiest way to get started and receive automatic updates:
-* 📥 **[Chrome Web Store (Chromium, Edge, Brave, etc.)](https://chromewebstore.google.com/detail/spotify-karaoke-romanize/)**
-* 📥 **[Firefox Add-ons](https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/)**
+**Requirements:** Node.js 18+
 
-### Developer Mode (Manual)
-1. Download the latest release from the [Releases page](../../releases).
-2. Extract the archive.
-3. Navigate to your browser's extensions page (`chrome://extensions` or `about:debugging`).
-4. Enable **Developer Mode**.
-5. Click **Load unpacked** (Chrome) or **Load Temporary Add-on** (Firefox) and select the directory.
-
----
-
-## 🛠️ Developers
-
-Built for speed and maintainability using **WXT**, **Preact**, and **TypeScript**.
-
-### Quick Start
 ```bash
-# 1. Clone the repository
 git clone https://github.com/haroldalan/spotify-karaoke.git
 cd spotify-karaoke
-
-# 2. Install dependencies (Node v18+ required)
 npm install
 
-# 3. Start the dev server
-npm run dev          # Chrome
-npm run dev:firefox  # Firefox
+npm run dev          # Chrome (live reload)
+npm run dev:firefox  # Firefox (live reload)
 
-# 4. Build for production
-npm run build
+npm run build          # Production build - Chrome
+npm run build:firefox  # Production build - Firefox
+npm run zip            # Package for Chrome Web Store submission
+npm run zip:firefox    # Package for Firefox Add-ons submission
+
+npm run test           # Run unit and component test suite
 ```
 
+### Automated QA (Antigravity IDE Only)
+
+For automated Functional and E2E testing, this project includes an **Antigravity E2E Workflow**. Use `/pre_release_testing` in the Antigravity chat console to run the automated agentic browser subagent test suite before releasing.
+
+### Project Structure
+
+```
+entrypoints/
+  background.ts              # Service worker: romanization + translation orchestration
+  spotify-inject.content.ts  # Injects fetch interceptor into the page's main world
+  spotify-lyrics.content/
+    index.ts                 # DOM engine: MutationObserver, mode switching, caching
+    style.css
+  popup/                     # Preact popup: language selector, dual lyrics toggle
+public/
+  fetchInterceptor.js        # Intercepts Spotify's lyrics API to restore native script
+```
+
+### How it works
+
+**Lyrics injection:** A `MutationObserver` watches Spotify's `<main>` element for newly rendered lyric lines. When the lyrics change, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements. Spotify's own React state is never touched.
+
+**Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
+
+**Native script restoration:** `fetchInterceptor.js` is injected into the page's main world at `document_start` by patching `<script src>` before Spotify's JavaScript loads. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses. When it detects `isDenseTypeface: false` on a supported Indian-language code, it fetches native-script subtitles from Musixmatch and replaces the response entirely before returning it to Spotify's renderer.
+
 ---
 
-## 🤝 Contributing
-Contributions make the open-source community an amazing place to learn and inspire. 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'feat: add AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+## Contributing
+
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'feat: describe what you added'`
+4. Push and open a Pull Request.
+
+Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ---
 
-## 🔒 Privacy & Disclaimer
+## Privacy & Disclaimer
 
-* **Privacy:** We do not track your listening habits, IP address, or any personal information. Your settings (language, mode toggles) are saved securely in your browser's synchronized storage (`storage.sync`). Translator features process lyric text temporarily through Google Translate APIs. See Google's [Privacy Policy](https://policies.google.com/privacy).
-* **Disclaimer:** Spotify Karaoke is not affiliated, associated, authorized, endorsed by, or explicitly connected with Spotify AB. This extension modifies the Spotify web player for educational/accessibility purposes.
-
----
-
-## 💖 Support
-
-Spotify Karaoke is and always will be free, open-source software built for the community. If this extension improved your jams, consider buying me a coffee!
-
-<a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Buy Me A Coffee"></a>
+- **Privacy:** No personal data is collected. Your settings (language preference, mode) are stored locally in `browser.storage.sync`. Lyric text is sent to Google Translate when using the Translated mode. See [Google's Privacy Policy](https://policies.google.com/privacy).
+- **Disclaimer:** Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
 
 ---
 
 <div align="center">
-  Distributed under the MIT License. See <code>LICENSE</code> for more information.<br>
-  <i>Made with ❤️ by Harold Alan. If you love this extension, please consider starring the repository!</i>
+  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a><br>
+  <i>Made by Harold Alan. If you find it useful, a ⭐ on GitHub goes a long way.</i>
 </div>
