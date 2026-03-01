@@ -9,7 +9,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- **Synchronous fetch-interceptor injection.** The previous approach loaded `fetchInterceptor.js` via `<script src="...URL...">`, which triggered an asynchronous browser fetch. On warm service-worker–cached Spotify loads, Spotify captured `window.fetch` inside React closures before the script finished downloading, silently bypassing the interceptor. Migrated to a WXT `world: 'MAIN'` content script (`fetchInterceptor.content.ts`) registered directly in the extension manifest — the browser injects it synchronously at `document_start`, guaranteeing `window.fetch` is patched before Spotify's JS ever evaluates.
+- **Reliable fetch-interceptor injection.** The interceptor is now injected via an ISOLATED-world `document_start` content script (`spotify-inject.content.ts`) that inserts a `<script src="chrome-extension://...">` tag pointing to `fetchInterceptor.js`. Spotify's CSP explicitly whitelists the extension's `chrome-extension://` origin in `script-src`, so the injection is CSP-compliant. Because the source file is bundled inside the extension package (no network round-trip), it loads significantly faster than Spotify's own service-worker–cached scripts and reliably wins the race. An earlier attempt using `world: 'MAIN'` manifest registration and `script.textContent` inline injection were both investigated and ruled out due to a Chromium bug with `world: 'MAIN'` on Service Worker–cached sites and Spotify's `'unsafe-inline'` CSP restriction respectively.
 - **Flash of original lyrics on song switch.** The previous `preloadedCacheEntry` mechanism started an async `browser.storage.local.get()` on song change, then expected the result to be available when the synchronous `syncSetup()` ran milliseconds later. The storage promise always arrived too late, causing a cache miss and a visible flash of original lyrics. Replaced with a synchronous in-memory `runtimeCache` Map that `saveSongCache` populates immediately after every API round-trip. `syncSetup` now reads from this Map with zero latency.
 - **MutationObserver batch-ordering race.** Spotify can emit the `aria-label` attribute mutation (song key change) and `lyrics-line` childList mutations in the same observer batch, in any order. If lyrics nodes arrived first, `syncSetup` looked up the wrong (previous) song key in the runtime cache. Split the observer callback into two explicit passes — Pass 1 processes all attribute mutations (song key update), Pass 2 processes all childList mutations (lyrics injection) — ensuring `onSongChange` always completes before `syncSetup` reads `songKey`.
 - **Gap between shimmer ending and translated lyrics appearing.** `setLoadingState(false)` was called before `applyLinesToDOM`, briefly exposing raw original lyrics after the shimmer stopped. Reversed the call order: DOM text is now updated while `.sly-loading` is still active (text content is hidden via `-webkit-text-fill-color: transparent`), then the shimmer is removed, revealing already-correct text in a single paint frame.
@@ -29,10 +29,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **Popup reset confirmation.** Replaced the browser `window.confirm()` dialog with an inline two-step confirmation UI in the popup. Avoids upcoming browser restrictions on synchronous dialogs in extension contexts.
-- `fetchInterceptor.js` removed from `public/` and `web_accessible_resources`; its logic now lives in `entrypoints/fetchInterceptor.content.ts`.
+- `fetchInterceptor.js` remains in `public/` and is registered under `web_accessible_resources`; injected via `spotify-inject.content.ts` using `<script src>` at `document_start`.
 - `CHUNK_DELAY_MS` annotated with a rationale comment explaining the empirical rate-limit basis.
 - Synchronized `NON_LATIN_SCRIPT_RE` in `index.ts` with `detectScript()` ranges in `background.ts` via a maintenance comment.
 - Removed duplicate `.wxt` entry from `.gitignore`.
+- **README rewritten.** Replaced the developer-first, superlative-heavy original with a user-first document: plain description, screenshots up front, accurate romanization coverage table (Tamil now listed as local), and a clean developer setup section.
 
 ---
 
