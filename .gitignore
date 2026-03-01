@@ -1,3 +1,4 @@
 node_modules
 .wxt
 .output
+.agent

@@ -144,7 +144,7 @@ export default function App() {
   const [dualLyrics, setDualLyrics] = useState(true); // ← default ON
   const [storageInfo, setStorageInfo] = useState('Calculating...');
   const [showSaved, setShowSaved] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
     browser.storage.sync.get(['targetLang', 'dualLyrics']).then((data) => {
@@ -208,15 +208,12 @@ export default function App() {
     flashSaved();
   }
 
-  async function handleReset() {
-    // First click arms the button; second click within 3 s executes the reset.
-    // This avoids window.confirm(), which is deprecated in extension contexts.
-    if (!confirmReset) {
-      setConfirmReset(true);
-      setTimeout(() => setConfirmReset(false), 3000);
-      return;
-    }
-    setConfirmReset(false);
+  function handleReset() {
+    setShowConfirmModal(true);
+  }
+
+  async function executeReset() {
+    setShowConfirmModal(false);
     await browser.storage.sync.clear();
     // Write defaults explicitly so onChanged fires with real values,
     // not undefined. Without this the content script can't react correctly.
@@ -284,10 +281,10 @@ export default function App() {
           <div className="storage-row">
             <span className="info-text">{storageInfo}</span>
             <button
-              className={`text-btn${confirmReset ? ' danger' : ''}`}
+              className="text-btn"
               onClick={handleReset}
             >
-              {confirmReset ? 'Confirm?' : 'Reset Data'}
+              Reset Data
             </button>
           </div>
         </div>
@@ -322,6 +319,24 @@ export default function App() {
           </a>
         </div>
         <div className="footer-text">Made with ❤️ by Harold Alan</div>
+      </div>
+
+      <div className={`modal-overlay${showConfirmModal ? ' visible' : ''}`} onClick={() => setShowConfirmModal(false)}>
+        <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <svg role="img" height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.669 1.637A6.5 6.5 0 0 1 13.923 5h-2.909a15.706 15.706 0 0 0-1.074-3.363zM9.548 1.58A14.288 14.288 0 0 1 10.84 5H5.16a14.288 14.288 0 0 1 1.293-3.42A6.476 6.476 0 0 1 8 1.5c.538 0 1.056.028 1.548.08zM2.077 5h2.909c.277-1.282.639-2.43 1.074-3.363A6.5 6.5 0 0 0 2.077 5zm-.577 1.5h3.161c-.044.48-.061.98-.061 1.5s.017 1.02.061 1.5H1.5a6.52 6.52 0 0 1 0-3zm1.077 4.5h2.909a15.706 15.706 0 0 0 1.074 3.363A6.5 6.5 0 0 1 2.577 11zm3.875 3.42A14.288 14.288 0 0 1 5.16 11h5.682a14.288 14.288 0 0 1-1.293 3.42A6.476 6.476 0 0 1 8 14.5c-.538 0-1.056-.028-1.548-.08zM9.939 11h3.984a6.5 6.5 0 0 1-2.25 3.363A15.706 15.706 0 0 0 9.939 11zM14.5 9.5h-3.161c.044-.48.061-.98.061-1.5s-.017-1.02-.061-1.5H14.5a6.52 6.52 0 0 1 0 3z" />
+            </svg>
+            <h2>Spotify Karaoke</h2>
+          </div>
+          <div className="modal-body">
+            Reset all settings to defaults?
+          </div>
+          <div className="modal-actions">
+            <button className="btn btn-cancel" onClick={() => setShowConfirmModal(false)}>Cancel</button>
+            <button className="btn btn-confirm" onClick={executeReset}>OK</button>
+          </div>
+        </div>
       </div>
     </div>
   );

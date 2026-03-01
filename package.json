@@ -11,7 +11,9 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
-    "prepare": "wxt prepare"
+    "prepare": "wxt prepare",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@dehoist/romanize-thai": "^1.0.0",
@@ -27,8 +29,12 @@
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.8.2",
+    "@testing-library/preact": "^3.2.4",
+    "@vitest/ui": "^4.0.18",
+    "happy-dom": "^20.7.0",
     "typescript": "^5.7.3",
     "vite-plugin-string-replace": "^1.1.5",
+    "vitest": "^4.0.18",
     "wxt": "^0.20.5"
   }
 }

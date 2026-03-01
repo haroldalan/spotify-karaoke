@@ -26,9 +26,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Tamil romanization via `tamil-romanizer`.** Tamil is now romanized locally using the `tamil-romanizer` library (practical phonetic output: `zh`, `th`, `aa` digraphs) instead of Google Translate's `dt=rm` (ISO 15919 diacritics). Romanization and translation now run in parallel, matching the pattern used for Japanese, Korean, Chinese, and other scripts. A `'tamil': 'ta'` entry is also added to the native-language fast-path so translation is skipped when the user's target language is already Tamil.
 - Odia (`or`) added to the list of supported Indian-language scripts for native-script restoration.
 
+### Testing & Pipeline
+
+- **Hybrid Testing Suite.** Replaced legacy, brittle E2E frameworks with a rigorous hybrid workflow. Core mathematical logic (background chunking scripts) and Preact UI interactions are covered by a highly-concurrent `vitest` unit/component testing suite running in isolation.
+- **Static Security Audit.** Added strict abstract syntax tree checks (`security.test.ts`) that analyze the WXT compilation manifest to algorithmically guarantee the absence of broad host permissions (`<all_urls>`) or heavy capabilities (`webRequestBlocking`), preventing security regressions before they build.
+
 ### Changed
 
-- **Popup reset confirmation.** Replaced the browser `window.confirm()` dialog with an inline two-step confirmation UI in the popup. Avoids upcoming browser restrictions on synchronous dialogs in extension contexts.
+- **Custom Settings UI Modal.** Replaced the brittle native browser extension `window.confirm()` popup calls with a fully synthesized, custom Preact modal overlay matching the Spotify design system. This resolves a known Firefox squishing bug where native alerts render restricted inside the 400x500 popup frame rather than full screen.
 - `fetchInterceptor.js` remains in `public/` and is registered under `web_accessible_resources`; injected via `spotify-inject.content.ts` using `<script src>` at `document_start`.
 - `CHUNK_DELAY_MS` annotated with a rationale comment explaining the empirical rate-limit basis.
 - Synchronized `NON_LATIN_SCRIPT_RE` in `index.ts` with `detectScript()` ranges in `background.ts` via a maintenance comment.

@@ -1,7 +1,7 @@
 <div align="center">
   <img src="public/icon128.png" alt="Spotify Karaoke" width="96">
   <h1>Spotify Karaoke</h1>
-  <p>Romanize, translate, and sing along to any song on Spotify — right in the web player.</p>
+  <p>Romanize, translate, and sing along to any song on Spotify - right in the web player.</p>
 
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke-romanize/"><img src="https://img.shields.io/badge/Chrome-Install-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome Web Store"></a>
   <a href="https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
@@ -13,13 +13,13 @@
 
 Spotify Karaoke adds three lyric display modes to the Spotify web player:
 
-- **Original** — lyrics as Spotify shows them, unchanged.
-- **Romanized** — non-Latin scripts (Japanese, Korean, Tamil, Hindi, etc.) rendered phonetically in the Latin alphabet so you can sing along.
-- **Translated** — lyrics translated into any of 100+ languages.
+- **Original** - lyrics as Spotify shows them, unchanged.
+- **Romanized** - non-Latin scripts (Japanese, Korean, Tamil, Hindi, etc.) rendered phonetically in the Latin alphabet so you can sing along.
+- **Translated** - lyrics translated into any of 100+ languages.
 
 Switch between modes with a single click using the pill controls injected directly into the lyrics panel. No page reload, no flicker.
 
-**Dual Lyrics mode** overlays the romanized or translated line above each original line simultaneously — useful for learning both the meaning and the pronunciation at the same time.
+**Dual Lyrics mode** overlays the romanized or translated line above each original line simultaneously - useful for learning both the meaning and the pronunciation at the same time.
 
 | Dual Lyrics On | Dual Lyrics Off |
 | :---: | :---: |
@@ -38,7 +38,7 @@ Switch between modes with a single click using the pill controls injected direct
 ## Installation
 
 **From the browser store (recommended):**
-- [Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke-romanize/) — Chrome, Edge, Brave, and other Chromium browsers
+- [Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke-romanize/) - Chrome, Edge, Brave, and other Chromium browsers
 - [Firefox Add-ons](https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/)
 
 **Manual install (Developer Mode):**
@@ -52,7 +52,7 @@ Switch between modes with a single click using the pill controls injected direct
 
 Spotify often serves romanized fallback lyrics for Indian-language songs (e.g. *"un peyaryl en perai cherttu"* instead of Tamil script) even when the original native-script version exists on Musixmatch.
 
-Spotify Karaoke fixes this automatically. When you play a supported Indian-language song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The Tamil, Hindi, or Telugu lyrics appear natively in the lyrics panel — no user action required.
+Spotify Karaoke fixes this automatically. When you play a supported Indian-language song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The Tamil, Hindi, or Telugu lyrics appear natively in the lyrics panel - no user action required.
 
 Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
@@ -90,11 +90,17 @@ npm install
 npm run dev          # Chrome (live reload)
 npm run dev:firefox  # Firefox (live reload)
 
-npm run build          # Production build — Chrome
-npm run build:firefox  # Production build — Firefox
+npm run build          # Production build - Chrome
+npm run build:firefox  # Production build - Firefox
 npm run zip            # Package for Chrome Web Store submission
 npm run zip:firefox    # Package for Firefox Add-ons submission
+
+npm run test           # Run unit and component test suite
 ```
+
+### Automated QA (Antigravity IDE Only)
+
+For automated Functional and E2E testing, this project includes an **Antigravity E2E Workflow**. Use `/pre_release_testing` in the Antigravity chat console to run the automated agentic browser subagent test suite before releasing.
 
 ### Project Structure
 
