@@ -98,10 +98,6 @@ npm run zip:firefox    # Package for Firefox Add-ons submission
 npm run test           # Run unit and component test suite
 ```
 
-### Automated QA (Antigravity IDE Only)
-
-For automated Functional and E2E testing, this project includes an **Antigravity E2E Workflow**. Use `/pre_release_testing` in the Antigravity chat console to run the automated agentic browser subagent test suite before releasing.
-
 ### Project Structure
 
 ```

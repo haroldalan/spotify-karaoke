@@ -183,7 +183,7 @@ export default function App() {
 
       const syncKb = (syncBytes / 1024).toFixed(1);
       const cacheKb = (localBytes / 1024).toFixed(1);
-      setStorageInfo(`Settings: ${syncKb} KB / 100 KB  ·  Cache: ${cacheKb} KB / 10 MB`);
+      setStorageInfo(`Settings: ${syncKb} KB / 100 KB  ·  Cache: ${cacheKb} KB / 4.5 MB`);
     } catch {
       setStorageInfo('Unable to calculate');
     }

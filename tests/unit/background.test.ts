@@ -1,44 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import fs from 'fs';
-import path from 'path';
+import { detectScript, chunkByCharCount, processLines } from '../../entrypoints/background.ts';
 
-// Load the file as a string so we can extract the internal functions for testing.
-// In a real environment, we'd export these, but since this is an extension background
-// script we don't want to pollute the export scope just for testing.
-const bgScript = fs.readFileSync(path.resolve(__dirname, '../../entrypoints/background.ts'), 'utf-8');
-
-// Extract detectScript
-const detectScriptMatch = bgScript.match(/function detectScript.*?\{([\s\S]*?)\n\}/);
-const detectScriptBody = detectScriptMatch ? detectScriptMatch[1] : '';
-
-// Create an executable function from the body
-const detectScript = new Function('lines', `
-  const text = lines.join('');
-  
-  if (/[\\u3040-\\u30FF]/.test(text)) return 'japanese';
-
-  const scores = [
-    ['chinese', (text.match(/[\\u4E00-\\u9FFF]/g) ?? []).length],
-    ['korean', (text.match(/[\\uAC00-\\uD7AF]/g) ?? []).length],
-    ['cyrillic', (text.match(/[\\u0400-\\u04FF]/g) ?? []).length],
-    ['devanagari', (text.match(/[\\u0900-\\u097F]/g) ?? []).length],
-    ['gujarati', (text.match(/[\\u0A80-\\u0AFF]/g) ?? []).length],
-    ['gurmukhi', (text.match(/[\\u0A00-\\u0A7F]/g) ?? []).length],
-    ['telugu', (text.match(/[\\u0C00-\\u0C7F]/g) ?? []).length],
-    ['kannada', (text.match(/[\\u0C80-\\u0CFF]/g) ?? []).length],
-    ['odia', (text.match(/[\\u0B00-\\u0B7F]/g) ?? []).length],
-    ['tamil', (text.match(/[\\u0B80-\\u0BFF]/g) ?? []).length],
-    ['malayalam', (text.match(/[\\u0D00-\\u0D7F]/g) ?? []).length],
-    ['bengali', (text.match(/[\\u0980-\\u09FF]/g) ?? []).length],
-    ['arabic', (text.match(/[\\u0600-\\u06FF]/g) ?? []).length],
-    ['hebrew', (text.match(/[\\u0590-\\u05FF]/g) ?? []).length],
-    ['thai', (text.match(/[\\u0E00-\\u0E7F]/g) ?? []).length],
-  ];
-
-  const dominant = scores.reduce((best, curr) => curr[1] > best[1] ? curr : best);
-  if (dominant[1] > 0) return dominant[0];
-  return /\\p{L}/u.test(text) ? 'latin' : 'other';
-`);
+// In WXT/Vitest, wxt sets up a mock browser environment automatically.
 
 describe('Background Script - detectScript', () => {
     it('correctly identifies Japanese (mixed Kanji and Kana)', () => {
@@ -84,29 +47,6 @@ describe('Background Script - detectScript', () => {
         expect(detectScript(['♪♪♪'])).toBe('other');
     });
 });
-
-// Extract chunkByCharCount
-const chunkScriptMatch = bgScript.match(/function chunkByCharCount[\s\S]*?\{([\s\S]*?\n\})/);
-const chunkScriptBody = chunkScriptMatch ? chunkScriptMatch[1] : '';
-
-const chunkByCharCount = new Function('lines', 'maxChars', `
-  const chunks = [];
-  let current = [];
-  let currentLen = 0;
-
-  for (const line of lines) {
-    if (currentLen + line.length + 1 > maxChars && current.length > 0) {
-      chunks.push(current);
-      current = [line];
-      currentLen = line.length;
-    } else {
-      current.push(line);
-      currentLen += line.length + 1;
-    }
-  }
-  if (current.length > 0) chunks.push(current);
-  return chunks;
-`);
 
 describe('Background Script - chunkByCharCount', () => {
     it('chunks lines perfectly without exceeding maxChars', () => {

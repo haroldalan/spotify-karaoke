@@ -2,14 +2,11 @@
  * fetchInterceptor.js
  *
  * Plain-JS IIFE — no imports, no exports, no TypeScript.
- * Imported as a raw string (?raw) by spotify-inject.content.ts and injected
- * into the page via script.textContent, which is synchronous and blocking.
- *
- * This runs in the page's MAIN world, patching window.fetch before Spotify's
- * React bundle can capture a reference to the original.
+ * Injected into the page's MAIN world as a <script src> tag by
+ * spotify-inject.content.ts before Spotify's React bundle loads.
  */
 (function () {
-    const INDIAN_LANGUAGE_CODES = new Set(['hi', 'mr', 'sa', 'gu', 'pa', 'kn', 'ml', 'ta', 'te', 'bn', 'or']);
+    const INDIAN_LANGUAGE_CODES = new Set(['hi', 'mr', 'sa', 'gu', 'pa', 'kn', 'ml', 'ta', 'te', 'bn', 'or', 'si', 'ne', 'as']);
     const MXM_APP_ID = 'web-desktop-app-v1.0';
     const MXM_BASE = 'https://apic-desktop.musixmatch.com/ws/1.1';
 

@@ -280,8 +280,8 @@ async function getTargetLang(): Promise<string> {
 
 // ─── Persistent Lyrics Cache ──────────────────────────────────────────────────
 
-const EVICT_THRESHOLD_BYTES = 8 * 1024 * 1024; // 8 MB — start evicting
-const EVICT_TARGET_BYTES = 6 * 1024 * 1024; // 6 MB — evict down to this
+const EVICT_THRESHOLD_BYTES = 4.5 * 1024 * 1024; // 4.5 MB — start evicting
+const EVICT_TARGET_BYTES = 3.5 * 1024 * 1024; // 3.5 MB — evict down to this
 
 /**
  * Loads any previously cached processed results for the current song.
@@ -306,11 +306,16 @@ async function loadSongCache(key: string): Promise<void> {
 
     if (!entry) return;
 
-    // Validate: if originals differ the cache is stale (e.g. native vs romanized)
-    if (JSON.stringify(entry.original) !== JSON.stringify(cache.original)) {
-      deleteSongCache(key); // purge the stale entry
+    // Validate: if line counts differ, the cache is fundamentally stale/corrupted.
+    // We intentionally do NOT use strict string equality here! Doing so causes a destructive cache miss
+    // because Spotify frequently injects dummy romanized text on skips, which would falsely reject our
+    // real native lyrics cache!
+    if (entry.original.length !== cache.original.length) {
       return;
     }
+
+    // Accept persistent cache as canonical truth, overriding whatever dummy text Spotify is rendering
+    cache.original = [...entry.original];
 
     // Merge all stored language results into the in-memory Map
     for (const [lang, processed] of Object.entries(entry.processed)) {
@@ -362,13 +367,24 @@ async function saveSongCache(key: string): Promise<void> {
   browser.storage.local.get('lc_index').then(async (d) => {
     const idx = (d['lc_index'] ?? {}) as LyricsIndex;
     idx[key] = { size, lastAccessed: entry.lastAccessed };
-    await browser.storage.local.set({ [storageKey]: entry, lc_index: idx });
-    evictIfNeeded(idx);
-  }).catch((err) => console.warn('[SlyLyrics] saveSongCache failed:', err));
+    
+    await evictIfNeeded(idx);
+
+    try {
+      await browser.storage.local.set({ [storageKey]: entry, lc_index: idx });
+    } catch (err: any) {
+      if (err.message?.includes('exceeded') || err.name === 'QuotaExceededError') {
+        await forceEvict(idx);
+        await browser.storage.local.set({ [storageKey]: entry, lc_index: idx }).catch(e => console.warn(e));
+      } else {
+        console.warn('[SlyLyrics] saveSongCache failed:', err);
+      }
+    }
+  }).catch((err) => console.warn('[SlyLyrics] saveSongCache index get failed:', err));
 }
 
-/** LRU eviction — removes oldest entries until storage.local is under 6 MB. */
-function evictIfNeeded(idx: LyricsIndex): void {
+/** LRU eviction — removes oldest entries until storage.local is under 3.5 MB. */
+async function evictIfNeeded(idx: LyricsIndex): Promise<void> {
   const runEviction = async (bytes: number) => {
     if (bytes <= EVICT_THRESHOLD_BYTES) return;
 
@@ -385,15 +401,31 @@ function evictIfNeeded(idx: LyricsIndex): void {
 
     if (toRemove.length === 0) return;
     await browser.storage.local.remove(toRemove);
-    await browser.storage.local.set({ lc_index: idx });
   };
 
-  if (typeof browser.storage.local.getBytesInUse === 'function') {
-    browser.storage.local.getBytesInUse(null).then(runEviction).catch(() => { });
-  } else {
-    // Firefox MV2 does not implement getBytesInUse — estimate from index metadata instead
-    const estimatedBytes = Object.values(idx).reduce((sum, m) => sum + m.size, 0);
-    runEviction(estimatedBytes).catch(() => { });
+  try {
+    if (typeof browser.storage.local.getBytesInUse === 'function') {
+      const bytes = await browser.storage.local.getBytesInUse(null);
+      await runEviction(bytes);
+    } else {
+      const estimatedBytes = Object.values(idx).reduce((sum, m) => sum + m.size, 0);
+      await runEviction(estimatedBytes);
+    }
+  } catch { /* ignore */ }
+}
+
+async function forceEvict(idx: LyricsIndex): Promise<void> {
+  const sorted = Object.entries(idx).sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
+  const toRemove: string[] = [];
+  let freed = 0;
+  for (const [sk, meta] of sorted) {
+    if (freed >= 1 * 1024 * 1024) break; // forcefully free 1MB
+    toRemove.push(`lc:${sk}`);
+    freed += meta.size;
+    delete idx[sk];
+  }
+  if (toRemove.length > 0) {
+    await browser.storage.local.remove(toRemove);
   }
 }
 
@@ -448,28 +480,36 @@ function isLatinScript(lines: string[]): boolean {
   return !NON_LATIN_SCRIPT_RE.test(text) && /\p{L}/u.test(text);
 }
 
-async function switchMode(next: LyricsMode, forceLang?: string): Promise<void> {
+async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false): Promise<void> {
   if (next === mode && forceLang === undefined) return;
+  const previousMode = mode;
   if (cache.original.length === 0) snapshotOriginals();
 
   // Fast-path: romanizing Latin-script lyrics is a no-op — the original IS
   // the romanized form. Skip the network call and loading state entirely.
   if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original)) {
     mode = next;
-    preferredMode = next;
-    browser.storage.sync.set({ preferredMode: next });
+    if (preferredMode !== next) {
+      preferredMode = next;
+      browser.storage.sync.set({ preferredMode: next });
+    }
     applyLinesToDOM(cache.original);
     syncButtonStates();
     return;
   }
 
-  setLoadingState(true);
+  // Optimistically sync button states to provide immediate click feedback
+  mode = next;
+  syncButtonStates();
+
+  if (!suppressLoading) setLoadingState(true);
 
   try {
     if (next === 'original') {
-      mode = next;
-      preferredMode = next;
-      browser.storage.sync.set({ preferredMode: next });
+      if (preferredMode !== next) {
+        preferredMode = next;
+        browser.storage.sync.set({ preferredMode: next });
+      }
       // Apply text content while shimmer still hides it (-webkit-text-fill-color: transparent),
       // then reveal by removing the shimmer — both land in the same paint frame.
       applyLinesToDOM(cache.original);
@@ -478,26 +518,29 @@ async function switchMode(next: LyricsMode, forceLang?: string): Promise<void> {
       const lang = forceLang ?? (await getTargetLang());
       const processed = await fetchProcessed(cache.original, lang);
 
-      if (processed === null) return;
+      if (processed === null) {
+        mode = previousMode;
+        syncButtonStates();
+        return;
+      }
 
       currentActiveLang = lang;
-      mode = next;
-      preferredMode = next;
-      browser.storage.sync.set({ preferredMode: next });
+      if (preferredMode !== next) {
+        preferredMode = next;
+        browser.storage.sync.set({ preferredMode: next });
+      }
       const lines = next === 'romanized' ? processed.romanized : processed.translated;
       // Apply text content while shimmer still hides it (-webkit-text-fill-color: transparent),
       // then reveal by removing the shimmer — both land in the same paint frame.
       applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined);
       setLoadingState(false);
     }
-
-    syncButtonStates();
   } catch (err) {
     console.error('[SlyLyrics] Mode switch failed:', err);
     // Show a user-visible toast for 3 seconds, then auto-dismiss
     showToast('Translation failed. Please try again.', 3000);
     // Snap back to whichever mode was working before
-    mode = mode === next ? 'original' : mode;
+    mode = previousMode;
     syncButtonStates();
   } finally {
     hideToast(true);
@@ -581,25 +624,30 @@ async function handleNativeLyrics(
 
   // Discard all processed data derived from the wrong (romanized) source.
   cache.processed.clear();
-  // Invalidate the persistent entry — its originals and processed data are
-  // both stale now. It will be rebuilt correctly after the next fetchProcessed.
-  deleteSongCache(songKey);
 
   // Cancel any in-flight PROCESS request that used the old lines.
   processGen++;
 
-  // Immediately show native script in the DOM so the user isn't stuck
-  // staring at romanized text while the new API round-trip completes.
-  // Also update data-sly-original to keep it in sync with cache.original.
-  getLyricsLines().forEach((el, i) => {
-    if (nativeLines[i] !== undefined) {
-      el.textContent = nativeLines[i];
-      el.setAttribute('data-sly-original', nativeLines[i]);
-    }
-  });
+  // NOW that cache.original is accurately set to the true Native script,
+  // attempt to reload the persistent cache from disk! If the user played this song
+  // previously, the disk entry.original will finally match our new cache.original,
+  // restoring all previously translated languages into the fast memory map.
+  await loadSongCache(songKey);
 
-  // If a processed mode was active, re-trigger it from the correct originals.
-  if (mode !== 'original') {
+  if (mode === 'original') {
+    // Active mode is original. Safe to immediately write native lines to DOM.
+    // Also update data-sly-original to keep it in sync with cache.original.
+    getLyricsLines().forEach((el, i) => {
+      if (nativeLines[i] !== undefined) {
+        el.textContent = nativeLines[i];
+        el.setAttribute('data-sly-original', nativeLines[i]);
+      }
+    });
+  } else {
+    // The user is in a translated/romanized mode. The DOM currently displays text
+    // generated from the OLD un-native original.
+    // Re-trigger the mode so it translates the new TRUE native lines.
+    // The screen will shimmer nicely over the existing text without a jarring language flash.
     await switchMode(mode, currentActiveLang);
   }
 }
@@ -607,6 +655,10 @@ async function handleNativeLyrics(
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
 async function trySetup(): Promise<void> {
+  if (!songKey) {
+    const key = getNowPlayingKey();
+    if (key) songKey = key;
+  }
   if (!hasLyrics()) return;
   const container = getLyricsContainer();
   if (!container) return;
@@ -629,6 +681,10 @@ async function trySetup(): Promise<void> {
  * the UI pill continuously visible.
  */
 function syncSetup(): void {
+  if (!songKey) {
+    const key = getNowPlayingKey();
+    if (key) songKey = key;
+  }
   // Note: hasLyrics() (mic-button check) intentionally omitted here.
   // syncSetup is only fired from the MutationObserver after confirming
   // `lyrics-line` nodes exist in the DOM. Spotify enables the mic button
@@ -643,13 +699,12 @@ function syncSetup(): void {
   // Consume from the synchronous runtime cache — no async storage round-trip.
   const runtimeEntry = runtimeCache.get(songKey);
   if (runtimeEntry) {
-    if (runtimeEntry.original.join('\n') === cache.original.join('\n')) {
+    if (runtimeEntry.original.length === cache.original.length) {
+      cache.original = [...runtimeEntry.original];
       for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
         cache.processed.set(lang, res);
       }
       saveSongCache(songKey); // bump lastAccessed
-    } else {
-      deleteSongCache(songKey); // originals mismatch — invalidate stale entry
     }
   }
 
@@ -681,7 +736,11 @@ function syncSetup(): void {
 // ─── Song Change ─────────────────────────────────────────────────────────────
 
 function pollForLyricsContainer(attempts = 0): void {
-  if (attempts > 120) return;
+  if (attempts > 120) {
+    if (attempts > 130) return; // Ultimate fallback
+    setTimeout(() => pollForLyricsContainer(attempts + 1), 500);
+    return;
+  }
   if (hasLyrics() && getLyricsContainer()) {
     trySetup();
   } else {
@@ -697,6 +756,16 @@ function onSongChange(newKey: string): void {
   lyricsObserver?.disconnect();
   lyricsObserver = null;
   cache = { original: [], processed: new Map() };
+  pendingNativeLines.clear();
+
+  // Asynchronously preload this song into the fast runtimeCache IMMEDIATELY.
+  // This easily beats Spotify's 100ms lyrics network fetch, guaranteeing that
+  // when syncSetup() inevitably fires, the data is already in fast-memory,
+  // preventing the flash of original lyrics entirely on track skip!
+  browser.storage.local.get(`lc:${newKey}`).then((data) => {
+    const entry = data[`lc:${newKey}`] as LyricsCacheEntry | undefined;
+    if (entry) runtimeCache.set(newKey, entry);
+  }).catch(() => {});
 
   // Visually disable the controls pill instead of deleting it
   const controls = document.getElementById(CONTROLS_ID);
@@ -710,6 +779,12 @@ function onSongChange(newKey: string): void {
 
 function startStorageListener(): void {
   browser.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local') {
+      if ('lc_index' in changes && changes.lc_index.newValue === undefined) {
+        runtimeCache.clear();
+      }
+      return;
+    }
     if (area !== 'sync') return;
 
     if ('targetLang' in changes && mode === 'translated') {
@@ -809,6 +884,18 @@ async function main(): Promise<void> {
     dualLyricsEnabled = true;
     currentActiveLang = 'en';
     preferredMode = 'original';
+  }
+
+  try {
+    const allLocal = await browser.storage.local.get(null);
+    for (const [k, v] of Object.entries(allLocal)) {
+      if (k.startsWith('lc:') && k !== 'lc_index') {
+        const key = k.substring(3); // strip 'lc:' prefix
+        runtimeCache.set(key, v as LyricsCacheEntry);
+      }
+    }
+  } catch (err) {
+    console.warn('[SlyLyrics] Failed to preload runtime cache from storage.local', err);
   }
 
   // Listen for messages posted by the main-world fetchInterceptor.

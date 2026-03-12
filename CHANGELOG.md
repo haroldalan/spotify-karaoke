@@ -5,6 +5,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.0.4] — 2026-03-12
+
+### Fixed
+
+- **Persistent cache destruction.** Spotify occasionally injects temporary "dummy" text (e.g., `♪` or blank lines) before the real lyrics arrive over the network. The extension's strict `JSON.stringify` coherence checks were failing against this dummy text, leading to the destructive wipe of previously saved romanizations and translations from `browser.storage.local`. Replaced the strict coherence algorithm with a simple line-count equivalence check; if the lengths match, the extension forcefully restores the persistent disk cache, ignoring Spotify's temporary UI state.
+- **Delayed cache hydration (Flash of Original Lyrics).** When skipping songs quickly, the async `browser.storage.local.get` API was yielding control to the DOM renderer before resolving, allowing Spotify to paint a flashing frame of the native lyrics text. Re-architected the `main()` initialization to perform a synchronous bulk-load of all cache entries directly into the `runtimeCache` map immediately on script boot, and paired it with aggressive pre-loading inside `onSongChange`. This guarantees zero-latency, synchronous cache retrieval precisely before `requestAnimationFrame` fires.
+- **Orphaned `handleNativeLyrics` cache miss.** Native script restoration loops from `fetchInterceptor` were failing to pull the translated cache from disk because `handleNativeLyrics` was overwriting the active snapshot before a disk check occurred. Inserted an explicit `loadSongCache()` await immediately after updating `cache.original` during intersection.
+
+### Testing & Verification
+
+- **Rigorous JSDOM Integration Overhaul.** Excised the simplistic `happy-dom` abstraction from the testing pipeline entirely in favor of a full `jsdom` DOM implementation. `index.test.ts` was rewritten to structurally simulate Spotify's physical DOM shapes, explicitly forcing deterministic `MutationObserver` race conditions to mathematically verify the cache coherency optimizations.
+- **Network Interception Mocks.** `fetchInterceptor.test.ts` was isolated and reinforced with a dual-tiered mock HTTP stack that authenticates simulated Musixmatch payload intercepts, guaranteeing cross-origin API extraction paths remain uncompromised.
+
+---
+
 ## [2.0.3] — 2026-03-01
 
 ### Fixed

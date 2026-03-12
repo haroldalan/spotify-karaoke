@@ -4,7 +4,7 @@ import preact from '@preact/preset-vite';
 export default defineConfig({
     plugins: [preact()],
     test: {
-        environment: 'happy-dom',
+        environment: 'jsdom',
         setupFiles: ['./vitest.setup.ts'],
         globals: true,
     },

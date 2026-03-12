@@ -43,7 +43,7 @@ const GOOGLE_ROMANIZE_SCRIPTS = new Set<ScriptType>([
   'malayalam', 'bengali', 'arabic', 'hebrew', 'other',
 ]);
 
-function detectScript(lines: string[]): ScriptType {
+export function detectScript(lines: string[]): ScriptType {
   const text = lines.join('');
 
   // Japanese: any kana is definitive — must check before CJK
@@ -80,7 +80,7 @@ function detectScript(lines: string[]): ScriptType {
 
 let kuroshiroReady: Promise<Kuroshiro> | null = null;
 
-async function getKuroshiro(): Promise<Kuroshiro> {
+export async function getKuroshiro(): Promise<Kuroshiro> {
   if (!kuroshiroReady) {
     // The promise itself resolves to the initialized instance.
     // All concurrent callers await the same promise and only
@@ -100,7 +100,8 @@ async function getKuroshiro(): Promise<Kuroshiro> {
 
 // ─── Singletons ───────────────────────────────────────────────────────────────
 
-const cyrillicTranslit = CyrillicToTranslit({ preset: 'ru' });
+const cyrillicTranslitRu = CyrillicToTranslit({ preset: 'ru' });
+const cyrillicTranslitUk = CyrillicToTranslit({ preset: 'uk' });
 
 // @indic-transliteration/sanscript scheme IDs for each Indic script
 const SANSCRIPT_SCHEME: Partial<Record<ScriptType, string>> = {
@@ -135,7 +136,7 @@ const SCRIPT_NATIVE_LANG: Partial<Record<ScriptType, string>> = {
 
 // ─── Main Orchestrator ────────────────────────────────────────────────────────
 
-async function processLines(
+export async function processLines(
   lines: string[],
   targetLang: string
 ): Promise<{ translated: string[]; romanized: string[] }> {
@@ -145,6 +146,12 @@ async function processLines(
     // Already Roman script — romanization is a no-op. Only translate.
     const { translated } = await googleProcess(lines, targetLang, false);
     return { translated, romanized: lines };
+  }
+
+  // Chinese fast-path: Maps to both zh-CN and zh-TW. If matched, skip API.
+  if (script === 'chinese' && (targetLang === 'zh-CN' || targetLang === 'zh-TW')) {
+    const romanized = await romanizeLocally(lines, script);
+    return { translated: lines, romanized };
   }
 
   // Translation no-op fast-path: script maps to exactly one language and it
@@ -192,7 +199,9 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         return romanizeKorean(line);
 
       case 'cyrillic':
-        return cyrillicTranslit.transform(line);
+        return /[іїєґ]/i.test(line) 
+          ? cyrillicTranslitUk.transform(line) 
+          : cyrillicTranslitRu.transform(line);
 
       case 'devanagari':
       case 'gujarati':
@@ -301,21 +310,25 @@ async function googleTranslate(
   params.append('dt', 't');
   if (includeRomanization) params.append('dt', 'rm');
 
-  const res = await fetch(
-    `https://translate.googleapis.com/translate_a/single?${params}`,
-    {
-      redirect: 'manual',
-      headers: {
-        Referer: 'https://translate.google.com/',
-        Accept: 'application/json',
-      },
-    }
-  );
-
-  if (res.type === 'opaqueredirect' || res.status === 0) {
-    throw new Error('Google rate-limited (redirect to /sorry)');
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?${params}`,
+      {
+        headers: {
+          Referer: 'https://translate.google.com/',
+          Accept: 'application/json',
+        },
+      }
+    );
+  } catch (err) {
+    // Firefox TypeError on cross-origin, or network error
+    throw new Error('Google network error or rate-limited');
   }
-  if (!res.ok) throw new Error(`Google HTTP ${res.status}`);
+
+  if (res.status === 0 || !res.ok) {
+    throw new Error(`Google HTTP ${res.status}`);
+  }
   const ct = res.headers.get('content-type') ?? '';
   if (!ct.includes('application/json')) throw new Error('Google non-JSON (captcha)');
 
@@ -351,7 +364,7 @@ async function googleTranslate(
 async function myMemoryTranslate(text: string, targetLang: string): Promise<string> {
   const params = new URLSearchParams({
     q: text,
-    langpair: `autodetect|${targetLang}`,
+    langpair: `en|${targetLang}`,
   });
   const res = await fetch(`https://api.mymemory.translated.net/get?${params}`);
   if (!res.ok) throw new Error(`MyMemory HTTP ${res.status}`);
@@ -369,7 +382,7 @@ async function myMemoryTranslate(text: string, targetLang: string): Promise<stri
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function chunkByCharCount(lines: string[], maxChars: number): string[][] {
+export function chunkByCharCount(lines: string[], maxChars: number): string[][] {
   const chunks: string[][] = [];
   let current: string[] = [];
   let currentLen = 0;
