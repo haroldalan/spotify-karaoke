@@ -4,7 +4,7 @@
   <p>Romanize, translate, and sing along to any song on Spotify - right in the web player.</p>
 
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie"><img src="https://img.shields.io/badge/Chrome-Install-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome Web Store"></a>
-  <a href="https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
 </div>
 
 ---
