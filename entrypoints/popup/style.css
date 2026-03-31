@@ -24,6 +24,25 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
+/* Custom Scrollbar - Sleek Spotify Style */
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-color);
+}
+
+::-webkit-scrollbar-thumb {
+    background: #535353;
+    border: 3px solid var(--bg-color);
+    border-radius: 20px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #b3b3b3;
+}
+
 .container {
     display: flex;
     flex-direction: column;
