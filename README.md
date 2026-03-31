@@ -47,6 +47,11 @@ There are three ways to switch between Original, Romanized, and Translated:
 
 Power users can toggle off the floating pill entirely via **Show Floating Controls** in the popup, then use keyboard shortcuts or the popup pill for a completely unobstructed lyrics view.
 
+| Floating Controls On | Floating Controls Off |
+| :---: | :---: |
+| <img src="assets/popup-floating-controls-on.png" width="380" alt="Floating controls visible"> | <img src="assets/popup-floating-controls-off.png" width="380" alt="Floating controls hidden"> |
+
+
 ---
 
 ## Installation
