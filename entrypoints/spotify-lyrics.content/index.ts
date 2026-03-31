@@ -53,6 +53,8 @@ let processGen = 0; // cancel stale in-flight requests
 let setupDebounceTimer: number | null = null;
 let pollId: number | null = null;
 let isApplying = false;
+let isSwitchingMode = false;
+let showPill = true; // mirrors storage.sync 'showPill'
 
 // Synchronous in-memory mirror of recently processed songs.
 // saveSongCache writes here so syncSetup can consume cached data without an
@@ -152,16 +154,23 @@ function snapshotOriginals(): void {
 
 // ─── Controls UI ──────────────────────────────────────────────────────────────
 
+function setPillVisibility(visible: boolean): void {
+  const controls = document.getElementById(CONTROLS_ID);
+  if (controls) controls.style.display = visible ? '' : 'none';
+}
+
 function injectControls(container: Element): void {
   const existing = document.getElementById(CONTROLS_ID);
   if (existing) {
     existing.classList.remove('sly-loading');
+    existing.style.display = showPill ? '' : 'none';
     return;
   }
 
   const wrap = document.createElement('div');
   wrap.id = CONTROLS_ID;
   wrap.className = 'sly-lyrics-controls';
+  if (!showPill) wrap.style.display = 'none';
 
   const displayMode =
     mode === 'original' && preferredMode !== 'original' ? preferredMode : mode;
@@ -503,6 +512,7 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
   syncButtonStates();
 
   if (!suppressLoading) setLoadingState(true);
+  isSwitchingMode = true;
 
   try {
     if (next === 'original') {
@@ -516,7 +526,14 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
       setLoadingState(false);
     } else {
       const lang = forceLang ?? (await getTargetLang());
-      const processed = await fetchProcessed(cache.original, lang);
+
+      let processed: ProcessedCache | null = null;
+      // Fast path: if requesting romanized, ANY cached language contains the exact same romanized array.
+      if (next === 'romanized' && cache.processed.size > 0) {
+        processed = cache.processed.values().next().value ?? null;
+      } else {
+        processed = await fetchProcessed(cache.original, lang);
+      }
 
       if (processed === null) {
         mode = previousMode;
@@ -543,6 +560,7 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
     mode = previousMode;
     syncButtonStates();
   } finally {
+    isSwitchingMode = false;
     hideToast(true);
     setLoadingState(false); // no-op if already cleared above, safe to call twice
   }
@@ -553,7 +571,11 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
 async function reapplyMode(): Promise<void> {
   if (mode === 'original') return;
 
-  const processed = cache.processed.get(currentActiveLang);
+  let processed = cache.processed.get(currentActiveLang);
+  if (!processed && mode === 'romanized' && cache.processed.size > 0) {
+    processed = cache.processed.values().next().value;
+  }
+
   if (!processed) return;
 
   const lines = mode === 'romanized' ? processed.romanized : processed.translated;
@@ -615,6 +637,15 @@ async function handleNativeLyrics(
   // Scenario B: the song is already active and its lines have been snapshotted.
   // We check against the literal DOM track ID to ignore prefetch API calls.
   if (trackId !== getNowPlayingTrackId() || cache.original.length === 0) return;
+
+  // Check if our current cache.original is *already* perfectly synced with the native lines (because
+  // syncSetup loaded it flawlessly from persistent storage). If so, we safely discard this payload
+  // without triggering a redundant shimmer or cache invalidation.
+  const isAlreadyNative = cache.original.length === nativeLines.length && cache.original.every((l, i) => l === nativeLines[i]);
+  if (isAlreadyNative) {
+    pendingNativeLines.delete(trackId);
+    return;
+  }
 
   // Remove from pending — we're handling it now.
   pendingNativeLines.delete(trackId);
@@ -711,9 +742,21 @@ function syncSetup(): void {
   injectControls(container);
   startLyricsObserver();
 
+  // If a manual mode switch in the UI is currently awaiting network data, DO NOT stomp on the 
+  // UI buttons or the `mode` state! The async `switchMode` will finish shortly and paint
+  // the correct text and states.
+  if (isSwitchingMode) {
+    if (pollId) { cancelAnimationFrame(pollId); pollId = null; }
+    return;
+  }
+
   // Instantly apply translation if mode requires it, bypassing async switchMode
   if (preferredMode !== 'original') {
-    const processed = cache.processed.get(currentActiveLang);
+    let processed = cache.processed.get(currentActiveLang);
+    if (!processed && preferredMode === 'romanized' && cache.processed.size > 0) {
+      processed = cache.processed.values().next().value;
+    }
+
     if (processed) {
       mode = preferredMode;
       const lines = mode === 'romanized' ? processed.romanized : processed.translated;
@@ -787,9 +830,12 @@ function startStorageListener(): void {
     }
     if (area !== 'sync') return;
 
-    if ('targetLang' in changes && mode === 'translated') {
+    if ('targetLang' in changes) {
       const newLang = (changes.targetLang.newValue as string | undefined) ?? 'en';
-      switchMode('translated', newLang);
+      currentActiveLang = newLang;
+      if (mode === 'translated') {
+        switchMode('translated', newLang);
+      }
     }
 
     if ('dualLyrics' in changes) {
@@ -803,14 +849,21 @@ function startStorageListener(): void {
       }
     }
 
-    // Handles reset — snaps mode back to Original immediately
-    // if the panel is open when the user resets settings
+    // preferredMode changed — could be a reset OR the popup pill acting as remote control.
+    // In either case, immediately switch the live lyrics to reflect the new selection.
     if ('preferredMode' in changes) {
       const newPref = (changes.preferredMode.newValue as LyricsMode | undefined) ?? 'original';
       preferredMode = newPref;
-      if (newPref === 'original' && mode !== 'original') {
-        switchMode('original');
+      // Always switch to the new preferred mode, not just on reset.
+      // This makes the popup pill a real-time remote control for the lyrics page.
+      if (newPref !== mode) {
+        switchMode(newPref);
       }
+    }
+
+    if ('showPill' in changes) {
+      showPill = (changes.showPill.newValue as boolean | undefined) ?? true;
+      setPillVisibility(showPill);
     }
   });
 }
@@ -873,17 +926,19 @@ function startObserver(): void {
 
 async function main(): Promise<void> {
   try {
-    const prefs = await browser.storage.sync.get(['dualLyrics', 'targetLang', 'preferredMode']);
+    const prefs = await browser.storage.sync.get(['dualLyrics', 'targetLang', 'preferredMode', 'showPill']);
     dualLyricsEnabled = prefs.dualLyrics !== undefined
       ? (prefs.dualLyrics as boolean)
       : true;
     currentActiveLang = (prefs.targetLang as string) ?? 'en';
     preferredMode = (prefs.preferredMode as LyricsMode) ?? 'original';
+    showPill = prefs.showPill !== undefined ? (prefs.showPill as boolean) : true;
   } catch {
     console.warn('[SlyLyrics] storage.sync unavailable, using defaults');
     dualLyricsEnabled = true;
     currentActiveLang = 'en';
     preferredMode = 'original';
+    showPill = true;
   }
 
   try {
@@ -907,6 +962,27 @@ async function main(): Promise<void> {
     const msg = event.data;
     if (msg?.type !== 'SKL_NATIVE_LYRICS') return;
     handleNativeLyrics(msg.trackId as string, msg.nativeLines as string[]);
+  });
+
+  // ─── Keyboard Shortcuts ────────────────────────────────────────────────────
+  // O = Original, R = Romanized, T = Translated
+  // Guard against firing inside Spotify's search/input fields.
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return; // ignore modified combos
+    const tag = (document.activeElement as HTMLElement)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable) return;
+    if (!getLyricsContainer()) return; // Only active when lyrics panel is open
+
+    if (e.key === 'o' || e.key === 'O') {
+      e.preventDefault();
+      switchMode('original');
+    } else if (e.key === 'r' || e.key === 'R') {
+      e.preventDefault();
+      switchMode('romanized');
+    } else if (e.key === 't' || e.key === 'T') {
+      e.preventDefault();
+      switchMode('translated');
+    }
   });
 
   startObserver();

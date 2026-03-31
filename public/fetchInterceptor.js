@@ -12,125 +12,122 @@
 
     let _tokenCache = null;
     let _tokenExpiry = 0;
+    let _tokenPromise = null;
 
     const _fetch = window.fetch.bind(window);
 
-    async function getToken() {
+    async function getToken(forceNew = false) {
+        if (forceNew) {
+            _tokenCache = null;
+            _tokenExpiry = 0;
+        }
         if (_tokenCache && Date.now() < _tokenExpiry) return _tokenCache;
+        if (_tokenPromise) return _tokenPromise;
+
+        _tokenPromise = new Promise(async (resolve) => {
+            try {
+                const url = `${MXM_BASE}/token.get?app_id=${MXM_APP_ID}&format=json`;
+                const res = await _fetch(url, { credentials: 'omit' });
+                const data = await res.json();
+                const token = data?.message?.body?.user_token;
+                if (token && token !== 'UpgradeRequiredUpgradeRequired') {
+                    _tokenCache = token;
+                    _tokenExpiry = Date.now() + 55 * 60 * 1000;
+                    resolve(token);
+                    return;
+                }
+            } catch { /* ignore */ }
+            resolve(null);
+        });
+
+        const result = await _tokenPromise;
+        _tokenPromise = null;
+        return result;
+    }
+
+    async function mxmFetch(path, params) {
+        let token = await getToken();
+        if (!token) return null;
+
+        const buildUrl = (t) => {
+            const url = new URL(`${MXM_BASE}${path}`);
+            url.searchParams.set('format', 'json');
+            url.searchParams.set('app_id', MXM_APP_ID);
+            url.searchParams.set('usertoken', t);
+            for (const [k, v] of Object.entries(params)) {
+                if (v) url.searchParams.set(k, v);
+            }
+            return url.toString();
+        };
+
         try {
-            const url = `${MXM_BASE}/token.get?app_id=${MXM_APP_ID}&format=json`;
-            const res = await _fetch(url, { credentials: 'omit' });
-            const data = await res.json();
-            const token = data?.message?.body?.user_token;
-            if (token && token !== 'UpgradeRequiredUpgradeRequired') {
-                _tokenCache = token;
-                _tokenExpiry = Date.now() + 10 * 60 * 1000;
-                return token;
+            let res = await _fetch(buildUrl(token), { credentials: 'omit' });
+            let data = await res.json();
+
+            // Handle token invalidation smoothly
+            if (data?.message?.header?.status_code === 401) {
+                token = await getToken(true);
+                if (!token) return null;
+                res = await _fetch(buildUrl(token), { credentials: 'omit' });
+                data = await res.json();
+            }
+
+            // We only return data if the status code is exactly 200
+            if (data?.message?.header?.status_code === 200) {
+                return data;
             }
         } catch { /* ignore */ }
+        
         return null;
     }
 
-    function checkTokenStatus(data) {
-        const statusCode = data?.message?.header?.status_code;
-        if (statusCode === 401 || statusCode === 402) {
-            _tokenCache = null;
-            _tokenExpiry = 0;
-            return false;
-        }
-        return true;
+    function parseSubtitle(data) {
+        const raw = data?.message?.body?.subtitle?.subtitle_body;
+        if (!raw) return null;
+        try {
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed) || parsed.length === 0) return null;
+            
+            return parsed.map((line, i) => ({
+                id: String(i),
+                startTimeMs: String(Math.round((line.time?.total ?? 0) * 1000)),
+                words: line.text ?? '',
+                syllables: [],
+                endTimeMs: '0',
+            }));
+        } catch { return null; }
     }
 
     // Strategy 1: Synced subtitle via commontrack_id (providerLyricsId from Spotify)
-    async function fetchSubtitle(commontrackId, token) {
-        const url = new URL(`${MXM_BASE}/track.subtitle.get`);
-        url.searchParams.set('format', 'json');
-        url.searchParams.set('subtitle_format', 'mxm');
-        url.searchParams.set('app_id', MXM_APP_ID);
-        url.searchParams.set('usertoken', token);
-        url.searchParams.set('commontrack_id', String(commontrackId));
-        try {
-            const res = await _fetch(url.toString(), { credentials: 'omit' });
-            const data = await res.json();
-            if (!checkTokenStatus(data)) return null;
-            const raw = data?.message?.body?.subtitle?.subtitle_body;
-            if (!raw) return null;
-            const parsed = JSON.parse(raw);
-            return parsed.map((line, i) => ({
-                id: String(i),
-                startTimeMs: String(Math.round((line.time?.total ?? 0) * 1000)),
-                words: line.text || '♪',
-                syllables: [],
-                endTimeMs: '0',
-            }));
-        } catch { return null; }
+    async function fetchSubtitle(commontrackId) {
+        if (!commontrackId) return null;
+        const data = await mxmFetch('/track.subtitle.get', {
+            subtitle_format: 'mxm',
+            commontrack_id: String(commontrackId)
+        });
+        return parseSubtitle(data);
     }
 
     // Strategy 2: Look up Musixmatch track_id via Spotify ID, then get subtitle
-    async function fetchSubtitleViaSpotifyId(spotifyTrackId, token) {
-        const lookupUrl = new URL(`${MXM_BASE}/track.get`);
-        lookupUrl.searchParams.set('format', 'json');
-        lookupUrl.searchParams.set('app_id', MXM_APP_ID);
-        lookupUrl.searchParams.set('usertoken', token);
-        lookupUrl.searchParams.set('track_spotify_id', spotifyTrackId);
-        try {
-            const res = await _fetch(lookupUrl.toString(), { credentials: 'omit' });
-            const data = await res.json();
-            if (!checkTokenStatus(data)) return null;
-            const trackId = data?.message?.body?.track?.track_id;
-            if (!trackId) return null;
-            const subtitleUrl = new URL(`${MXM_BASE}/track.subtitle.get`);
-            subtitleUrl.searchParams.set('format', 'json');
-            subtitleUrl.searchParams.set('subtitle_format', 'mxm');
-            subtitleUrl.searchParams.set('app_id', MXM_APP_ID);
-            subtitleUrl.searchParams.set('usertoken', token);
-            subtitleUrl.searchParams.set('track_id', String(trackId));
-            const sRes = await _fetch(subtitleUrl.toString(), { credentials: 'omit' });
-            const sData = await sRes.json();
-            const raw = sData?.message?.body?.subtitle?.subtitle_body;
-            if (!raw) return null;
-            const parsed = JSON.parse(raw);
-            return parsed.map((line, i) => ({
-                id: String(i),
-                startTimeMs: String(Math.round((line.time?.total ?? 0) * 1000)),
-                words: line.text || '♪',
-                syllables: [],
-                endTimeMs: '0',
-            }));
-        } catch { return null; }
+    async function fetchSubtitleViaSpotifyId(spotifyTrackId) {
+        if (!spotifyTrackId) return null;
+        const trackData = await mxmFetch('/track.get', {
+            track_spotify_id: spotifyTrackId
+        });
+        const trackId = trackData?.message?.body?.track?.track_id;
+        if (!trackId) return null;
+
+        const subtitleData = await mxmFetch('/track.subtitle.get', {
+            subtitle_format: 'mxm',
+            track_id: String(trackId)
+        });
+        return parseSubtitle(subtitleData);
     }
 
-    // Strategy 3: Unsynced lyrics fallback (no timing, but native script)
-    async function fetchUnsyncedLyrics(commontrackId, token) {
-        const url = new URL(`${MXM_BASE}/track.lyrics.get`);
-        url.searchParams.set('format', 'json');
-        url.searchParams.set('app_id', MXM_APP_ID);
-        url.searchParams.set('usertoken', token);
-        url.searchParams.set('commontrack_id', String(commontrackId));
-        try {
-            const res = await _fetch(url.toString(), { credentials: 'omit' });
-            const data = await res.json();
-            if (!checkTokenStatus(data)) return null;
-            const lyricsBody = data?.message?.body?.lyrics?.lyrics_body;
-            if (!lyricsBody) return null;
-            return lyricsBody
-                .split('\n')
-                .filter(l => l.trim() && !l.startsWith('****'))
-                .map((text, i) => ({
-                    id: String(i),
-                    startTimeMs: '0',
-                    words: text,
-                    syllables: [],
-                    endTimeMs: '0',
-                }));
-        } catch { return null; }
-    }
-
-    async function fetchNativeLines(providerLyricsId, spotifyTrackId, token) {
+    async function fetchNativeLines(providerLyricsId, spotifyTrackId) {
         return (
-            await fetchSubtitle(providerLyricsId, token) ??
-            await fetchSubtitleViaSpotifyId(spotifyTrackId, token) ??
-            await fetchUnsyncedLyrics(providerLyricsId, token)
+            await fetchSubtitle(providerLyricsId) ??
+            await fetchSubtitleViaSpotifyId(spotifyTrackId)
         );
     }
 
@@ -140,6 +137,7 @@
                 : input instanceof URL ? input.href
                     : input.url;
 
+        // Fast-path ignore non-lyrics requests
         if (!url.includes('spclient.wg.spotify.com/color-lyrics/v2/track/')) {
             return _fetch(input, init);
         }
@@ -153,19 +151,20 @@
         const providerLyricsId = data?.lyrics?.providerLyricsId;
         const spotifyTrackId = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1] ?? null;
 
-        if (!INDIAN_LANGUAGE_CODES.has(language) || isDenseTypeface !== false
-            || !providerLyricsId || !spotifyTrackId) {
+        // Intercept ONLY if it's an Indian language that received a romanized fallback.
+        // Even if providerLyricsId is null, we proceed (fallback directly to Strategy 2 via Spotify ID).
+        if (!INDIAN_LANGUAGE_CODES.has(language) || isDenseTypeface !== false || !spotifyTrackId) {
             return response;
         }
 
-        const token = await getToken();
-        if (!token) return response;
+        const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId);
+        if (!nativeLines) {
+            // All Musixmatch strategies exhausted or token failed
+            window.postMessage({ type: 'SKL_NATIVE_FETCH_FAILED', trackId: spotifyTrackId }, '*');
+            return response;
+        }
 
-        const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId, token);
-        if (!nativeLines) return response;
-
-        // Notify the content-script world so it can apply native lines even if
-        // snapshotOriginals() already ran before we finished (Scenario B recovery).
+        // Notify the content-script world to apply native lines immediately
         window.postMessage({
             type: 'SKL_NATIVE_LYRICS',
             trackId: spotifyTrackId,

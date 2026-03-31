@@ -5,6 +5,25 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.0.0] — 2026-03-31
+
+### Added
+
+- **Popup remote control pill.** A miniaturized replica of the on-page lyrics pill is now embedded at the top of the extension popup, under the label "Active Mode". Clicking Original, Romanized, or Translated in the popup instantly switches the live lyrics on the Spotify page — no need to open the lyrics panel or interact with the floating controls. The pill always reflects the current active mode.
+- **Show Floating Controls toggle.** A new toggle in the popup ("Show Floating Controls") allows users to permanently hide the on-page mode-selector pill. When hidden, the popup pill and keyboard shortcuts provide full control, keeping the Spotify lyrics view completely unobstructed for a distraction-free experience.
+- **Keyboard shortcuts.** While the Spotify lyrics panel is open, press `O`, `R`, or `T` to instantly switch to Original, Romanized, or Translated mode respectively. Shortcuts are context-safe: they do not fire when the cursor is in a text input, search bar, or any contenteditable element, and they ignore modified combos (`Ctrl`, `Alt`, `Meta`) to avoid browser conflicts.
+- **Shortcut hint in popup.** The popup now displays a plain-language shortcut reference beneath the Active Mode pill: *"While viewing lyrics, press O for Original, R for Romanized, or T for Translated — works even when the floating controls are hidden."*
+
+### Fixed
+
+- **Redundant shimmer on cached songs.** When returning to a previously listened song, the fetch interceptor would deliver native lyrics to the content script even though the persistent cache had already loaded the correct lines. The content script was incorrectly treating this as a new native override, wiping the in-memory translated cache and triggering a needless shimmer + re-translation cycle. Added an early-exit check: if the intercepted native lines are byte-for-byte identical to the already-loaded `cache.original`, the payload is discarded silently.
+- **Romanized mode cache miss after language change.** Changing the target translation language in the popup while on the Romanized tab caused subsequent song skips to miss the cache. Romanized lines are script-intrinsic and do not depend on the translation target language; the extension now resolves romanized text from any existing cached language bucket rather than requiring an exact language-key match.
+- **Button state regression during async translation.** Clicking the Translated button while a translation network request was in flight could cause the active pill button to snap back to the previous mode when Spotify scrolled the active lyric line. This happened because `syncSetup()` fired mid-request and overwrote the optimistic button state. Introduced `isSwitchingMode` flag: `syncSetup` now yields without touching button states or mode variables when a manual switch is already in progress.
+- **`currentActiveLang` not updated on language change while in Romanized mode.** The storage listener only updated `currentActiveLang` when the active mode was Translated. This caused the next switch to Translated to use a stale language code. `currentActiveLang` is now always updated when `targetLang` changes in storage, regardless of current mode.
+- **Native lyrics fetch reliability.** Hardened the fetch interceptor token management and retry logic. Fixed a critical early-exit bug where the absence of `providerLyricsId` in Spotify's API response aborted the entire interceptor before fallback Strategy 2 (Spotify Track ID lookup) could be attempted. Added strict empty-array detection so a zero-line result from Strategy 1 properly falls through to Strategy 2 instead of being treated as a successful (but empty) response.
+
+---
+
 ## [2.0.4] — 2026-03-12
 
 ### Fixed

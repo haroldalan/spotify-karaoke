@@ -466,3 +466,53 @@ input:checked+.slider:before {
 .btn-confirm:hover {
     background-color: var(--spotify-green-hover);
 }
+
+/* --- Popup Pill --- */
+.sly-popup-pill {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    background: #282828;
+    border-radius: 32px;
+    width: fit-content;
+    margin: 4px 0 8px 0;
+}
+
+.sly-lyrics-btn {
+    background: transparent;
+    border: none;
+    border-radius: 20px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 6px 14px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.sly-lyrics-btn:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sly-lyrics-btn.active {
+    background-color: var(--text-primary);
+    color: var(--bg-color);
+    font-weight: 700;
+}
+
+.shortcut-hint {
+    margin-top: 4px;
+    font-size: 0.75rem;
+}
+
+.shortcut-hint code {
+    background: #282828;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-family: var(--font-stack);
+    font-weight: 600;
+    color: var(--text-primary);
+}

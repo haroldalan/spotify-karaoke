@@ -141,21 +141,28 @@ function openTab(url: string) {
 
 export default function App() {
   const [targetLang, setTargetLang] = useState('en');
-  const [dualLyrics, setDualLyrics] = useState(true); // ← default ON
+  const [dualLyrics, setDualLyrics] = useState(true);
+  const [showPill, setShowPill] = useState(true);
+  const [preferredMode, setPreferredMode] = useState<string>('original');
   const [storageInfo, setStorageInfo] = useState('Calculating...');
   const [showSaved, setShowSaved] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
-    browser.storage.sync.get(['targetLang', 'dualLyrics']).then((data) => {
+    browser.storage.sync.get(['targetLang', 'dualLyrics', 'showPill', 'preferredMode']).then((data) => {
       if (data.targetLang) setTargetLang(data.targetLang as string);
+      if (data.preferredMode) setPreferredMode(data.preferredMode as string);
 
       if (data.dualLyrics !== undefined) {
         setDualLyrics(data.dualLyrics as boolean);
       } else {
-        // First install — write the default so the content script
-        // and popup are always in sync from the very first load
         browser.storage.sync.set({ dualLyrics: true });
+      }
+
+      if (data.showPill !== undefined) {
+        setShowPill(data.showPill as boolean);
+      } else {
+        browser.storage.sync.set({ showPill: true });
       }
     });
     refreshStorageInfo();
@@ -208,6 +215,18 @@ export default function App() {
     flashSaved();
   }
 
+  async function handleShowPillChange(e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+    setShowPill(checked);
+    await browser.storage.sync.set({ showPill: checked });
+    flashSaved();
+  }
+
+  async function handleModeChange(mode: string) {
+    setPreferredMode(mode);
+    await browser.storage.sync.set({ preferredMode: mode });
+  }
+
   function handleReset() {
     setShowConfirmModal(true);
   }
@@ -217,7 +236,7 @@ export default function App() {
     await browser.storage.sync.clear();
     // Write defaults explicitly so onChanged fires with real values,
     // not undefined. Without this the content script can't react correctly.
-    await browser.storage.sync.set({ targetLang: 'en', dualLyrics: true, preferredMode: 'original' });
+    await browser.storage.sync.set({ targetLang: 'en', dualLyrics: true, preferredMode: 'original', showPill: true });
 
     // Clear lyrics cache from local storage via the index (targeted removal
     // so any future local storage keys we add are not affected).
@@ -231,6 +250,8 @@ export default function App() {
 
     setTargetLang('en');
     setDualLyrics(true);
+    setPreferredMode('original');
+    setShowPill(true);
     flashSaved();
     refreshStorageInfo();
   }
@@ -246,6 +267,24 @@ export default function App() {
       </div>
 
       <div className="content">
+        <div className="setting-group">
+          <label>Active Mode</label>
+          <div className="sly-popup-pill">
+            {['original', 'romanized', 'translated'].map((m) => (
+              <button
+                key={m}
+                className={`sly-lyrics-btn${preferredMode === m ? ' active' : ''}`}
+                onClick={() => handleModeChange(m)}
+              >
+                {m.charAt(0).toUpperCase() + m.slice(1)}
+              </button>
+            ))}
+          </div>
+          <p className="description shortcut-hint">
+            While viewing lyrics, press <code>O</code> for Original, <code>R</code> for Romanized, or <code>T</code> for Translated — works even when the floating controls are hidden.
+          </p>
+        </div>
+
         <div className="setting-group">
           <label htmlFor="language-select">Target Language</label>
           <div className="select-wrapper">
@@ -271,6 +310,24 @@ export default function App() {
               id="dual-lyrics-check"
               checked={dualLyrics}
               onChange={handleDualLyricsChange}
+            />
+            <span className="slider round"></span>
+          </label>
+        </div>
+
+        <div className="setting-group toggle-group">
+          <div className="toggle-label">
+            <label htmlFor="show-pill-check">Show Floating Controls</label>
+            <p className="description">
+              Display the mode selector overlay directly on the Spotify lyrics page.
+            </p>
+          </div>
+          <label className="switch">
+            <input
+              type="checkbox"
+              id="show-pill-check"
+              checked={showPill}
+              onChange={handleShowPillChange}
             />
             <span className="slider round"></span>
           </label>

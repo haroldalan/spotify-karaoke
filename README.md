@@ -17,9 +17,9 @@ Spotify Karaoke adds three lyric display modes to the Spotify web player:
 - **Romanized** - non-Latin scripts (Japanese, Korean, Tamil, Hindi, etc.) rendered phonetically in the Latin alphabet so you can sing along.
 - **Translated** - lyrics translated into any of 100+ languages.
 
-Switch between modes with a single click using the pill controls injected directly into the lyrics panel. No page reload, no flicker.
+Switch between modes using the floating pill controls injected directly into the lyrics panel, the popup, or keyboard shortcuts. No page reload, no flicker.
 
-**Dual Lyrics mode** overlays the romanized or translated line above each original line simultaneously - useful for learning both the meaning and the pronunciation at the same time.
+**Dual Lyrics mode** — in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference. Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
 
 | Dual Lyrics On | Dual Lyrics Off |
 | :---: | :---: |
@@ -32,6 +32,20 @@ Switch between modes with a single click using the pill controls injected direct
 | Translated |
 | :---: |
 | <img src="assets/mode-translated.jpg" width="380" alt="Translated lyrics"> |
+
+---
+
+## Controls
+
+There are three ways to switch between Original, Romanized, and Translated:
+
+| Method | How |
+| :--- | :--- |
+| **Floating pill** | The `[Original] [Romanized] [Translated]` pill injected at the top of the Spotify lyrics panel. |
+| **Extension popup** | The same pill is replicated inside the popup — acts as a remote control and always reflects the current mode, even if the floating pill is hidden. |
+| **Keyboard shortcuts** | While the lyrics panel is open, press `O`, `R`, or `T`. Safe to use — shortcuts are ignored when focus is in a text input or search bar. |
+
+Power users can toggle off the floating pill entirely via **Show Floating Controls** in the popup, then use keyboard shortcuts or the popup pill for a completely unobstructed lyrics view.
 
 ---
 
@@ -107,7 +121,7 @@ entrypoints/
   spotify-lyrics.content/
     index.ts                 # DOM engine: MutationObserver, mode switching, caching
     style.css
-  popup/                     # Preact popup: language selector, dual lyrics toggle
+  popup/                     # Preact popup: mode pill remote, language selector, dual lyrics + visibility toggles
 public/
   fetchInterceptor.js        # Intercepts Spotify's lyrics API to restore native script
 ```
@@ -135,7 +149,7 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ## Privacy & Disclaimer
 
-- **Privacy:** No personal data is collected. Your settings (language preference, mode) are stored locally in `browser.storage.sync`. Lyric text is sent to Google Translate when using the Translated mode. See [Google's Privacy Policy](https://policies.google.com/privacy).
+- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync`. Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` to avoid redundant API calls. Lyric text is sent to Google Translate when using Translated mode. See [Google's Privacy Policy](https://policies.google.com/privacy).
 - **Disclaimer:** Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
 
 ---
