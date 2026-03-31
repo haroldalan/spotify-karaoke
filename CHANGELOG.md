@@ -5,7 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [3.1.0] — 2026-04-01
+## [3.0.1] — 2026-04-01
 
 ### Added
 - **TypeScript Migration**: Refactored the fetch interceptor into a WXT-managed TypeScript unlisted script for better reliability and maintainability.
