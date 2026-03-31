@@ -122,13 +122,12 @@ npm run test           # Run unit and component test suite
 ```
 entrypoints/
   background.ts              # Service worker: romanization + translation orchestration
-  spotify-inject.content.ts  # Injects fetch interceptor into the page's main world
+  fetchInterceptor.ts        # WXT unlisted script: custom logic for Spotify API patching
+  spotify-inject.content.ts  # Injects the compiled interceptor into the page's main world
   spotify-lyrics.content/
     index.ts                 # DOM engine: MutationObserver, mode switching, caching
     style.css
-  popup/                     # Preact popup: mode pill remote, language selector, dual lyrics + visibility toggles
-public/
-  fetchInterceptor.js        # Intercepts Spotify's lyrics API to restore native script
+  popup/                     # Preact popup: zero-latency remote pill, language selector, dual lyrics + visibility toggles
 ```
 
 ### How it works
@@ -137,7 +136,7 @@ public/
 
 **Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
 
-**Native script restoration:** `fetchInterceptor.js` is injected into the page's main world at `document_start` by patching `<script src>` before Spotify's JavaScript loads. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses. When it detects `isDenseTypeface: false` on a supported Indian-language code, it fetches native-script subtitles from Musixmatch and replaces the response entirely before returning it to Spotify's renderer.
+**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and injected into the page's main world at `document_start` by patching `<script src>` before Spotify's JavaScript loads. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses. When it detects `isDenseTypeface: false` on a supported Indian-language code, it fetches native-script subtitles from Musixmatch (using a hardened Async IIFE token manager) and replaces the response entirely before returning it to Spotify's renderer.
 
 ---
 
@@ -154,7 +153,7 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ## Privacy & Disclaimer
 
-- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync`. Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` to avoid redundant API calls. Lyric text is sent to Google Translate when using Translated mode. See [Google's Privacy Policy](https://policies.google.com/privacy).
+- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync` and mirrored in `localStorage` for zero-latency UI hydration. Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` with an **unlimited quota** to avoid redundant API calls. Lyric text is sent to Google Translate when using Translated mode. See [Google's Privacy Policy](https://policies.google.com/privacy).
 - **Disclaimer:** Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
 
 ---

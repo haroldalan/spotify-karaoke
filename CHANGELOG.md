@@ -5,6 +5,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.1.0] — 2026-04-01
+
+### Added
+- **TypeScript Migration**: Refactored the fetch interceptor into a WXT-managed TypeScript unlisted script for better reliability and maintainability.
+- **Optimistic Synchronous Rendering**: Implemented a `localStorage` mirror for extension settings, providing a zero-latency "instant-on" feel for the popup.
+- **Unlimited Lyrics Cache**: Added the `unlimitedStorage` permission to bypass default quotas, ensuring the cache can scale with any user's library.
+
+### Fixed
+- **UI Flickering**: Eliminated the visual "jumping" of buttons and toggles during popup initialization via a hydration guard and synchronous state loading.
+- **Token Management**: Fixed a race condition in Musixmatch token refreshing and resolved a `new Promise(async ...)` anti-pattern in the interceptor.
+- **Storage Display**: Improved the Storage Usage layout in the popup and **polished the Reset Data modal** for a more compact and modern feel.
+
 ## [3.0.0] — 2026-03-31
 
 ### Added

@@ -16,7 +16,7 @@ export default defineConfig({
       48: "icon48.png",
       128: "icon128.png"
     },
-    permissions: ['storage'],
+    permissions: ['storage', 'unlimitedStorage'],
     host_permissions: [
       '*://open.spotify.com/*',
       '*://spclient.wg.spotify.com/*',

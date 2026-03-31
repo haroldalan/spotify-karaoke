@@ -140,30 +140,49 @@ function openTab(url: string) {
 }
 
 export default function App() {
-  const [targetLang, setTargetLang] = useState('en');
-  const [dualLyrics, setDualLyrics] = useState(true);
-  const [showPill, setShowPill] = useState(true);
-  const [preferredMode, setPreferredMode] = useState<string>('original');
-  const [storageInfo, setStorageInfo] = useState('Calculating...');
+  const [isInitialHydrating, setIsInitialHydrating] = useState(true);
+
+  // Synchronous initialization from localStorage (Zero-latency First Paint)
+  const [targetLang, setTargetLang] = useState(() => localStorage.getItem('sly_targetLang') || 'en');
+  const [dualLyrics, setDualLyrics] = useState(() => localStorage.getItem('sly_dualLyrics') !== 'false');
+  const [showPill, setShowPill] = useState(() => localStorage.getItem('sly_showPill') !== 'false');
+  const [preferredMode, setPreferredMode] = useState<string>(() => localStorage.getItem('sly_preferredMode') || 'original');
+
+  const [syncInfo, setSyncInfo] = useState('Calculating...');
+  const [localInfo, setLocalInfo] = useState('Calculating...');
   const [showSaved, setShowSaved] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
+    // Cloud Sync: Reconcile local state with cross-device storage.sync
     browser.storage.sync.get(['targetLang', 'dualLyrics', 'showPill', 'preferredMode']).then((data) => {
-      if (data.targetLang) setTargetLang(data.targetLang as string);
-      if (data.preferredMode) setPreferredMode(data.preferredMode as string);
+      if (data.targetLang) {
+        setTargetLang(data.targetLang as string);
+        localStorage.setItem('sly_targetLang', data.targetLang as string);
+      }
+      if (data.preferredMode) {
+        setPreferredMode(data.preferredMode as string);
+        localStorage.setItem('sly_preferredMode', data.preferredMode as string);
+      }
 
       if (data.dualLyrics !== undefined) {
         setDualLyrics(data.dualLyrics as boolean);
+        localStorage.setItem('sly_dualLyrics', String(data.dualLyrics));
       } else {
         browser.storage.sync.set({ dualLyrics: true });
+        localStorage.setItem('sly_dualLyrics', 'true');
       }
 
       if (data.showPill !== undefined) {
         setShowPill(data.showPill as boolean);
+        localStorage.setItem('sly_showPill', String(data.showPill));
       } else {
         browser.storage.sync.set({ showPill: true });
+        localStorage.setItem('sly_showPill', 'true');
       }
+
+      // Briefly keep transitions disabled to allow the state update to 'snap' instantly
+      setTimeout(() => setIsInitialHydrating(false), 50);
     });
     refreshStorageInfo();
   }, []);
@@ -190,9 +209,12 @@ export default function App() {
 
       const syncKb = (syncBytes / 1024).toFixed(1);
       const cacheKb = (localBytes / 1024).toFixed(1);
-      setStorageInfo(`Settings: ${syncKb} KB / 100 KB  ·  Cache: ${cacheKb} KB / 4.5 MB`);
+      
+      setSyncInfo(`Settings: ${syncKb} KB`);
+      setLocalInfo(`Cache: ${cacheKb} KB`);
     } catch {
-      setStorageInfo('Unable to calculate');
+      setSyncInfo('Unable to calculate');
+      setLocalInfo('Unable to calculate');
     }
   }
 
@@ -204,6 +226,7 @@ export default function App() {
   async function handleLangChange(e: Event) {
     const lang = (e.target as HTMLSelectElement).value;
     setTargetLang(lang);
+    localStorage.setItem('sly_targetLang', lang);
     await browser.storage.sync.set({ targetLang: lang });
     flashSaved();
   }
@@ -211,6 +234,7 @@ export default function App() {
   async function handleDualLyricsChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
     setDualLyrics(checked);
+    localStorage.setItem('sly_dualLyrics', String(checked));
     await browser.storage.sync.set({ dualLyrics: checked });
     flashSaved();
   }
@@ -218,12 +242,14 @@ export default function App() {
   async function handleShowPillChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
     setShowPill(checked);
+    localStorage.setItem('sly_showPill', String(checked));
     await browser.storage.sync.set({ showPill: checked });
     flashSaved();
   }
 
   async function handleModeChange(mode: string) {
     setPreferredMode(mode);
+    localStorage.setItem('sly_preferredMode', mode);
     await browser.storage.sync.set({ preferredMode: mode });
   }
 
@@ -234,19 +260,23 @@ export default function App() {
   async function executeReset() {
     setShowConfirmModal(false);
     await browser.storage.sync.clear();
-    // Write defaults explicitly so onChanged fires with real values,
-    // not undefined. Without this the content script can't react correctly.
-    await browser.storage.sync.set({ targetLang: 'en', dualLyrics: true, preferredMode: 'original', showPill: true });
+    localStorage.clear();
 
-    // Clear lyrics cache from local storage via the index (targeted removal
-    // so any future local storage keys we add are not affected).
+    // Write defaults explicitly so onChanged fires with real values
+    await browser.storage.sync.set({ targetLang: 'en', dualLyrics: true, preferredMode: 'original', showPill: true });
+    localStorage.setItem('sly_targetLang', 'en');
+    localStorage.setItem('sly_dualLyrics', 'true');
+    localStorage.setItem('sly_preferredMode', 'original');
+    localStorage.setItem('sly_showPill', 'true');
+
+    // Clear lyrics cache from local storage via the index
     try {
       const d = await browser.storage.local.get('lc_index');
       const idx = (d['lc_index'] ?? {}) as Record<string, unknown>;
       const lcKeys = Object.keys(idx).map((k) => `lc:${k}`);
       if (lcKeys.length > 0) await browser.storage.local.remove(lcKeys);
       await browser.storage.local.remove('lc_index');
-    } catch { /* ignore — settings reset still succeeded */ }
+    } catch { /* ignore */ }
 
     setTargetLang('en');
     setDualLyrics(true);
@@ -257,7 +287,7 @@ export default function App() {
   }
 
   return (
-    <div className="container">
+    <div className={`container${isInitialHydrating ? ' no-transitions' : ''}`}>
       <div className="header">
         <div className="logo-container">
           <img src="/icon48.png" alt="Logo" className="logo" />
@@ -336,7 +366,10 @@ export default function App() {
         <div className="setting-group">
           <label>Storage Usage</label>
           <div className="storage-row">
-            <span className="info-text">{storageInfo}</span>
+            <div className="info-col">
+              <span className="info-text">{syncInfo}</span>
+              <span className="info-text">{localInfo}</span>
+            </div>
             <button
               className="text-btn"
               onClick={handleReset}
@@ -380,18 +413,13 @@ export default function App() {
 
       <div className={`modal-overlay${showConfirmModal ? ' visible' : ''}`} onClick={() => setShowConfirmModal(false)}>
         <div className="modal" onClick={e => e.stopPropagation()}>
-          <div className="modal-header">
-            <svg role="img" height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.669 1.637A6.5 6.5 0 0 1 13.923 5h-2.909a15.706 15.706 0 0 0-1.074-3.363zM9.548 1.58A14.288 14.288 0 0 1 10.84 5H5.16a14.288 14.288 0 0 1 1.293-3.42A6.476 6.476 0 0 1 8 1.5c.538 0 1.056.028 1.548.08zM2.077 5h2.909c.277-1.282.639-2.43 1.074-3.363A6.5 6.5 0 0 0 2.077 5zm-.577 1.5h3.161c-.044.48-.061.98-.061 1.5s.017 1.02.061 1.5H1.5a6.52 6.52 0 0 1 0-3zm1.077 4.5h2.909a15.706 15.706 0 0 0 1.074 3.363A6.5 6.5 0 0 1 2.577 11zm3.875 3.42A14.288 14.288 0 0 1 5.16 11h5.682a14.288 14.288 0 0 1-1.293 3.42A6.476 6.476 0 0 1 8 14.5c-.538 0-1.056-.028-1.548-.08zM9.939 11h3.984a6.5 6.5 0 0 1-2.25 3.363A15.706 15.706 0 0 0 9.939 11zM14.5 9.5h-3.161c.044-.48.061-.98.061-1.5s-.017-1.02-.061-1.5H14.5a6.52 6.52 0 0 1 0 3z" />
-            </svg>
-            <h2>Spotify Karaoke</h2>
-          </div>
+          <h2 className="modal-title">Reset settings?</h2>
           <div className="modal-body">
-            Reset all settings to defaults?
+            This will clear your preferences and local lyrics cache.
           </div>
           <div className="modal-actions">
             <button className="btn btn-cancel" onClick={() => setShowConfirmModal(false)}>Cancel</button>
-            <button className="btn btn-confirm" onClick={executeReset}>OK</button>
+            <button className="btn btn-confirm" onClick={executeReset}>Reset</button>
           </div>
         </div>
       </div>
