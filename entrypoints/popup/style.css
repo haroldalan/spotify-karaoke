@@ -101,13 +101,13 @@ h1 {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 28px; /* Balanced section spacing */
 }
 
 .setting-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px; /* Breathing room */
 }
 
 label {
@@ -122,24 +122,158 @@ label {
     margin: 0;
 }
 
-/* Custom Select */
+/* Custom Select Wrapper (Legacy) - Kept for structure but unused for picker */
 .select-wrapper {
     position: relative;
     margin-top: 4px;
 }
 
-.select-wrapper::after {
-    content: '';
+/* Custom Searchable Picker */
+.sly-picker {
+    position: relative;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.sly-picker-trigger {
+    width: 100%;
+    height: 32px;
+    background-color: var(--card-active);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.sly-picker-trigger:hover {
+    background-color: #333;
+}
+
+.sly-picker-trigger.active {
+    background-color: #333;
+    border-color: #535353;
+}
+
+.sly-picker-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 8px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.sly-picker-arrow {
+    color: var(--text-secondary);
+    transition: transform 0.2s ease;
+}
+
+.sly-picker-trigger.active .sly-picker-arrow {
+    transform: rotate(180deg);
+}
+
+.sly-picker-dropdown {
     position: absolute;
-    right: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 0;
-    height: 0;
-    pointer-events: none;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 5px solid var(--text-secondary);
+    top: calc(100% + 4px);
+    left: 0;
+    width: 100%;
+    background-color: #282828;
+    border-radius: 4px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+    overflow: hidden;
+    border: 1px solid #3e3e3e;
+}
+
+.sly-picker-search-container {
+    padding: 8px;
+    border-bottom: 1px solid #3e3e3e;
+}
+
+.sly-picker-search {
+    width: 100%;
+    background-color: #333;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #fff;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.sly-picker-search:focus {
+    border-color: #535353;
+}
+
+.sly-picker-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* Sync Dropdown Scrollbar with Popup Body */
+.sly-picker-list::-webkit-scrollbar {
+    width: 10px;
+}
+
+.sly-picker-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sly-picker-list::-webkit-scrollbar-thumb {
+    background: #535353;
+    border: 3px solid #282828; /* Matches dropdown bg */
+    border-radius: 20px;
+}
+
+.sly-picker-list::-webkit-scrollbar-thumb:hover {
+    background: #b3b3b3;
+}
+
+.sly-picker-group-label {
+    padding: 8px 12px 4px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+}
+
+.sly-picker-item {
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.1s ease;
+}
+
+.sly-picker-item:hover {
+    background-color: #3e3e3e;
+}
+
+.sly-picker-item.selected {
+    color: var(--spotify-green);
+    background-color: rgba(29, 185, 84, 0.1);
+}
+
+.sly-picker-check {
+    font-weight: bold;
+}
+
+.sly-picker-no-results {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
 }
 
 select {

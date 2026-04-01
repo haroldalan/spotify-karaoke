@@ -11,19 +11,58 @@
 
 export default defineUnlistedScript(() => {
     /** Languages that typically don't need native script restoration as they are Latin-based. */
-    const LATIN_LIKE_LANGS = new Set(['en', 'es', 'fr', 'de', 'it', 'pt', 'ro', 'nl', 'sv', 'da', 'no', 'fi']);
+    const LATIN_LIKE_LANGS = new Set(['en', 'es', 'pt', 'it', 'fr', 'de', 'nl']);
+
+    /** Convert Spotify Base62 Track ID to Hex GID */
+    function base62ToHex(id: string): string {
+        const CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+        try {
+            let n = BigInt(0);
+            for (const c of id) {
+                const idx = CHARS.indexOf(c);
+                if (idx === -1) return id; // Fallback
+                n = n * 62n + BigInt(idx);
+            }
+            return n.toString(16).padStart(32, '0');
+        } catch { return id; }
+    }
 
     const MXM_APP_ID = 'web-desktop-app-v1.0';
     const MXM_BASE = 'https://apic-desktop.musixmatch.com/ws/1.1';
 
-    // ─── Token state ──────────────────────────────────────────────────────────
+    const _fetch = window.fetch.bind(window);
 
+    // ─── Token state ──────────────────────────────────────────────────────────
     let _tokenCache: string | null = null;
     let _tokenExpiry = 0;
     let _tokenPromise: Promise<string | null> | null = null;
 
-    /** Stash the real fetch before we overwrite it. */
-    const _fetch = window.fetch.bind(window);
+    (function hydrateTokenFromStorage() {
+        try {
+            const t = localStorage.getItem('skl_mxm_token');
+            const exp = Number(localStorage.getItem('skl_mxm_token_expiry') ?? '0');
+            if (t && Date.now() < exp) {
+                _tokenCache = t;
+                _tokenExpiry = exp;
+                // console.log('[SKL] Token restored from storage, expires in', Math.round((exp - Date.now()) / 60000), 'min');
+            }
+        } catch { /* ignore */ }
+    })();
+
+    getToken(); // Module-level warmup
+
+    interface TrackMetadata {
+        name: string;
+        artist: string;
+    }
+    const _metadataCache = new Map<string, TrackMetadata>();
+    const _pendingMetaCallbacks = new Map<string, Array<(m: TrackMetadata) => void>>();
+
+    function onMetadataReady(hexGid: string, callback: (m: TrackMetadata) => void) {
+        const existing = _pendingMetaCallbacks.get(hexGid) ?? [];
+        existing.push(callback);
+        _pendingMetaCallbacks.set(hexGid, existing);
+    }
 
     // ─── Token management ─────────────────────────────────────────────────────
 
@@ -54,16 +93,24 @@ export default defineUnlistedScript(() => {
                 const res = await _fetch(url, { credentials: 'omit' });
                 const data: unknown = await res.json();
                 const token = (data as any)?.message?.body?.user_token as string | undefined;
-                if (token && token !== 'UpgradeRequiredUpgradeRequired') {
+                
+                if (token && token !== 'UpgradeRequiredUpgradeRequired' && !token.startsWith('UpgradeRequired')) {
                     _tokenCache = token;
                     _tokenExpiry = Date.now() + 55 * 60 * 1000;
+                    try {
+                        localStorage.setItem('skl_mxm_token', token);
+                        localStorage.setItem('skl_mxm_token_expiry', String(_tokenExpiry));
+                    } catch { /* ignore */ }
                     return token;
+                } else {
+                    console.warn('[SKL] Token rejected:', token?.startsWith('Upgrade') ? 'Rate limited (UpgradeRequired)' : `Unexpected value: ${token}`);
                 }
-            } catch { /* ignore */ }
+            } catch (e) { console.warn('[SKL] Token catch error:', e); }
             return null;
         })();
 
         const result = await _tokenPromise;
+        // if (result) console.log('[SKL] Musixmatch Token Acquired');
         _tokenPromise = null;
         return result;
     }
@@ -92,8 +139,16 @@ export default defineUnlistedScript(() => {
             let res = await _fetch(buildUrl(token), { credentials: 'omit' });
             let data = await res.json() as any;
 
-            // On 401, force-refresh the token and retry once.
-            if (data?.message?.header?.status_code === 401) {
+            // Handle 429: Too Many Requests (Rate limit)
+            if (res.status === 429 || data?.message?.header?.status_code === 429) {
+                // Wait 1.5s and retry once.
+                await new Promise(r => setTimeout(r, 1500));
+                res = await _fetch(buildUrl(token), { credentials: 'omit' });
+                data = await res.json() as any;
+            }
+
+            // Handle 401: Unauthorized (Stale token)
+            if (data?.message?.header?.status_code === 401 || data?.message?.header?.status_code === 402) {
                 token = await getToken(true);
                 if (!token) return null;
                 res = await _fetch(buildUrl(token), { credentials: 'omit' });
@@ -101,7 +156,9 @@ export default defineUnlistedScript(() => {
             }
 
             if (data?.message?.header?.status_code === 200) return data;
-        } catch { /* ignore */ }
+        } catch (e) {
+            console.warn('[SKL] mxmFetch failed:', path, e);
+        }
 
         return null;
     }
@@ -142,7 +199,14 @@ export default defineUnlistedScript(() => {
             subtitle_format: 'mxm',
             commontrack_id: commontrackId,
         });
-        return parseSubtitle(data);
+        const lines = parseSubtitle(data);
+        if (!lines) return null;
+
+        // Ensure instrumental breaks have the music symbol
+        return lines.map(line => ({
+            ...line,
+            words: line.words || '♪',
+        }));
     }
 
     /** Strategy 1.5: synced lyrics via track_id. */
@@ -151,29 +215,116 @@ export default defineUnlistedScript(() => {
             subtitle_format: 'mxm',
             track_id: trackId,
         });
-        return parseSubtitle(data);
+        const lines = parseSubtitle(data);
+        if (!lines) return null;
+
+        return lines.map(line => ({
+            ...line,
+            words: line.words || '♪',
+        }));
+    }
+
+    /** Strategy 4: text-based search fallback (Artist + Track). */
+    async function fetchSubtitleBySearch(name: string, artist: string): Promise<SubtitleLine[] | null> {
+        const searchData = await mxmFetch('/track.search', {
+            q_track: name,
+            q_artist: artist,
+            f_has_lyrics: 1,
+            s_track_rating: 'desc',
+            page_size: 1,
+        });
+
+        const list = (searchData as any)?.message?.body?.track_list as any[] | undefined;
+        if (!list || list.length === 0) {
+            console.warn('[SKL] Search failed for:', name, artist);
+            return null;
+        }
+
+        const commontrackId = list[0].track.commontrack_id;
+        // Try synced first, then unsynced fallback
+        return await fetchSubtitle(commontrackId) || await fetchUnsyncedLyrics(commontrackId);
+    }
+
+    /** Strategy 3: unsynced lyrics fallback (no timing, but native script). */
+    async function fetchUnsyncedLyrics(commontrackId: string | null): Promise<SubtitleLine[] | null> {
+        if (!commontrackId) return null;
+        const data = await mxmFetch('/track.lyrics.get', { commontrack_id: commontrackId });
+        const lyricsBody = (data as any)?.message?.body?.lyrics?.lyrics_body as string | undefined;
+        if (!lyricsBody) return null;
+
+        return lyricsBody
+            .split('\n')
+            .filter(l => l.trim() && !l.startsWith('****'))
+            .map((text, i) => ({
+                id: String(i),
+                startTimeMs: '0',
+                words: text.trim() || '♪',
+                syllables: [],
+                endTimeMs: '0',
+            }));
     }
 
     async function fetchNativeLines(
         providerLyricsId: string | null,
         spotifyTrackId: string,
+        hexGid: string,
     ): Promise<SubtitleLine[] | null> {
-        const fromId = await fetchSubtitle(providerLyricsId);
-        if (fromId && fromId.length > 0) return fromId;
+        // console.log('[SKL] Starting Native Restoration for:', spotifyTrackId);
 
+        // Strategy 1: Linked SubtitleID (Fastest)
+        const fromId = await fetchSubtitle(providerLyricsId);
+        if (fromId && fromId.length > 0) {
+            // console.log('[SKL] Strategy 1 (Linked ID) Success');
+            return fromId;
+        }
+        // console.log('[SKL] Strategy 1 Fail');
+
+        // Strategy 2: Linked SpotifyID
         const trackData = await mxmFetch('/track.get', { track_spotify_id: spotifyTrackId });
         const body = (trackData as any)?.message?.body?.track;
-        if (!body) return null;
+        
+        if (body) {
+            console.log('[SKL] Strategy 2 (Track ID) Mapping Found');
+            const trackName = (body.track_name ?? '').toLowerCase();
+            if (!trackName.includes('(english version)') && 
+                !trackName.includes('(international version)') && 
+                !trackName.includes('english ver.')) {
+                
+                const fromTrackId = await fetchSubtitleByTrackId(body.track_id);
+                if (fromTrackId && fromTrackId.length > 0) {
+                    console.log('[SKL] Strategy 2 Success');
+                    return fromTrackId;
+                }
+            }
+        }
+        console.log('[SKL] Strategy 2 Fail');
 
-        // Skip English/International versions to avoid false-restoration of covers
-        const trackName = (body.track_name ?? '').toLowerCase();
-        if (trackName.includes('(english version)') || 
-            trackName.includes('(international version)') || 
-            trackName.includes('english ver.')) {
-            return null;
+        // Strategy 4: Metadata Search Fallback (Catch unlinked tracks)
+        let meta = _metadataCache.get(hexGid);
+        if (!meta) {
+            console.log('[SKL] Metadata missing, waiting...');
+            // Wait for metadata if it's missing (max 3s)
+            meta = await new Promise<TrackMetadata | null>(resolve => {
+                const timer = setTimeout(() => resolve(null), 3000);
+                onMetadataReady(hexGid, (m) => { clearTimeout(timer); resolve(m); });
+            }) || undefined;
         }
 
-        return fetchSubtitleByTrackId(body.track_id);
+        if (meta) {
+            console.log('[SKL] Triggering Strategy 4 (Search) for:', meta.name, 'by', meta.artist);
+            const fromSearch = await fetchSubtitleBySearch(meta.name, meta.artist);
+            if (fromSearch && fromSearch.length > 0) {
+                console.log('[SKL] Strategy 4 Success');
+                return fromSearch;
+            }
+        } else {
+            console.warn('[SKL] Strategy 4 Aborted: Metadata Timeout');
+        }
+
+        // Final Strategy: Unsynced fallback (Linked source)
+        const unsynced = await fetchUnsyncedLyrics(providerLyricsId);
+        // if (unsynced) console.log('[SKL] Final Fallback (Unsynced) Success');
+        return unsynced;
     }
 
     // ─── Fetch interceptor ────────────────────────────────────────────────────
@@ -187,87 +338,120 @@ export default defineUnlistedScript(() => {
                 : input instanceof URL ? input.href
                     : (input as Request).url;
 
-        // Fast-path: ignore non-lyrics requests.
-        if (!url.includes('spclient.wg.spotify.com/color-lyrics/v2/track/')) {
+        // Ultimate Fail-Safe: If anything during interception fails, 
+        // we MUST return the original fetch call to avoid breaking Spotify.
+        try {
+            // Case A: Metadata Interception (Stash the artist/track names)
+            if (url.includes('spclient.wg.spotify.com/metadata/41/track/')) {
+                const res = await _fetch(input, init);
+                try {
+                    const data = await res.clone().json();
+                    const id = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1] || data.gid;
+                    if (id) {
+                        const meta = {
+                            name: data.name,
+                            artist: data.artist?.[0]?.name || 'Unknown',
+                        };
+                        _metadataCache.set(id, meta);
+                        // Trigger pending callbacks
+                        const callbacks = _pendingMetaCallbacks.get(id);
+                        if (callbacks) {
+                            callbacks.forEach(cb => cb(meta));
+                            _pendingMetaCallbacks.delete(id);
+                        }
+                    }
+                } catch (e) { console.warn('[SKL] Metadata error:', e); }
+                return res;
+            }
+
+            // Case B: Lyrics Interception
+            if (!url.includes('spclient.wg.spotify.com/color-lyrics/v2/track/')) {
+                return _fetch(input, init);
+            }
+
+            // Intercepted lyrics call
+            const originalResponse = await _fetch(input, init);
+            
+            // Fail-safe clone for fallback reconstruction
+            const fallbackResponse = originalResponse.clone();
+            let data: any = null;
+
+            try {
+                data = await originalResponse.json() as any;
+                const language = data.lyrics?.language;
+                const isDenseTypeface = data.lyrics?.isDenseTypeface;
+                const providerLyricsId = data.lyrics?.providerLyricsId;
+                const spotifyTrackId = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1];
+                const hexGid = spotifyTrackId ? base62ToHex(spotifyTrackId) : null;
+
+                // console.log('[SKL] Intercepted:', { language, isDenseTypeface, spotifyTrackId, hexGid });
+
+                // Vindicated Guard: If Spotify already has native script (isDenseTypeface: true)
+                // or if we're in a'Latin-like language, we skip restoration to save API usage.
+                if (isDenseTypeface !== false || LATIN_LIKE_LANGS.has(language!) || !spotifyTrackId) {
+                    const headers = new Headers(fallbackResponse.headers);
+                    headers.delete('content-encoding');
+                    headers.set('content-type', 'application/json');
+                    return new Response(JSON.stringify(data), { 
+                        status: fallbackResponse.status,
+                        statusText: fallbackResponse.statusText,
+                        headers 
+                    });
+                }
+
+                const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId, hexGid!);
+                if (!nativeLines || nativeLines.length === 0) {
+                    console.warn('[SKL] Native restoration failed or returned no lines.');
+                    const headers = new Headers(fallbackResponse.headers);
+                    headers.delete('content-encoding');
+                    headers.set('content-type', 'application/json');
+                    return new Response(JSON.stringify(data), { 
+                        status: fallbackResponse.status,
+                        statusText: fallbackResponse.statusText,
+                        headers 
+                    });
+                }
+
+                window.postMessage({
+                    type: 'SKL_NATIVE_LYRICS',
+                    trackId: spotifyTrackId,
+                    nativeLines: nativeLines.map((l) => l.words),
+                }, '*');
+
+                const modified = {
+                    ...data,
+                    lyrics: { 
+                        ...data.lyrics, 
+                        isDenseTypeface: true, 
+                        lines: nativeLines 
+                    },
+                };
+
+                const headers = new Headers(fallbackResponse.headers);
+                headers.delete('content-encoding');
+                headers.set('content-type', 'application/json');
+
+                return new Response(JSON.stringify(modified), {
+                    status: fallbackResponse.status,
+                    statusText: fallbackResponse.statusText,
+                    headers,
+                });
+            } catch (e) {
+                console.error('[SKL] Interceptor block error:', e);
+                if (data === null) return fallbackResponse;
+                const headers = new Headers(fallbackResponse.headers);
+                headers.delete('content-encoding');
+                headers.set('content-type', 'application/json');
+                return new Response(JSON.stringify(data), {
+                    status: fallbackResponse.status,
+                    statusText: fallbackResponse.statusText,
+                    headers,
+                });
+            }
+        } catch (e) {
+            console.error('[SKL] Critical Fetch Intercept Failure:', e);
+            // The absolute ultimate fallback: perform a-clean, original fetch.
             return _fetch(input, init);
         }
-
-        const response = await _fetch(input, init);
-        let data: any;
-        try { data = await response.clone().json(); } catch { return response; }
-
-        const language: string | undefined = data?.lyrics?.language;
-        const isDenseTypeface: boolean | undefined = data?.lyrics?.isDenseTypeface;
-        const providerLyricsId: string | null = data?.lyrics?.providerLyricsId ?? null;
-        const spotifyTrackId: string | null = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1] ?? null;
-
-        // Intercept if:
-        // 1. Language is NOT Latin-like (e.g. Thai, Hindi, etc.)
-        // 2. isDenseTypeface is false (meaning Spotify is serving a romanized fallback)
-        // 3. We have a valid track ID
-        if (LATIN_LIKE_LANGS.has(language!) || isDenseTypeface !== false || !spotifyTrackId) {
-            return response;
-        }
-
-        const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId);
-        if (!nativeLines) {
-            window.postMessage({ type: 'SKL_NATIVE_FETCH_FAILED', trackId: spotifyTrackId }, '*');
-            return response;
-        }
-
-        // --- Smart Merge Logic ---
-        // We iterate through Spotify's original lines. If a line is purely a music
-        // symbol (instrumental break), we preserve it EXACTLY from Spotify.
-        // Otherwise, we take the native text from the closest matching Musixmatch line.
-        const mergedLines = (data.lyrics.lines as any[]).map((origLine) => {
-            const words = (origLine.words ?? '').trim();
-            // Preserve instrumental cues (♪) from Spotify
-            if (words === '♪' || words === '🎵' || words === '') {
-                return origLine;
-            }
-
-            // Find the closest native line by time
-            const targetTime = parseInt(origLine.startTimeMs);
-            let closest = nativeLines[0];
-            let minDiff = Math.abs(parseInt(closest.startTimeMs) - targetTime);
-
-            for (const nl of nativeLines) {
-                const diff = Math.abs(parseInt(nl.startTimeMs) - targetTime);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    closest = nl;
-                }
-            }
-
-            return {
-                ...origLine,
-                words: closest.words || origLine.words,
-            };
-        });
-
-        window.postMessage({
-            type: 'SKL_NATIVE_LYRICS',
-            trackId: spotifyTrackId,
-            nativeLines: mergedLines.map((l) => l.words),
-        }, '*');
-
-        const modified = {
-            ...data,
-            lyrics: { 
-                ...data.lyrics, 
-                isDenseTypeface: true, 
-                lines: mergedLines 
-            },
-        };
-
-        const headers = new Headers(response.headers);
-        headers.delete('content-encoding');
-        headers.set('content-type', 'application/json');
-
-        return new Response(JSON.stringify(modified), {
-            status: response.status,
-            statusText: response.statusText,
-            headers,
-        });
     };
 });

@@ -67,15 +67,15 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 
 ---
 
-## Native Script Restoration for Indian Languages
+## Native Script Restoration for Non-Latin Scripts
 
-Spotify often serves romanized fallback lyrics for Indian-language songs (e.g. *"un peyaryl en perai cherttu"* instead of Tamil script) even when the original native-script version exists on Musixmatch.
+Spotify often serves romanized fallback lyrics for non-Latin songs (e.g. Thai, Arabic, or Indian languages) even when the original native-script version exists on Musixmatch.
 
-Spotify Karaoke fixes this automatically. When you play a supported Indian-language song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The Tamil, Hindi, or Telugu lyrics appear natively in the lyrics panel - no user action required.
+Spotify Karaoke fixes this automatically. When you play a'supported song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The original script appears natively in the lyrics panel - no user action required.
 
 Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
-**Supported languages:** Hindi, Tamil, Telugu, Kannada, Malayalam, Gujarati, Punjabi, Marathi, Sanskrit, Bengali, Odia.
+**Supported languages:** All non-Latin scripts (Hindi, Tamil, Thai, Arabic, Telugu, Japanese, Korean, etc.).
 
 ---
 

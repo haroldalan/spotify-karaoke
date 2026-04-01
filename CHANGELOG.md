@@ -3,6 +3,18 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.0.4] — 2026-04-01
+
+### Added
+- **Industrial-Strength Reliability**: Implemented a'global `try/catch` and "Brotli-Safe" header sanitation in the `fetch` interceptor, eliminating the "Couldn't load lyrics" error.
+- **Performance Optimization**: Moved the Musixmatch token acquisition to the module initialization level, ensuring the token is ready before the first song plays. 
+- **Persistent Token Warming**: Implemented 55-minute `localStorage` caching for tokens to prevent API rate-limiting on page reloads.
+- **Header Sanitation**: Fixed a-bug where the internal `catch` block could return compressed responses; now ensures all fallbacks are uncompressed.
+
+### Fixed
+- **Redundant Logic**: Removed dead bootstrap code and duplicate variable declarations in the interceptor.
+- **isDenseTypeface Guard**: Restored the guard to prevent unnecessary API calls when Spotify is already serving the correct native script.
+
 ## [3.0.3] — 2026-04-01
 
 ### Added

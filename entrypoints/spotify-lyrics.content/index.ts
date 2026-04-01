@@ -38,7 +38,18 @@ type LyricsIndex = {
   };
 };
 
-// ─── State ────────────────────────────────────────────────────────────────────
+// ─── Utilities ───────────────────────────────────────────────────────────────
+/**
+ * Returns false if the content script's connection to the extension has been
+ * severed (e.g. by an extension update or reload). Prevents console spam.
+ */
+const isContextValid = () => {
+  try {
+    return !!browser.runtime?.id;
+  } catch {
+    return false;
+  }
+};
 
 const CONTROLS_ID = 'sly-lyrics-controls';
 let mode: LyricsMode = 'original';
@@ -298,7 +309,7 @@ const EVICT_TARGET_BYTES = 3.5 * 1024 * 1024; // 3.5 MB — evict down to this
  * coherence (e.g. rejects a romanized-fallback cache after a native override).
  */
 async function loadSongCache(key: string): Promise<void> {
-  if (!key) return;
+  if (!key || !isContextValid()) return;
   try {
     let entry: LyricsCacheEntry | undefined;
 
@@ -334,13 +345,16 @@ async function loadSongCache(key: string): Promise<void> {
     }
 
     // Update lastAccessed in storage index (fire-and-forget)
-    browser.storage.local.get('lc_index').then((d) => {
-      const idx = (d['lc_index'] ?? {}) as LyricsIndex;
-      if (idx[key]) {
-        idx[key].lastAccessed = Date.now();
-        browser.storage.local.set({ lc_index: idx });
-      }
-    }).catch(() => { });
+    if (isContextValid()) {
+      browser.storage.local.get('lc_index').then((d) => {
+        if (!isContextValid()) return;
+        const idx = (d['lc_index'] ?? {}) as LyricsIndex;
+        if (idx[key]) {
+          idx[key].lastAccessed = Date.now();
+          browser.storage.local.set({ lc_index: idx });
+        }
+      }).catch(() => { });
+    }
   } catch (err) {
     console.warn('[SlyLyrics] loadSongCache failed:', err);
   }
@@ -352,7 +366,7 @@ async function loadSongCache(key: string): Promise<void> {
  * Fires LRU eviction if storage is getting full.
  */
 async function saveSongCache(key: string): Promise<void> {
-  if (!key || cache.original.length === 0) return;
+  if (!key || cache.original.length === 0 || !isContextValid()) return;
 
   const processedObj: LyricsCacheEntry['processed'] = {};
   cache.processed.forEach((val, lang) => { processedObj[lang] = val; });
@@ -374,6 +388,7 @@ async function saveSongCache(key: string): Promise<void> {
   const storageKey = `lc:${key}`;
 
   browser.storage.local.get('lc_index').then(async (d) => {
+    if (!isContextValid()) return;
     const idx = (d['lc_index'] ?? {}) as LyricsIndex;
     idx[key] = { size, lastAccessed: entry.lastAccessed };
     
@@ -805,10 +820,13 @@ function onSongChange(newKey: string): void {
   // This easily beats Spotify's 100ms lyrics network fetch, guaranteeing that
   // when syncSetup() inevitably fires, the data is already in fast-memory,
   // preventing the flash of original lyrics entirely on track skip!
-  browser.storage.local.get(`lc:${newKey}`).then((data) => {
-    const entry = data[`lc:${newKey}`] as LyricsCacheEntry | undefined;
-    if (entry) runtimeCache.set(newKey, entry);
-  }).catch(() => {});
+  if (isContextValid()) {
+    browser.storage.local.get(`lc:${newKey}`).then((data) => {
+      if (!isContextValid()) return;
+      const entry = data[`lc:${newKey}`] as LyricsCacheEntry | undefined;
+      if (entry) runtimeCache.set(newKey, entry);
+    }).catch(() => {});
+  }
 
   // Visually disable the controls pill instead of deleting it
   const controls = document.getElementById(CONTROLS_ID);
@@ -822,6 +840,7 @@ function onSongChange(newKey: string): void {
 
 function startStorageListener(): void {
   browser.storage.onChanged.addListener((changes, area) => {
+    if (!isContextValid()) return;
     if (area === 'local') {
       if ('lc_index' in changes && changes.lc_index.newValue === undefined) {
         runtimeCache.clear();
@@ -874,6 +893,11 @@ function startObserver(): void {
   if (domObserver) return;
 
   domObserver = new MutationObserver((mutations) => {
+    if (!isContextValid()) {
+      domObserver?.disconnect();
+      domObserver = null;
+      return;
+    }
     // Pass 1 — Song key update.
     // Process aria-label attribute mutations FIRST so that songKey is always
     // updated before Pass 2 reads runtimeCache.get(songKey) inside syncSetup.
@@ -925,6 +949,7 @@ function startObserver(): void {
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  if (!isContextValid()) return;
   try {
     const prefs = await browser.storage.sync.get(['dualLyrics', 'targetLang', 'preferredMode', 'showPill']);
     dualLyricsEnabled = prefs.dualLyrics !== undefined
