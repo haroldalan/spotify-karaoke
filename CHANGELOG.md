@@ -3,19 +3,30 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
----
-
-## [3.0.1] — 2026-04-01
+## [3.0.3] — 2026-04-01
 
 ### Added
-- **TypeScript Migration**: Refactored the fetch interceptor into a WXT-managed TypeScript unlisted script for better reliability and maintainability.
-- **Optimistic Synchronous Rendering**: Implemented a `localStorage` mirror for extension settings, providing a zero-latency "instant-on" feel for the popup.
-- **Unlimited Lyrics Cache**: Added the `unlimitedStorage` permission to bypass default quotas, ensuring the cache can scale with any user's library.
+- **Intelligent Auto-Detection**: The extension now detects your browser's language (`navigator.language`) on first install and automatically selects it as the target translation language. 
+- **Language List Re-organization**: Re-ordered the 100+ language list to put global-tier languages (English, Chinese, Spanish, Hindi, etc.) at the top for faster access.
+- **UI Polish**: Refined the language picker's styling and hover states to match the premium Spotify-dark aesthetic.
+
+## [3.0.2] — 2026-04-01
+
+### Added
+- **Stability Overhaul**: Moved the fetch interceptor to a Manifest-registered `world: 'MAIN'` unlisted script. This solves the "reload" race condition by ensuring the monkey-patch is applied before Spotify's code even starts.
+- **Global Native Restoration**: Expanded the restoration engine to support all non-Latin languages (Thai, Arabic, Greek, etc.) where Spotify serves a Romanized fallback.
+- **Metadata Guard**: Implemented smart checks to automatically skip restoration on "English Versions" or "International Covers" to prevent lyrics mismatches.
 
 ### Fixed
-- **UI Flickering**: Eliminated the visual "jumping" of buttons and toggles during popup initialization via a hydration guard and synchronous state loading.
-- **Token Management**: Fixed a race condition in Musixmatch token refreshing and resolved a `new Promise(async ...)` anti-pattern in the interceptor.
-- **Storage Display**: Improved the Storage Usage layout in the popup and **polished the Reset Data modal** for a more compact and modern feel.
+- **Instrumental Symbols**: Fixed a bug where music symbols (`♪`, `🎵`) were stripped during native script restoration. Instrumental breaks are now preserved exactly as in the original source.
+
+## [3.0.1] — 2026-03-31
+
+### Added
+- **TypeScript Migration**: Refactored the core fetch interceptor from a standard JS file into a WXT-managed TypeScript unlisted script for better stability.
+- **Zero-Latency Startup**: Implemented a synchronous mirror architecture in the popup. By initializing settings from `localStorage` before reconciling with the cloud, the UI now has an "instant-on" feel with zero flickering.
+- **Unlimited Lyrics Cache**: Added the `unlimitedStorage` permission to bypass default browser quotas, allowing the local lyrics cache to scale with any library size.
+- **UI Polish**: Refining the storage usage display and overhauling the "Reset Data" confirmation modal to match Spotify's design system.
 
 ## [3.0.0] — 2026-03-31
 

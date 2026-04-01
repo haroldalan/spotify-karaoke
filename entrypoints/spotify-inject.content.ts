@@ -16,9 +16,7 @@ export default defineContentScript({
     runAt: 'document_start',
 
     main() {
-        const script = document.createElement('script');
-        script.src = browser.runtime.getURL('/fetchInterceptor.js');
-        (document.documentElement ?? document.head).prepend(script);
-        script.onload = () => script.remove();
+        // Interceptor is now registered in the manifest with world: 'MAIN'
+        // and run_at: 'document_start' for maximum stability.
     },
 });

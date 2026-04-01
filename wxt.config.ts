@@ -17,6 +17,14 @@ export default defineConfig({
       128: "icon128.png"
     },
     permissions: ['storage', 'unlimitedStorage'],
+    content_scripts: [
+      {
+        matches: ['*://open.spotify.com/*'],
+        js: ['fetchInterceptor.js'],
+        world: 'MAIN',
+        run_at: 'document_start',
+      },
+    ],
     host_permissions: [
       '*://open.spotify.com/*',
       '*://spclient.wg.spotify.com/*',

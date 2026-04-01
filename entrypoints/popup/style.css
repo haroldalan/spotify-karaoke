@@ -125,35 +125,35 @@ label {
 /* Custom Select */
 .select-wrapper {
     position: relative;
+    margin-top: 4px;
 }
 
 .select-wrapper::after {
     content: '';
     position: absolute;
-    right: 12px;
+    right: 14px;
     top: 50%;
     transform: translateY(-50%);
     width: 0;
     height: 0;
+    pointer-events: none;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
     border-top: 5px solid var(--text-secondary);
-    pointer-events: none;
 }
 
 select {
     width: 100%;
-    background-color: var(--card-bg);
+    background-color: #333;
     color: var(--text-primary);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid transparent;
     border-radius: 4px;
-    padding: 10px 14px;
+    padding: 12px 36px 12px 14px;
     font-size: 14px;
-    font-family: inherit;
+    font-weight: 500;
     appearance: none;
     cursor: pointer;
-    transition: all 0.2s ease;
-    outline: none;
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 select:hover {

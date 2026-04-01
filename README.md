@@ -136,7 +136,7 @@ entrypoints/
 
 **Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
 
-**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and injected into the page's main world at `document_start` by patching `<script src>` before Spotify's JavaScript loads. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses. When it detects `isDenseTypeface: false` on a supported Indian-language code, it fetches native-script subtitles from Musixmatch (using a hardened Async IIFE token manager) and replaces the response entirely before returning it to Spotify's renderer.
+**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute, solving previous race conditions. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses. When it detects `isDenseTypeface: false` for a non-Latin track (Thai, Hindi, Arabic, etc.), it automatically fetches native-script subtitles from Musixmatch and replaces the response before Spotify renders the Romanized fallback. Instrumental symbols (`♪`) are preserved during the restoration.
 
 ---
 

@@ -10,9 +10,9 @@
  */
 
 export default defineUnlistedScript(() => {
-    const INDIAN_LANGUAGE_CODES = new Set([
-        'hi', 'mr', 'sa', 'gu', 'pa', 'kn', 'ml', 'ta', 'te', 'bn', 'or', 'si', 'ne', 'as',
-    ]);
+    /** Languages that typically don't need native script restoration as they are Latin-based. */
+    const LATIN_LIKE_LANGS = new Set(['en', 'es', 'fr', 'de', 'it', 'pt', 'ro', 'nl', 'sv', 'da', 'no', 'fi']);
+
     const MXM_APP_ID = 'web-desktop-app-v1.0';
     const MXM_BASE = 'https://apic-desktop.musixmatch.com/ws/1.1';
 
@@ -145,17 +145,13 @@ export default defineUnlistedScript(() => {
         return parseSubtitle(data);
     }
 
-    /** Strategy 2: look up Musixmatch track_id via Spotify ID, then get subtitle. */
-    async function fetchSubtitleViaSpotifyId(spotifyTrackId: string): Promise<SubtitleLine[] | null> {
-        const trackData = await mxmFetch('/track.get', { track_spotify_id: spotifyTrackId });
-        const trackId = (trackData as any)?.message?.body?.track?.track_id as number | undefined;
-        if (!trackId) return null;
-
-        const subtitleData = await mxmFetch('/track.subtitle.get', {
+    /** Strategy 1.5: synced lyrics via track_id. */
+    async function fetchSubtitleByTrackId(trackId: number | string): Promise<SubtitleLine[] | null> {
+        const data = await mxmFetch('/track.subtitle.get', {
             subtitle_format: 'mxm',
             track_id: trackId,
         });
-        return parseSubtitle(subtitleData);
+        return parseSubtitle(data);
     }
 
     async function fetchNativeLines(
@@ -164,7 +160,20 @@ export default defineUnlistedScript(() => {
     ): Promise<SubtitleLine[] | null> {
         const fromId = await fetchSubtitle(providerLyricsId);
         if (fromId && fromId.length > 0) return fromId;
-        return fetchSubtitleViaSpotifyId(spotifyTrackId);
+
+        const trackData = await mxmFetch('/track.get', { track_spotify_id: spotifyTrackId });
+        const body = (trackData as any)?.message?.body?.track;
+        if (!body) return null;
+
+        // Skip English/International versions to avoid false-restoration of covers
+        const trackName = (body.track_name ?? '').toLowerCase();
+        if (trackName.includes('(english version)') || 
+            trackName.includes('(international version)') || 
+            trackName.includes('english ver.')) {
+            return null;
+        }
+
+        return fetchSubtitleByTrackId(body.track_id);
     }
 
     // ─── Fetch interceptor ────────────────────────────────────────────────────
@@ -192,9 +201,11 @@ export default defineUnlistedScript(() => {
         const providerLyricsId: string | null = data?.lyrics?.providerLyricsId ?? null;
         const spotifyTrackId: string | null = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1] ?? null;
 
-        // Intercept only Indian-language tracks that received a romanized fallback.
-        // Even if providerLyricsId is absent, we proceed — Strategy 2 uses the Spotify ID directly.
-        if (!INDIAN_LANGUAGE_CODES.has(language!) || isDenseTypeface !== false || !spotifyTrackId) {
+        // Intercept if:
+        // 1. Language is NOT Latin-like (e.g. Thai, Hindi, etc.)
+        // 2. isDenseTypeface is false (meaning Spotify is serving a romanized fallback)
+        // 3. We have a valid track ID
+        if (LATIN_LIKE_LANGS.has(language!) || isDenseTypeface !== false || !spotifyTrackId) {
             return response;
         }
 
@@ -204,15 +215,49 @@ export default defineUnlistedScript(() => {
             return response;
         }
 
+        // --- Smart Merge Logic ---
+        // We iterate through Spotify's original lines. If a line is purely a music
+        // symbol (instrumental break), we preserve it EXACTLY from Spotify.
+        // Otherwise, we take the native text from the closest matching Musixmatch line.
+        const mergedLines = (data.lyrics.lines as any[]).map((origLine) => {
+            const words = (origLine.words ?? '').trim();
+            // Preserve instrumental cues (♪) from Spotify
+            if (words === '♪' || words === '🎵' || words === '') {
+                return origLine;
+            }
+
+            // Find the closest native line by time
+            const targetTime = parseInt(origLine.startTimeMs);
+            let closest = nativeLines[0];
+            let minDiff = Math.abs(parseInt(closest.startTimeMs) - targetTime);
+
+            for (const nl of nativeLines) {
+                const diff = Math.abs(parseInt(nl.startTimeMs) - targetTime);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closest = nl;
+                }
+            }
+
+            return {
+                ...origLine,
+                words: closest.words || origLine.words,
+            };
+        });
+
         window.postMessage({
             type: 'SKL_NATIVE_LYRICS',
             trackId: spotifyTrackId,
-            nativeLines: nativeLines.map((l) => l.words),
+            nativeLines: mergedLines.map((l) => l.words),
         }, '*');
 
         const modified = {
             ...data,
-            lyrics: { ...data.lyrics, isDenseTypeface: true, lines: nativeLines },
+            lyrics: { 
+                ...data.lyrics, 
+                isDenseTypeface: true, 
+                lines: mergedLines 
+            },
         };
 
         const headers = new Headers(response.headers);

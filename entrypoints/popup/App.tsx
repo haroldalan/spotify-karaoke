@@ -1,6 +1,20 @@
 import { useState, useEffect } from 'preact/hooks';
 
 const LANGUAGES = [
+  // Common Languages (Top-Tier)
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'zh-CN', label: 'Chinese (Simplified)' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'ko', label: 'Korean' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'ru', label: 'Russian' },
+  // Divider
+  { code: '', label: '──────────────────' },
+  // All Languages (Alphabetical)
   { code: 'af', label: 'Afrikaans' },
   { code: 'sq', label: 'Albanian' },
   { code: 'am', label: 'Amharic' },
@@ -18,7 +32,6 @@ const LANGUAGES = [
   { code: 'bg', label: 'Bulgarian' },
   { code: 'ca', label: 'Catalan' },
   { code: 'ceb', label: 'Cebuano' },
-  { code: 'zh-CN', label: 'Chinese (Simplified)' },
   { code: 'zh-TW', label: 'Chinese (Traditional)' },
   { code: 'co', label: 'Corsican' },
   { code: 'hr', label: 'Croatian' },
@@ -27,17 +40,14 @@ const LANGUAGES = [
   { code: 'dv', label: 'Dhivehi' },
   { code: 'doi', label: 'Dogri' },
   { code: 'nl', label: 'Dutch' },
-  { code: 'en', label: 'English' },
   { code: 'eo', label: 'Esperanto' },
   { code: 'et', label: 'Estonian' },
   { code: 'ee', label: 'Ewe' },
   { code: 'fil', label: 'Filipino' },
   { code: 'fi', label: 'Finnish' },
-  { code: 'fr', label: 'French' },
   { code: 'fy', label: 'Frisian' },
   { code: 'gl', label: 'Galician' },
   { code: 'ka', label: 'Georgian' },
-  { code: 'de', label: 'German' },
   { code: 'el', label: 'Greek' },
   { code: 'gn', label: 'Guarani' },
   { code: 'gu', label: 'Gujarati' },
@@ -45,7 +55,6 @@ const LANGUAGES = [
   { code: 'ha', label: 'Hausa' },
   { code: 'haw', label: 'Hawaiian' },
   { code: 'iw', label: 'Hebrew' },
-  { code: 'hi', label: 'Hindi' },
   { code: 'hmn', label: 'Hmong' },
   { code: 'hu', label: 'Hungarian' },
   { code: 'is', label: 'Icelandic' },
@@ -159,6 +168,15 @@ export default function App() {
       if (data.targetLang) {
         setTargetLang(data.targetLang as string);
         localStorage.setItem('sly_targetLang', data.targetLang as string);
+      } else {
+        // First install intuition: Auto-detect browser language
+        const browserLocale = navigator.language.split('-')[0];
+        const matchedLang = LANGUAGES.find(l => l.code === browserLocale || l.code.startsWith(browserLocale));
+        const finalDefault = matchedLang?.code || 'en';
+        
+        setTargetLang(finalDefault);
+        browser.storage.sync.set({ targetLang: finalDefault });
+        localStorage.setItem('sly_targetLang', finalDefault);
       }
       if (data.preferredMode) {
         setPreferredMode(data.preferredMode as string);
