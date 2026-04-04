@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 // Mock WebExtension browser API
 const browserMock = {
     runtime: {
+        id: 'test-id',
         onMessage: {
             addListener: vi.fn(),
         },

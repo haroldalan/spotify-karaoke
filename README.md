@@ -57,8 +57,8 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 ## Installation
 
 **From the browser store (recommended):**
-- [Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke-romanize/) - Chrome, Edge, Brave, and other Chromium browsers
-- [Firefox Add-ons](https://addons.mozilla.org/es-ES/firefox/addon/spotify-karaoke/)
+- [Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie) - Chrome, Edge, Brave, and other Chromium browsers
+- [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/)
 
 **Manual install (Developer Mode):**
 1. Download the latest `.zip` from the [Releases page](../../releases) and extract it.

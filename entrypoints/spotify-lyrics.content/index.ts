@@ -158,9 +158,17 @@ function snapshotOriginals(): void {
     el.setAttribute('data-sly-original', el.textContent ?? '');
   });
 
-  cache.original = lines.map(
+  const snapped = lines.map(
     (el) => el.getAttribute('data-sly-original') ?? ''
   );
+
+  // POISON GUARD: If every line is empty or whitespace, the DOM isn't ready.
+  // Aborting prevents an empty snapshot from poisoning subsequent fetchProcessed calls.
+  // Even a single non-empty line (e.g. Instrumental section) validates the snapshot.
+  const hasContent = snapped.some(l => l.trim().length > 0);
+  if (!hasContent) return;
+
+  cache.original = snapped;
 }
 
 // ─── Controls UI ──────────────────────────────────────────────────────────────
@@ -356,7 +364,7 @@ async function loadSongCache(key: string): Promise<void> {
       }).catch(() => { });
     }
   } catch (err) {
-    console.warn('[SlyLyrics] loadSongCache failed:', err);
+    console.warn('[SKaraoke:Content] loadSongCache failed:', err);
   }
 }
 
@@ -401,10 +409,10 @@ async function saveSongCache(key: string): Promise<void> {
         await forceEvict(idx);
         await browser.storage.local.set({ [storageKey]: entry, lc_index: idx }).catch(e => console.warn(e));
       } else {
-        console.warn('[SlyLyrics] saveSongCache failed:', err);
+        console.warn('[SKaraoke:Content] saveSongCache failed:', err);
       }
     }
-  }).catch((err) => console.warn('[SlyLyrics] saveSongCache index get failed:', err));
+  }).catch((err) => console.warn('[SKaraoke:Content] saveSongCache index get failed:', err));
 }
 
 /** LRU eviction — removes oldest entries until storage.local is under 3.5 MB. */
@@ -473,6 +481,9 @@ async function fetchProcessed(
   lines: string[],
   lang: string
 ): Promise<ProcessedCache | null> {
+  // DATA INTEGRITY GUARD: Never hit the background with an empty or whitespace-only lineset.
+  if (lines.length === 0 || !lines.some(l => l.trim().length > 0)) return null;
+
   if (cache.processed.has(lang)) return cache.processed.get(lang)!;
 
   const gen = ++processGen;
@@ -529,6 +540,15 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
   if (!suppressLoading) setLoadingState(true);
   isSwitchingMode = true;
 
+  if (cache.original.length === 0) snapshotOriginals();
+
+  // FAIL-SAFE: If snapshot attempt still yielded nothing (skeleton DOM), abort and wait for next mutation.
+  if (next !== 'original' && cache.original.length === 0) {
+    isSwitchingMode = false;
+    setLoadingState(false);
+    return;
+  }
+
   try {
     if (next === 'original') {
       if (preferredMode !== next) {
@@ -568,7 +588,7 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
       setLoadingState(false);
     }
   } catch (err) {
-    console.error('[SlyLyrics] Mode switch failed:', err);
+    console.error('[SKaraoke:Content] Mode switch failed:', err);
     // Show a user-visible toast for 3 seconds, then auto-dismiss
     showToast('Translation failed. Please try again.', 3000);
     // Snap back to whichever mode was working before
@@ -959,7 +979,7 @@ async function main(): Promise<void> {
     preferredMode = (prefs.preferredMode as LyricsMode) ?? 'original';
     showPill = prefs.showPill !== undefined ? (prefs.showPill as boolean) : true;
   } catch {
-    console.warn('[SlyLyrics] storage.sync unavailable, using defaults');
+    console.warn('[SKaraoke:Content] storage.sync unavailable, using defaults');
     dualLyricsEnabled = true;
     currentActiveLang = 'en';
     preferredMode = 'original';
@@ -975,7 +995,7 @@ async function main(): Promise<void> {
       }
     }
   } catch (err) {
-    console.warn('[SlyLyrics] Failed to preload runtime cache from storage.local', err);
+    console.warn('[SKaraoke:Content] Failed to preload runtime cache from storage.local', err);
   }
 
   // Listen for messages posted by the main-world fetchInterceptor.

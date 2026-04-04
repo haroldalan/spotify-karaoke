@@ -12,7 +12,8 @@ describe('Content Script Integration (JSDOM)', () => {
         // Reset DOM
         document.body.innerHTML = '';
         
-        // Reset browser mocks
+        // Ensure browser.runtime.id is present for isContextValid() check
+        (window as any).browser.runtime.id = 'test-id';
         mockStorageSync = {
             dualLyrics: true,
             targetLang: 'en',

@@ -24,10 +24,9 @@ describe('Popup App Component', () => {
         // Assert title exists
         expect(screen.getAllByText('Spotify Karaoke')[0]).toBeDefined();
 
-        // Assert language defaults to Spanish (from our mock)
+        // Assert language defaults to Spanish (from our storage mock)
         await waitFor(() => {
-            const select = screen.getByDisplayValue('Spanish') as HTMLSelectElement;
-            expect(select.value).toBe('es');
+            expect(screen.getByText('Spanish')).toBeDefined();
         });
 
         // Assert checkbox defaults
@@ -68,10 +67,10 @@ describe('Popup App Component', () => {
         fireEvent.click(resetBtn);
 
         // Verify that the custom modal is displayed by looking for its text
-        expect(await screen.findByText('Reset all settings to defaults?')).toBeDefined();
+        expect(await screen.findByText('Reset settings?')).toBeDefined();
 
-        // Click the 'OK' button inside the custom modal
-        const okBtn = screen.getByText('OK');
+        // Click the 'Reset' button inside the custom modal
+        const okBtn = screen.getByText('Reset');
         fireEvent.click(okBtn);
 
         // Wait for the clear logic to settle
@@ -79,7 +78,8 @@ describe('Popup App Component', () => {
             expect((global as any).browser.storage.sync.set).toHaveBeenCalledWith({
                 targetLang: 'en',
                 dualLyrics: true,
-                preferredMode: 'original'
+                preferredMode: 'original',
+                showPill: true
             });
         });
     });

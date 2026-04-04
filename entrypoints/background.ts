@@ -19,7 +19,7 @@ export default defineBackground(() => {
         processLines(msg.lines, msg.targetLang ?? 'en')
           .then(sendResponse)
           .catch((err) => {
-            console.error('[SlyLyrics BG] PROCESS failed:', err);
+            console.error('[SKaraoke:BG] PROCESS failed:', err);
             // Fallback: return originals for both modes
             sendResponse({ translated: msg.lines, romanized: msg.lines });
           });
@@ -86,13 +86,18 @@ export async function getKuroshiro(): Promise<Kuroshiro> {
     // All concurrent callers await the same promise and only
     // proceed once init() has fully completed — no race condition.
     kuroshiroReady = (async () => {
-      const instance = new Kuroshiro();
-      await instance.init(
-        new KuromojiAnalyzer({
-          dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji/dict',
-        })
-      );
-      return instance;
+      try {
+        const instance = new Kuroshiro();
+        await instance.init(
+          new KuromojiAnalyzer({
+            dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji/dict',
+          })
+        );
+        return instance;
+      } catch (e) {
+        kuroshiroReady = null; // Allow retry on next call
+        throw e;
+      }
     })();
   }
   return kuroshiroReady;
@@ -128,10 +133,10 @@ const SCRIPT_NATIVE_LANG: Partial<Record<ScriptType, string>> = {
   gurmukhi: 'pa',
   odia: 'or',
   tamil: 'ta',
-  // Excluded — script maps to multiple languages (ambiguous):
-  //   devanagari (hi/mr/sa/ne), cyrillic (ru/uk/bg/sr), chinese (zh-CN/zh-TW)
-  // Excluded — in GOOGLE_ROMANIZE_SCRIPTS (need fetch for romanization anyway):
-  //   malayalam, bengali, arabic, hebrew
+  devanagari: 'hi', // Optimized for Hindi
+  cyrillic: 'ru',    // Optimized for Russian
+  // Partially covered — maps to the most common language only.
+  // Other variants (mr/sa/ne for devanagari, uk/bg/sr for cyrillic, zh-TW for chinese) still hit Google:
 };
 
 // ─── Main Orchestrator ────────────────────────────────────────────────────────
@@ -223,7 +228,7 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         return transliterate(line);
     }
   } catch (err) {
-    console.error(`[SlyLyrics BG] Romanize '${script}' failed, using fallback:`, err);
+    console.error(`[SKaraoke:BG] Romanize '${script}' failed, using fallback:`, err);
     return transliterate(line);
   }
 }
@@ -269,7 +274,7 @@ async function googleProcess(
       // If Google didn't return romanization, fall back to translated text
       romanizedFlat.push(...(result.romanized ?? result.translated).split('\n'));
     } catch (googleErr) {
-      console.warn('[SlyLyrics BG] Google blocked, falling back to MyMemory:', googleErr);
+      console.warn('[SKaraoke:BG] Google blocked, falling back to MyMemory:', googleErr);
       try {
         const subChunks = chunkByCharCount(chunks[i], MYMEMORY_MAX_CHARS);
         for (let j = 0; j < subChunks.length; j++) {
@@ -279,7 +284,7 @@ async function googleProcess(
           romanizedFlat.push(...text.split('\n')); // MyMemory has no dt=rm equivalent
         }
       } catch (mmErr) {
-        console.error('[SlyLyrics BG] MyMemory also failed:', mmErr);
+        console.error('[SKaraoke:BG] MyMemory also failed:', mmErr);
         translatedFlat.push(...chunks[i]);
         romanizedFlat.push(...chunks[i]);
       }
@@ -389,7 +394,20 @@ export function chunkByCharCount(lines: string[], maxChars: number): string[][] 
 
   for (const line of lines) {
     if (line.length > maxChars) {
-      console.warn(`[SlyLyrics BG] Line exceeds chunk limit (${line.length} > ${maxChars} chars), sending as-is`);
+      // Truncate to maxChars. Try to split at last space, else hard-slice at maxChars.
+      // This maintains 1:1 index alignment for the translation/romanization result arrays.
+      const truncated = line.slice(0, maxChars).replace(/\s+\S*$/, '…');
+      console.warn(`[SKaraoke:BG] Line too long, truncating to maintain index alignment: ${truncated}`);
+      
+      if (currentLen + truncated.length + 1 > maxChars && current.length > 0) {
+        chunks.push(current);
+        current = [truncated];
+        currentLen = truncated.length;
+      } else {
+        current.push(truncated);
+        currentLen += truncated.length + 1;
+      }
+      continue;
     }
     if (currentLen + line.length + 1 > maxChars && current.length > 0) {
       chunks.push(current);

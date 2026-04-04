@@ -11,20 +11,24 @@
 
 export default defineUnlistedScript(() => {
     /** Languages that typically don't need native script restoration as they are Latin-based. */
-    const LATIN_LIKE_LANGS = new Set(['en', 'es', 'pt', 'it', 'fr', 'de', 'nl']);
+    const LATIN_LIKE_LANGS = new Set([
+      'en', 'es', 'pt', 'it', 'fr', 'de', 'nl', 'sv', 'da', 'no', 'nb', 'fi', 
+      'pl', 'tr', 'id', 'ro', 'cs', 'hu', 'sk', 'hr', 'ca', 'eu', 'gl',
+      'et', 'lv', 'lt', 'sl', 'bs', 'sq', 'af', 'ms', 'cy', 'ga', 'sw'
+    ]);
 
     /** Convert Spotify Base62 Track ID to Hex GID */
-    function base62ToHex(id: string): string {
+    function base62ToHex(id: string): string | null {
         const CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
         try {
             let n = BigInt(0);
             for (const c of id) {
                 const idx = CHARS.indexOf(c);
-                if (idx === -1) return id; // Fallback
+                if (idx === -1) return null; // Error
                 n = n * 62n + BigInt(idx);
             }
             return n.toString(16).padStart(32, '0');
-        } catch { return id; }
+        } catch { return null; }
     }
 
     const MXM_APP_ID = 'web-desktop-app-v1.0';
@@ -44,7 +48,7 @@ export default defineUnlistedScript(() => {
             if (t && Date.now() < exp) {
                 _tokenCache = t;
                 _tokenExpiry = exp;
-                // console.log('[SKL] Token restored from storage, expires in', Math.round((exp - Date.now()) / 60000), 'min');
+                // console.log('[SKaraoke:Interceptor] Token restored from storage, expires in', Math.round((exp - Date.now()) / 60000), 'min');
             }
         } catch { /* ignore */ }
     })();
@@ -57,6 +61,7 @@ export default defineUnlistedScript(() => {
     }
     const _metadataCache = new Map<string, TrackMetadata>();
     const _pendingMetaCallbacks = new Map<string, Array<(m: TrackMetadata) => void>>();
+    let _currentInterceptId = 0; // Global intercept generation counter
 
     function onMetadataReady(hexGid: string, callback: (m: TrackMetadata) => void) {
         const existing = _pendingMetaCallbacks.get(hexGid) ?? [];
@@ -68,15 +73,8 @@ export default defineUnlistedScript(() => {
 
     /**
      * Returns a valid Musixmatch user token, fetching one if necessary.
-     *
-     * Deduplication: concurrent callers share a single in-flight request.
-     * forceNew=true (used after a 401): clears the stale cache and starts a
-     * fresh fetch — but only if no fetch is already in-flight (the in-flight
-     * fetch IS the fresh attempt; no need to race it with a second one).
      */
     async function getToken(forceNew = false): Promise<string | null> {
-        // If a fresh fetch is already in flight, let it win — even on forceNew.
-        // Only clear the stale cache when there is nothing else in flight yet.
         if (forceNew && !_tokenPromise) {
             _tokenCache = null;
             _tokenExpiry = 0;
@@ -85,8 +83,6 @@ export default defineUnlistedScript(() => {
         if (_tokenCache && Date.now() < _tokenExpiry) return _tokenCache;
         if (_tokenPromise) return _tokenPromise;
 
-        // Async IIFE avoids the `new Promise(async ...)` anti-pattern, which
-        // can silently swallow rejections that occur before the first await.
         _tokenPromise = (async (): Promise<string | null> => {
             try {
                 const url = `${MXM_BASE}/token.get?app_id=${MXM_APP_ID}&format=json`;
@@ -103,14 +99,14 @@ export default defineUnlistedScript(() => {
                     } catch { /* ignore */ }
                     return token;
                 } else {
-                    console.warn('[SKL] Token rejected:', token?.startsWith('Upgrade') ? 'Rate limited (UpgradeRequired)' : `Unexpected value: ${token}`);
+                    console.error('[SKaraoke:Interceptor] Token rejected. API response:', data);
+                    console.warn('[SKaraoke:Interceptor] Token rejected details:', token?.startsWith('Upgrade') ? 'Rate limited (UpgradeRequired)' : `Unexpected value: ${token}`);
                 }
-            } catch (e) { console.warn('[SKL] Token catch error:', e); }
+            } catch (e) { console.error('[SKaraoke:Interceptor] Token acquisition failed:', e); }
             return null;
         })();
 
         const result = await _tokenPromise;
-        // if (result) console.log('[SKL] Musixmatch Token Acquired');
         _tokenPromise = null;
         return result;
     }
@@ -139,15 +135,12 @@ export default defineUnlistedScript(() => {
             let res = await _fetch(buildUrl(token), { credentials: 'omit' });
             let data = await res.json() as any;
 
-            // Handle 429: Too Many Requests (Rate limit)
             if (res.status === 429 || data?.message?.header?.status_code === 429) {
-                // Wait 1.5s and retry once.
                 await new Promise(r => setTimeout(r, 1500));
                 res = await _fetch(buildUrl(token), { credentials: 'omit' });
                 data = await res.json() as any;
             }
 
-            // Handle 401: Unauthorized (Stale token)
             if (data?.message?.header?.status_code === 401 || data?.message?.header?.status_code === 402) {
                 token = await getToken(true);
                 if (!token) return null;
@@ -157,9 +150,8 @@ export default defineUnlistedScript(() => {
 
             if (data?.message?.header?.status_code === 200) return data;
         } catch (e) {
-            console.warn('[SKL] mxmFetch failed:', path, e);
+            console.warn('[SKaraoke:Interceptor] mxmFetch failed:', path, e);
         }
-
         return null;
     }
 
@@ -179,7 +171,6 @@ export default defineUnlistedScript(() => {
         try {
             const parsed: unknown = JSON.parse(raw);
             if (!Array.isArray(parsed) || parsed.length === 0) return null;
-
             return (parsed as any[]).map((line, i): SubtitleLine => ({
                 id: String(i),
                 startTimeMs: String(Math.round((line.time?.total ?? 0) * 1000)),
@@ -192,7 +183,6 @@ export default defineUnlistedScript(() => {
 
     // ─── Fetch strategies ─────────────────────────────────────────────────────
 
-    /** Strategy 1: synced subtitle via commontrack_id (providerLyricsId from Spotify). */
     async function fetchSubtitle(commontrackId: string | null): Promise<SubtitleLine[] | null> {
         if (!commontrackId) return null;
         const data = await mxmFetch('/track.subtitle.get', {
@@ -201,15 +191,12 @@ export default defineUnlistedScript(() => {
         });
         const lines = parseSubtitle(data);
         if (!lines) return null;
-
-        // Ensure instrumental breaks have the music symbol
         return lines.map(line => ({
             ...line,
             words: line.words || '♪',
         }));
     }
 
-    /** Strategy 1.5: synced lyrics via track_id. */
     async function fetchSubtitleByTrackId(trackId: number | string): Promise<SubtitleLine[] | null> {
         const data = await mxmFetch('/track.subtitle.get', {
             subtitle_format: 'mxm',
@@ -217,14 +204,12 @@ export default defineUnlistedScript(() => {
         });
         const lines = parseSubtitle(data);
         if (!lines) return null;
-
         return lines.map(line => ({
             ...line,
             words: line.words || '♪',
         }));
     }
 
-    /** Strategy 4: text-based search fallback (Artist + Track). */
     async function fetchSubtitleBySearch(name: string, artist: string): Promise<SubtitleLine[] | null> {
         const searchData = await mxmFetch('/track.search', {
             q_track: name,
@@ -233,25 +218,20 @@ export default defineUnlistedScript(() => {
             s_track_rating: 'desc',
             page_size: 1,
         });
-
         const list = (searchData as any)?.message?.body?.track_list as any[] | undefined;
         if (!list || list.length === 0) {
-            console.warn('[SKL] Search failed for:', name, artist);
+            console.warn('[SKaraoke:Interceptor] Search failed for:', name, artist);
             return null;
         }
-
         const commontrackId = list[0].track.commontrack_id;
-        // Try synced first, then unsynced fallback
         return await fetchSubtitle(commontrackId) || await fetchUnsyncedLyrics(commontrackId);
     }
 
-    /** Strategy 3: unsynced lyrics fallback (no timing, but native script). */
     async function fetchUnsyncedLyrics(commontrackId: string | null): Promise<SubtitleLine[] | null> {
         if (!commontrackId) return null;
         const data = await mxmFetch('/track.lyrics.get', { commontrack_id: commontrackId });
         const lyricsBody = (data as any)?.message?.body?.lyrics?.lyrics_body as string | undefined;
         if (!lyricsBody) return null;
-
         return lyricsBody
             .split('\n')
             .filter(l => l.trim() && !l.startsWith('****'))
@@ -268,62 +248,55 @@ export default defineUnlistedScript(() => {
         providerLyricsId: string | null,
         spotifyTrackId: string,
         hexGid: string,
+        interceptId: number,
     ): Promise<SubtitleLine[] | null> {
-        // console.log('[SKL] Starting Native Restoration for:', spotifyTrackId);
+        const isStale = () => _currentInterceptId !== interceptId;
+        if (isStale()) return null;
 
-        // Strategy 1: Linked SubtitleID (Fastest)
         const fromId = await fetchSubtitle(providerLyricsId);
-        if (fromId && fromId.length > 0) {
-            // console.log('[SKL] Strategy 1 (Linked ID) Success');
-            return fromId;
-        }
-        // console.log('[SKL] Strategy 1 Fail');
+        if (isStale()) return null;
+        if (fromId && fromId.length > 0) return fromId;
 
-        // Strategy 2: Linked SpotifyID
         const trackData = await mxmFetch('/track.get', { track_spotify_id: spotifyTrackId });
+        if (isStale()) return null;
         const body = (trackData as any)?.message?.body?.track;
-        
         if (body) {
-            console.log('[SKL] Strategy 2 (Track ID) Mapping Found');
             const trackName = (body.track_name ?? '').toLowerCase();
             if (!trackName.includes('(english version)') && 
                 !trackName.includes('(international version)') && 
                 !trackName.includes('english ver.')) {
                 
                 const fromTrackId = await fetchSubtitleByTrackId(body.track_id);
-                if (fromTrackId && fromTrackId.length > 0) {
-                    console.log('[SKL] Strategy 2 Success');
-                    return fromTrackId;
-                }
+                if (isStale()) return null;
+                if (fromTrackId && fromTrackId.length > 0) return fromTrackId;
             }
         }
-        console.log('[SKL] Strategy 2 Fail');
 
-        // Strategy 4: Metadata Search Fallback (Catch unlinked tracks)
         let meta = _metadataCache.get(hexGid);
         if (!meta) {
-            console.log('[SKL] Metadata missing, waiting...');
-            // Wait for metadata if it's missing (max 3s)
             meta = await new Promise<TrackMetadata | null>(resolve => {
-                const timer = setTimeout(() => resolve(null), 3000);
-                onMetadataReady(hexGid, (m) => { clearTimeout(timer); resolve(m); });
+                const cb = (m: TrackMetadata) => { clearTimeout(timer); resolve(m); };
+                const timer = setTimeout(() => {
+                    const existing = _pendingMetaCallbacks.get(hexGid) || [];
+                    const filtered = existing.filter(c => c !== cb);
+                    if (filtered.length === 0) _pendingMetaCallbacks.delete(hexGid);
+                    else _pendingMetaCallbacks.set(hexGid, filtered);
+                    resolve(null);
+                }, 3000);
+                onMetadataReady(hexGid, cb);
             }) || undefined;
         }
 
+        if (isStale()) return null;
+
         if (meta) {
-            console.log('[SKL] Triggering Strategy 4 (Search) for:', meta.name, 'by', meta.artist);
             const fromSearch = await fetchSubtitleBySearch(meta.name, meta.artist);
-            if (fromSearch && fromSearch.length > 0) {
-                console.log('[SKL] Strategy 4 Success');
-                return fromSearch;
-            }
-        } else {
-            console.warn('[SKL] Strategy 4 Aborted: Metadata Timeout');
+            if (isStale()) return null;
+            if (fromSearch && fromSearch.length > 0) return fromSearch;
         }
 
-        // Final Strategy: Unsynced fallback (Linked source)
         const unsynced = await fetchUnsyncedLyrics(providerLyricsId);
-        // if (unsynced) console.log('[SKL] Final Fallback (Unsynced) Success');
+        if (isStale()) return null;
         return unsynced;
     }
 
@@ -333,46 +306,31 @@ export default defineUnlistedScript(() => {
         input: RequestInfo | URL,
         init?: RequestInit,
     ): Promise<Response> {
-        const url =
-            typeof input === 'string' ? input
-                : input instanceof URL ? input.href
-                    : (input as Request).url;
-
-        // Ultimate Fail-Safe: If anything during interception fails, 
-        // we MUST return the original fetch call to avoid breaking Spotify.
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
         try {
-            // Case A: Metadata Interception (Stash the artist/track names)
             if (url.includes('spclient.wg.spotify.com/metadata/41/track/')) {
                 const res = await _fetch(input, init);
                 try {
                     const data = await res.clone().json();
                     const id = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1] || data.gid;
                     if (id) {
-                        const meta = {
-                            name: data.name,
-                            artist: data.artist?.[0]?.name || 'Unknown',
-                        };
+                        const meta = { name: data.name, artist: data.artist?.[0]?.name || 'Unknown' };
                         _metadataCache.set(id, meta);
-                        // Trigger pending callbacks
                         const callbacks = _pendingMetaCallbacks.get(id);
                         if (callbacks) {
                             callbacks.forEach(cb => cb(meta));
                             _pendingMetaCallbacks.delete(id);
                         }
                     }
-                } catch (e) { console.warn('[SKL] Metadata error:', e); }
+                } catch (e) { console.warn('[SKaraoke:Interceptor] Metadata error:', e); }
                 return res;
             }
 
-            // Case B: Lyrics Interception
             if (!url.includes('spclient.wg.spotify.com/color-lyrics/v2/track/')) {
                 return _fetch(input, init);
             }
 
-            // Intercepted lyrics call
             const originalResponse = await _fetch(input, init);
-            
-            // Fail-safe clone for fallback reconstruction
             const fallbackResponse = originalResponse.clone();
             let data: any = null;
 
@@ -384,11 +342,9 @@ export default defineUnlistedScript(() => {
                 const spotifyTrackId = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1];
                 const hexGid = spotifyTrackId ? base62ToHex(spotifyTrackId) : null;
 
-                // console.log('[SKL] Intercepted:', { language, isDenseTypeface, spotifyTrackId, hexGid });
+                const interceptId = ++_currentInterceptId;
 
-                // Vindicated Guard: If Spotify already has native script (isDenseTypeface: true)
-                // or if we're in a'Latin-like language, we skip restoration to save API usage.
-                if (isDenseTypeface !== false || LATIN_LIKE_LANGS.has(language!) || !spotifyTrackId) {
+                if (isDenseTypeface !== false || LATIN_LIKE_LANGS.has(language!) || !spotifyTrackId || !hexGid) {
                     const headers = new Headers(fallbackResponse.headers);
                     headers.delete('content-encoding');
                     headers.set('content-type', 'application/json');
@@ -399,9 +355,9 @@ export default defineUnlistedScript(() => {
                     });
                 }
 
-                const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId, hexGid!);
+                const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId, hexGid, interceptId);
                 if (!nativeLines || nativeLines.length === 0) {
-                    console.warn('[SKL] Native restoration failed or returned no lines.');
+                    console.warn('[SKaraoke:Interceptor] Native restoration failed or returned no lines.');
                     const headers = new Headers(fallbackResponse.headers);
                     headers.delete('content-encoding');
                     headers.set('content-type', 'application/json');
@@ -420,11 +376,7 @@ export default defineUnlistedScript(() => {
 
                 const modified = {
                     ...data,
-                    lyrics: { 
-                        ...data.lyrics, 
-                        isDenseTypeface: true, 
-                        lines: nativeLines 
-                    },
+                    lyrics: { ...data.lyrics, isDenseTypeface: true, lines: nativeLines },
                 };
 
                 const headers = new Headers(fallbackResponse.headers);
@@ -437,7 +389,7 @@ export default defineUnlistedScript(() => {
                     headers,
                 });
             } catch (e) {
-                console.error('[SKL] Interceptor block error:', e);
+                console.error('[SKaraoke:Interceptor] Interceptor block error:', e);
                 if (data === null) return fallbackResponse;
                 const headers = new Headers(fallbackResponse.headers);
                 headers.delete('content-encoding');
@@ -449,8 +401,7 @@ export default defineUnlistedScript(() => {
                 });
             }
         } catch (e) {
-            console.error('[SKL] Critical Fetch Intercept Failure:', e);
-            // The absolute ultimate fallback: perform a-clean, original fetch.
+            console.error('[SKaraoke:Interceptor] Critical Fetch Intercept Failure:', e);
             return _fetch(input, init);
         }
     };

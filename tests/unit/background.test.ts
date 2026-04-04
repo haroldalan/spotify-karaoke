@@ -56,11 +56,11 @@ describe('Background Script - chunkByCharCount', () => {
         expect(chunks).toEqual([['123', '456'], ['789', '012']]);
     });
 
-    it('handles a single line extending beyond maxChars gracefully (does not break)', () => {
+    it('handles a single line extending beyond maxChars gracefully (truncates to maintain index alignment)', () => {
         const lines = ['1234567890', '123'];
         const chunks = chunkByCharCount(lines, 5);
-        // It pushes the oversized line into its own chunk, and starts fresh
-        expect(chunks).toEqual([['1234567890'], ['123']]);
+        // It truncates the oversized line to maxChars (5) and maintains the 1:1 line mapping
+        expect(chunks).toEqual([['12345'], ['123']]);
     });
 
     it('handles empty arrays', () => {
