@@ -2,7 +2,9 @@ node_modules
 .wxt
 .output
 .agent
-store_description.md
-test_output*.txt
-test_popup_fail.txt
 .gemini
+*.txt
+*.log
+!CHANGELOG.md
+!README.md
+!LICENSE

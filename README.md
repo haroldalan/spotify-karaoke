@@ -123,7 +123,6 @@ npm run test           # Run unit and component test suite
 entrypoints/
   background.ts              # Service worker: romanization + translation orchestration
   fetchInterceptor.ts        # WXT unlisted script: custom logic for Spotify API patching
-  spotify-inject.content.ts  # Injects the compiled interceptor into the page's main world
   spotify-lyrics.content/
     index.ts                 # DOM engine: MutationObserver, mode switching, caching
     style.css
@@ -136,7 +135,7 @@ entrypoints/
 
 **Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
 
-**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute, solving previous race conditions. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses. When it detects `isDenseTypeface: false` for a non-Latin track (Thai, Hindi, Arabic, etc.), it automatically fetches native-script subtitles from Musixmatch and replaces the response before Spotify renders the Romanized fallback. Instrumental symbols (`♪`) are preserved during the restoration.
+**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute, solving previous race conditions. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses.
 
 ---
 
@@ -153,7 +152,7 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ## Privacy & Disclaimer
 
-- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync` and mirrored in `localStorage` for zero-latency UI hydration. Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` with an **unlimited quota** to avoid redundant API calls. Lyric text is sent to Google Translate when using Translated mode. See [Google's Privacy Policy](https://policies.google.com/privacy).
+- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync` and mirrored in `localStorage` for zero-latency UI hydration. Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` with an **unlimited quota** (and LRU eviction) to avoid redundant API calls. Lyric text is sent to Google Translate or MyMemory when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/doc/tos.php).
 - **Disclaimer:** Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
 
 ---
