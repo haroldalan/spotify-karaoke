@@ -61,7 +61,7 @@ export default defineUnlistedScript(() => {
     }
     const _metadataCache = new Map<string, TrackMetadata>();
     const _pendingMetaCallbacks = new Map<string, Array<(m: TrackMetadata) => void>>();
-    let _currentInterceptId = 0; // Global intercept generation counter
+    const _currentInterceptGeneration = new Map<string, number>();
 
     function onMetadataReady(hexGid: string, callback: (m: TrackMetadata) => void) {
         const existing = _pendingMetaCallbacks.get(hexGid) ?? [];
@@ -250,7 +250,7 @@ export default defineUnlistedScript(() => {
         hexGid: string,
         interceptId: number,
     ): Promise<SubtitleLine[] | null> {
-        const isStale = () => _currentInterceptId !== interceptId;
+        const isStale = () => (_currentInterceptGeneration.get(spotifyTrackId) ?? 0) !== interceptId;
         if (isStale()) return null;
 
         const fromId = await fetchSubtitle(providerLyricsId);
@@ -342,8 +342,6 @@ export default defineUnlistedScript(() => {
                 const spotifyTrackId = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1];
                 const hexGid = spotifyTrackId ? base62ToHex(spotifyTrackId) : null;
 
-                const interceptId = ++_currentInterceptId;
-
                 if (isDenseTypeface !== false || LATIN_LIKE_LANGS.has(language!) || !spotifyTrackId || !hexGid) {
                     const headers = new Headers(fallbackResponse.headers);
                     headers.delete('content-encoding');
@@ -354,6 +352,11 @@ export default defineUnlistedScript(() => {
                         headers 
                     });
                 }
+
+                // Increment generation only for real intercepts
+                const nextGen = (_currentInterceptGeneration.get(spotifyTrackId) ?? 0) + 1;
+                _currentInterceptGeneration.set(spotifyTrackId, nextGen);
+                const interceptId = nextGen;
 
                 const nativeLines = await fetchNativeLines(providerLyricsId, spotifyTrackId, hexGid, interceptId);
                 if (!nativeLines || nativeLines.length === 0) {

@@ -7,12 +7,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **Technical Audit & Resiliency**: Conducted a comprehensive technical audit of the extension architecture for v3.0.5.
+- **Fetch Generation Isolation (isStale Fix)**: Implemented per-track generation maps in the fetch interceptor to prevent cross-song "poisoning" during rapid background pre-fetches.
 - **Race Condition Guard**: Implemented a three-layer "Poison Guard" in the content script to prevent empty DOM snapshots from corrupting the lyrics cache during Spotify's React rendering cycles.
+- **Interceptor Optimization**: Moved the generation increment after validation guards, ensuring no generations are wasted on Latin/already-dense songs.
 - **Memory Management**: Fixed a memory leak in the fetch interceptor by ensuring pending metadata callbacks are properly cleaned up on timeout.
-- **Concurrency Control**: Implemented a global Generation Guard (`interceptId`) in the main-world interceptor to block stale lyric-fetch cascades when rapidly skipping songs.
 - **Robust Romanization**: Added word-boundary truncation for long lyric lines to maintain 1:1 index alignment for translations while staying within API limits.
 - **Improved Resiliency**: Added retry logic for Kuroshiro initialization and defensive null-guards for track ID conversions.
 - **Optimized Script Mapping**: Expanded the `LATIN_LIKE_LANGS` whitelist and refined script-to-language mappings to skip redundant API calls for most Latin script variants.
+- **Test Suite Stabilization**: Resolved persistent Vitest environment invariant failures and module resolution errors for a 100% green CI pass.
 
 ## [3.0.4] — 2026-04-01
 
