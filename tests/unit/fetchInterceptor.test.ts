@@ -50,7 +50,7 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
     });
 
     it('intercepts /color-lyrics/v2/ HTTP calls for supported languages', async () => {
-        await import('../../public/fetchInterceptor.js');
+        await import('../../entrypoints/fetchInterceptor');
 
         // Fire the intercepted fetch with a supported language ('hi')
         await window.fetch('https://spclient.wg.spotify.com/color-lyrics/v2/track/4cOdK2wGLETKBW3PvgPWqT');
@@ -68,7 +68,7 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
     });
 
     it('ignores unsupported languages to save processing', async () => {
-        await import('../../public/fetchInterceptor.js');
+        await import('../../entrypoints/fetchInterceptor');
 
         // 123 returns 'en'
         await window.fetch('https://spclient.wg.spotify.com/color-lyrics/v2/track/123');

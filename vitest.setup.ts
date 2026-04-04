@@ -1,9 +1,4 @@
 import { vi } from 'vitest';
-import { TextEncoder, TextDecoder } from 'util';
-
-// Polyfills for TextEncoder/Uint8Array invariant in JSDOM/Node 20+
-global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder as any;
 
 // Mock WebExtension browser API
 const browserMock = {
@@ -35,3 +30,4 @@ const browserMock = {
 (global as any).browser = browserMock;
 (global as any).defineBackground = (fn: Function) => fn;
 (global as any).defineContentScript = (config: any) => config;
+(global as any).defineUnlistedScript = (fn: Function) => fn();

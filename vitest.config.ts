@@ -8,4 +8,9 @@ export default defineConfig({
         setupFiles: ['./vitest.setup.ts'],
         globals: true,
     },
+    resolve: {
+        alias: {
+            'wxt/client': '/tests/mocks/wxt-client.ts',
+        },
+    },
 });
