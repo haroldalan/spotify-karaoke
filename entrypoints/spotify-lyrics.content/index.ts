@@ -540,8 +540,6 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
   if (!suppressLoading) setLoadingState(true);
   isSwitchingMode = true;
 
-  if (cache.original.length === 0) snapshotOriginals();
-
   // FAIL-SAFE: If snapshot attempt still yielded nothing (skeleton DOM), abort and wait for next mutation.
   if (next !== 'original' && cache.original.length === 0) {
     isSwitchingMode = false;

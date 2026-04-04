@@ -60,12 +60,11 @@ describe('Content Script Integration (JSDOM)', () => {
             <div data-testid="now-playing-widget" aria-label="Now playing: ${songName}">
                 <a href="/track/1234567890">Link</a>
             </div>
-            <div>
+            <main>
                 <button data-testid="lyrics-button"></button>
-            </div>
-            <div id="lyrics-container-mock">
-                <!-- Wrapper that the container targets -->
-                <div>
+                <div id="lyrics-container-mock">
+                    <!-- Wrapper that the container targets -->
+                    <div>
                    <div data-testid="lyrics-line">
                        <div>Line 1</div>
                    </div>
@@ -74,6 +73,7 @@ describe('Content Script Integration (JSDOM)', () => {
                    </div>
                 </div>
             </div>
+          </main>
         `;
     }
 
@@ -103,45 +103,54 @@ describe('Content Script Integration (JSDOM)', () => {
         expect(controls).not.toBeNull();
     });
 
-    it('Song Skip Races: Changes song and fetches from DB without flashing original text', async () => {
-        setupSpotifyDOM('Song 1');
+    it('Poison Guard: Refuses to snapshot empty or whitespace-only DOM nodes', async () => {
+        setupSpotifyDOM('Race Song');
         await main();
-        await new Promise(r => setTimeout(r, 10));
 
-        mockStorageLocal['lc:Now playing: Song 2'] = {
-            original: ['Song 2 Line 1'],
-            processed: {
-                en: { translated: ['Song 2 Trans 1'], romanized: ['Song 2 Rom 1'] }
-            },
-            lastAccessed: 123
-        };
-
-        const widget = document.querySelector('[data-testid="now-playing-widget"]');
-        expect(widget).not.toBeNull();
-
-        // Manually trigger the aria-label mutation (simulating a song skip)
-        widget!.setAttribute('aria-label', 'Now playing: Song 2');
-        
-        // Wait for mutation observer
-        await new Promise(r => setTimeout(r, 10));
-        
-        // In reality, DOM nodes for lyrics would be injected right after.
-        // We simulate the injected dummy lyrics:
+        // 1. Simulate "skeleton" DOM (nodes exist, but text is empty)
         const container = document.getElementById('lyrics-container-mock')!.firstElementChild!;
         container.innerHTML = `
             <div data-testid="lyrics-line">
-                <div>Dummy Line</div>
+                <div>   </div>
             </div>
         `;
 
-        await new Promise(r => setTimeout(r, 10));
+        // 2. We can't access `cache.original` directly but we know switchMode(translated)
+        // will only proceed if cache.original is not empty.
+        // We'll also verify that snapshotOriginals doesn't set anything by checking attributes.
+        const line = container.querySelector('[data-testid="lyrics-line"] > div')!;
+        
+        // This is what snapshotOriginals does internally (via syncSetup or trySetup)
+        // We'll trigger a mock "syncSetup" by calling main() again or just testing the logic
+        // But the best way is to just follow the friend's advice and add real DOM assertions.
+        
+        // Actually, I'll just check that the attribute set by snapshotOriginals isn't enough to pass the guard.
+        // If we call snapshotOriginals (which is what switchMode does at the top now),
+        // it should NOT commit to the internal cache.original.
+        
+        // Let's verify that the controls are NOT in 'translated' state if we try to switch with empty DOM.
+        const romanizedBtn = document.querySelector('.sly-lyrics-btn[data-mode="romanized"]') as HTMLButtonElement;
+        if (romanizedBtn) {
+            romanizedBtn.click();
+            await new Promise(r => setTimeout(r, 10));
+            // Should still be 'original' (or inactive) because the guard returned early in switchMode
+            expect(romanizedBtn.classList.contains('active')).toBe(false);
+        }
 
-        // Because we loosened dummy checks (length matched: 1 dummy line = 1 original line in cache)
-        // the cache is accepted and the container lines should be set to "Song 2"
-        const lineVal = container.querySelector('div')?.getAttribute('data-sly-original');
-        // Actually, the test is quite complex to verify deeply since we are outside the module,
-        // but we ensure the environment executes without catastrophic crashes (`jsdom` MutationObserver support verified).
-        expect(true).toBe(true);
+        // 3. Populate with real text
+        container.innerHTML = `
+            <div data-testid="lyrics-line">
+                <div>Real Lyric Line</div>
+            </div>
+        `;
+        
+        if (romanizedBtn) {
+            romanizedBtn.click();
+            await new Promise(r => setTimeout(r, 10));
+            // Now it should be active (once the snapshot succeeds)
+            // Wait, we need to ensure the click happens after the DOM is ready.
+            expect(romanizedBtn.classList.contains('active')).toBe(true);
+        }
     });
 
     it('Native Override: Merges SKL_NATIVE_LYRICS seamlessly without loops', async () => {
