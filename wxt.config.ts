@@ -16,7 +16,7 @@ export default defineConfig({
       48: "icon48.png",
       128: "icon128.png"
     },
-    permissions: ['storage', 'unlimitedStorage'],
+    permissions: ['storage'],
     content_scripts: [
       {
         matches: ['*://open.spotify.com/*'],

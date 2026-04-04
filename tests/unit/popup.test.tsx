@@ -37,13 +37,22 @@ describe('Popup App Component', () => {
     it('updates storage when changing language', async () => {
         render(<App />);
 
-        await waitFor(() => {
-            const select = screen.getByRole('combobox');
-            fireEvent.change(select, { target: { value: 'ja' } });
-        });
+        // 1. Wait for async hydration (sets defaults from storage mock)
+        await waitFor(() => expect(screen.getByText('Spanish')).toBeDefined());
 
-        expect(global.browser.storage.sync.set).toHaveBeenCalledWith({
-            targetLang: 'ja'
+        // 2. Open the dropdown
+        const trigger = screen.getByRole('button', { name: /spanish/i });
+        fireEvent.click(trigger);
+
+        // 3. Find and select Japanese (use all/find + selector to avoid multiple match error)
+        const options = await screen.findAllByText('Japanese');
+        fireEvent.click(options[0]);
+
+        // 4. Verify storage write
+        await waitFor(() => {
+            expect((global.browser.storage.sync.set as any)).toHaveBeenCalledWith({
+                targetLang: 'ja'
+            });
         });
     });
 

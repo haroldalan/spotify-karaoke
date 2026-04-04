@@ -1,6 +1,3 @@
-/**
- * @vitest-environment happy-dom
- */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 describe('Fetch Interceptor (window.fetch Hijack)', () => {

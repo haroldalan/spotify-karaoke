@@ -1,4 +1,9 @@
 import { vi } from 'vitest';
+import { TextEncoder, TextDecoder } from 'util';
+
+// Polyfills for TextEncoder/Uint8Array invariant in JSDOM/Node 20+
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder as any;
 
 // Mock WebExtension browser API
 const browserMock = {
