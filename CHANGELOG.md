@@ -15,6 +15,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Improved Resiliency**: Added retry logic for Kuroshiro initialization and defensive null-guards for track ID conversions.
 - **Optimized Script Mapping**: Expanded the `LATIN_LIKE_LANGS` whitelist and refined script-to-language mappings to skip redundant API calls for most Latin script variants.
 - **Test Suite Stabilization**: Resolved persistent Vitest environment invariant failures and module resolution errors for a 100% green CI pass.
+- **Expert-Audited Validation**: Conducted a final technical validation with external experts, confirming architectural decisions and resolving a long-standing documentation drift for the v3.0.5 release.
+- **Documentation & Privacy Polish**: Revamped the README with a technical "Under the Hood" summary and expanded the Privacy & Disclaimer section for full transparency on MyMemory fallback and cache eviction logic.
 
 ## [3.0.4] — 2026-04-01
 
