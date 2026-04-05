@@ -75,7 +75,7 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 
 Spotify often serves romanized fallback lyrics for non-Latin songs (e.g. Thai, Arabic, or Indian languages) even when the original native-script version exists on Musixmatch.
 
-Spotify Karaoke fixes this automatically. When you play a'supported song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The original script appears natively in the lyrics panel — no user action required.
+Spotify Karaoke fixes this automatically. When you play a supported song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The original script appears natively in the lyrics panel — no user action required.
 
 Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
@@ -105,12 +105,12 @@ Translation for all languages goes through Google Translate, with automatic fail
 
 | | |
 |---|---|
-| **Interception point** | `document_start`, MAIN world — before React first paint |
-| **Romanization** | 9 local libraries · zero API calls for JP/KO/ZH/Indic/Cyrillic/Thai/Tamil |
-| **Stale-cancel guards** | 2 independent generation counters (`_currentInterceptGeneration` in interceptor · `processGen` in content script) |
-| **Translation fallback** | Google Translate → MyMemory → original preserved |
+| **Interception point** | `document_start`, MAIN world â€” before React first paint |
+| **Romanization** | 9 local libraries Â· zero API calls for JP/KO/ZH/Indic/Cyrillic/Thai/Tamil |
+| **Stale-cancel guards** | 2 independent generation counters (`_currentInterceptGeneration` in interceptor Â· `processGen` in content script) |
+| **Translation fallback** | Google Translate â†’ MyMemory â†’ original preserved |
 | **Cache** | 10-song in-memory LRU + 4.5 MB persistent LRU (`browser.storage.local`, evicts to 3.5 MB) |
-| **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
+| **Browser support** | Chrome MV3 Â· Firefox MV2 (â‰¥ 142.0) |
 
 ---
 
@@ -181,6 +181,6 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 ---
 
 <div align="center">
-  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a><br>
-  <i>Made by Harold Alan. If you find it useful, a ⭐ on GitHub goes a long way.</i>
+  MIT License Â· <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a><br>
+  <i>Made by Harold Alan. If you find it useful, a â­ on GitHub goes a long way.</i>
 </div>
