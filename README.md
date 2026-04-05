@@ -7,10 +7,8 @@
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
   <br><br>
   ![GitHub release](https://img.shields.io/github/v/release/haroldalan/spotify-karaoke)
-  ![GitHub commits since release](https://img.shields.io/github/commits-since/haroldalan/spotify-karaoke/latest)
   ![License](https://img.shields.io/github/license/haroldalan/spotify-karaoke)
   ![TypeScript](https://img.shields.io/github/languages/top/haroldalan/spotify-karaoke)
-  ![Scripts romanized locally](https://img.shields.io/badge/scripts_romanized_locally-9_libraries-brightgreen)
 </div>
 
 ---
