@@ -1,7 +1,7 @@
 <div align="center">
   <img src="public/icon128.png" alt="Spotify Karaoke" width="96">
   <h1>Spotify Karaoke</h1>
-  <p>Romanize, translate, and sing along to any song on Spotify - right in the web player.</p>
+  <p>Sing along to any Spotify song — karaoke-style, with synchronized romanization and translation</p>
 
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie"><img src="https://img.shields.io/badge/Chrome-Install-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome Web Store"></a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
@@ -15,13 +15,15 @@
 
 ## What it does
 
-Spotify Karaoke adds three lyric display modes to the Spotify web player:
+Spotify's built-in lyrics panel doesn't help you sing along to songs in languages you don't read. `Spotify Karaoke` fixes that. It adds three lyric display modes to the Spotify web player:
 
 - **Original** - lyrics as Spotify shows them, unchanged.
 - **Romanized** - non-Latin scripts (Japanese, Korean, Tamil, Hindi, etc.) rendered phonetically in the Latin alphabet so you can sing along.
 - **Translated** - lyrics translated into any of 100+ languages.
 
 Switch between modes using the floating pill controls injected directly into the lyrics panel, the popup, or keyboard shortcuts. No page reload, no flicker.
+
+**Native script restoration:** For Hindi, Tamil, Korean, and other non-Latin songs, Spotify often serves romanized fallback lyrics. This extension automatically replaces them with the correct native script — before Spotify even renders the page.
 
 **Dual Lyrics mode** - in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference. Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
 
@@ -105,12 +107,12 @@ Translation for all languages goes through Google Translate, with automatic fail
 
 | | |
 |---|---|
-| **Interception point** | `document_start`, MAIN world â€” before React first paint |
-| **Romanization** | 9 local libraries Â· zero API calls for JP/KO/ZH/Indic/Cyrillic/Thai/Tamil |
-| **Stale-cancel guards** | 2 independent generation counters (`_currentInterceptGeneration` in interceptor Â· `processGen` in content script) |
-| **Translation fallback** | Google Translate â†’ MyMemory â†’ original preserved |
+| **Interception point** | `document_start`, MAIN world — before React first paint |
+| **Romanization** | 9 local libraries · zero API calls for JP/KO/ZH/Indic/Cyrillic/Thai/Tamil |
+| **Stale-cancel guards** | 2 independent generation counters (`_currentInterceptGeneration` in interceptor · `processGen` in content script) |
+| **Translation fallback** | Google Translate → MyMemory → original preserved |
 | **Cache** | 10-song in-memory LRU + 4.5 MB persistent LRU (`browser.storage.local`, evicts to 3.5 MB) |
-| **Browser support** | Chrome MV3 Â· Firefox MV2 (â‰¥ 142.0) |
+| **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
 
 ---
 
@@ -181,6 +183,6 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 ---
 
 <div align="center">
-  MIT License Â· <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a><br>
-  <i>Made by Harold Alan. If you find it useful, a â­ on GitHub goes a long way.</i>
+  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a><br>
+  <i>Made by Harold Alan. If you find it useful, a ⭐ on GitHub goes a long way.</i>
 </div>
