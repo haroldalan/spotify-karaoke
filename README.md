@@ -5,6 +5,12 @@
 
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie"><img src="https://img.shields.io/badge/Chrome-Install-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome Web Store"></a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
+  <br><br>
+  ![GitHub release](https://img.shields.io/github/v/release/haroldalan/spotify-karaoke)
+  ![GitHub commits since release](https://img.shields.io/github/commits-since/haroldalan/spotify-karaoke/latest)
+  ![License](https://img.shields.io/github/license/haroldalan/spotify-karaoke)
+  ![TypeScript](https://img.shields.io/github/languages/top/haroldalan/spotify-karaoke)
+  ![Scripts romanized locally](https://img.shields.io/badge/scripts_romanized_locally-9_libraries-brightgreen)
 </div>
 
 ---
@@ -19,7 +25,7 @@ Spotify Karaoke adds three lyric display modes to the Spotify web player:
 
 Switch between modes using the floating pill controls injected directly into the lyrics panel, the popup, or keyboard shortcuts. No page reload, no flicker.
 
-**Dual Lyrics mode** — in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference. Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
+**Dual Lyrics mode** - in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference. Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
 
 | Dual Lyrics On | Dual Lyrics Off |
 | :---: | :---: |
@@ -42,8 +48,8 @@ There are three ways to switch between Original, Romanized, and Translated:
 | Method | How |
 | :--- | :--- |
 | **Floating pill** | The `[Original] [Romanized] [Translated]` pill injected at the top of the Spotify lyrics panel. |
-| **Extension popup** | The same pill is replicated inside the popup — acts as a remote control and always reflects the current mode, even if the floating pill is hidden. |
-| **Keyboard shortcuts** | While the lyrics panel is open, press `O`, `R`, or `T`. Safe to use — shortcuts are ignored when focus is in a text input or search bar. |
+| **Extension popup** | The same pill is replicated inside the popup - acts as a remote control and always reflects the current mode, even if the floating pill is hidden. |
+| **Keyboard shortcuts** | While the lyrics panel is open, press `O`, `R`, or `T`. Safe to use - shortcuts are ignored when focus is in a text input or search bar. |
 
 Power users can toggle off the floating pill entirely via **Show Floating Controls** in the popup, then use keyboard shortcuts or the popup pill for a completely unobstructed lyrics view.
 
@@ -71,7 +77,7 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 
 Spotify often serves romanized fallback lyrics for non-Latin songs (e.g. Thai, Arabic, or Indian languages) even when the original native-script version exists on Musixmatch.
 
-Spotify Karaoke fixes this automatically. When you play a'supported song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The original script appears natively in the lyrics panel - no user action required.
+Spotify Karaoke fixes this automatically. When you play a'supported song, the extension intercepts Spotify's lyrics API response, detects the romanized fallback, fetches the native-script subtitles from Musixmatch, and replaces the response before Spotify renders it. The original script appears natively in the lyrics panel — no user action required.
 
 Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
@@ -94,6 +100,19 @@ Romanize and Translate modes then operate on the correct native source, producin
 | *Fallback* | `transliteration` | Local |
 
 Translation for all languages goes through Google Translate, with automatic failover to MyMemory if rate-limited.
+
+---
+
+## Under the Hood
+
+| | |
+|---|---|
+| **Interception point** | `document_start`, MAIN world — before React first paint |
+| **Romanization** | 9 local libraries · zero API calls for JP/KO/ZH/Indic/Cyrillic/Thai/Tamil |
+| **Stale-cancel guards** | 2 independent generation counters (`_currentInterceptGeneration` in interceptor · `processGen` in content script) |
+| **Translation fallback** | Google Translate → MyMemory → original preserved |
+| **Cache** | 10-song in-memory LRU + 4.5 MB persistent LRU (`browser.storage.local`, evicts to 3.5 MB) |
+| **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
 
 ---
 
@@ -122,20 +141,26 @@ npm run test           # Run unit and component test suite
 ```
 entrypoints/
   background.ts              # Service worker: romanization + translation orchestration
-  fetchInterceptor.ts        # WXT unlisted script: custom logic for Spotify API patching
+  fetchInterceptor.ts        # MAIN world unlisted script: fetch interceptor, native script restoration
   spotify-lyrics.content/
     index.ts                 # DOM engine: MutationObserver, mode switching, caching
     style.css
-  popup/                     # Preact popup: zero-latency remote pill, language selector, dual lyrics + visibility toggles
+  popup/                     # Preact popup: mode pill, language selector, dual lyrics + visibility toggles
 ```
 
 ### How it works
+
+Spotify Karaoke uses an injected DOM engine and a service worker to process lyrics in real-time.
+
+<details>
+<summary>Technical deep-dive</summary>
 
 **Lyrics injection:** A `MutationObserver` watches Spotify's `<main>` element for newly rendered lyric lines. When the lyrics change, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements. Spotify's own React state is never touched.
 
 **Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
 
 **Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute, solving previous race conditions. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses.
+</details>
 
 ---
 
