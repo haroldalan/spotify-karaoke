@@ -49,7 +49,7 @@ There are three ways to switch between Original, Romanized, and Translated:
 | :--- | :--- |
 | **Floating pill** | The `[Original] [Romanized] [Translated]` pill injected at the top of the Spotify lyrics panel. |
 | **Extension popup** | The same pill is replicated inside the popup - acts as a remote control and always reflects the current mode, even if the floating pill is hidden. |
-| **Keyboard shortcuts** | While the lyrics panel is open, press `O`, `R`, or `T`. Safe to use - shortcuts are ignored when focus is in a text input or search bar. |
+| **Keyboard shortcuts** | While the lyrics panel is open, press `O` (Original), `R` (Romanized), or `T` (Translated). Safe to use - shortcuts are ignored when focus is in a text input or search bar. |
 
 Power users can toggle off the floating pill entirely via **Show Floating Controls** in the popup, then use keyboard shortcuts or the popup pill for a completely unobstructed lyrics view.
 
@@ -87,7 +87,7 @@ Romanize and Translate modes then operate on the correct native source, producin
 
 ## Romanization Coverage
 
-| Script | Library | Mode |
+| Script | Library | Processing |
 | :--- | :--- | :--- |
 | **Japanese** (Kanji + Kana) | `@sglkc/kuroshiro` + Kuromoji | Local |
 | **Korean** (Hangul) | `@romanize/korean` | Local |
@@ -97,9 +97,8 @@ Romanize and Translate modes then operate on the correct native source, producin
 | **Cyrillic** (Russian, Ukrainian, etc.) | `cyrillic-to-translit-js` | Local |
 | **Thai** | `@dehoist/romanize-thai` | Local |
 | **Malayalam, Bengali, Arabic, Hebrew** | Google Translate (`dt=rm`) | API |
-| *Fallback* | `transliteration` | Local |
-
-Translation for all languages goes through Google Translate, with automatic failover to MyMemory if rate-limited.
+| **Any script** *(Fallback)* | `transliteration` | Local |
+| **Translation** (All scripts) | Google Translate → MyMemory fallback | API |
 
 ---
 
