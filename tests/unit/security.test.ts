@@ -25,10 +25,11 @@ describe('Security and Permissions Audit', () => {
         const manifest = (configObject as any).manifest;
         const permissions = manifest.permissions || [];
 
-        // The only permission this extension needs is storage 
-        // to save user preferences.
-        expect(permissions).toHaveLength(1);
+        // The extension needs storage for preferences/cache and unlimitedStorage
+        // to lift the local storage quota for lyrics.
+        expect(permissions).toHaveLength(2);
         expect(permissions).toContain('storage');
+        expect(permissions).toContain('unlimitedStorage');
 
         // Explicitly deny sensitive permissions
         expect(permissions).not.toContain('tabs');

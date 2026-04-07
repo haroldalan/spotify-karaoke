@@ -343,6 +343,9 @@ export default defineUnlistedScript(() => {
                 const hexGid = spotifyTrackId ? base62ToHex(spotifyTrackId) : null;
 
                 if (isDenseTypeface !== false || LATIN_LIKE_LANGS.has(language!) || !spotifyTrackId || !hexGid) {
+                    if (!hexGid && spotifyTrackId) {
+                        console.warn('[SKaraoke:Interceptor] Base62 conversion failed for track ID:', spotifyTrackId);
+                    }
                     const headers = new Headers(fallbackResponse.headers);
                     headers.delete('content-encoding');
                     headers.set('content-type', 'application/json');

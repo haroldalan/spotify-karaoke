@@ -13,6 +13,8 @@ type LyricsMode = 'original' | 'romanized' | 'translated';
 interface ProcessedCache {
   translated: string[];
   romanized: string[];
+  isLowQualityRomanization?: boolean;
+  wasTruncated?: boolean;
 }
 
 interface SongCache {
@@ -33,7 +35,6 @@ interface LyricsCacheEntry {
 
 type LyricsIndex = {
   [songKey: string]: {
-    size: number;   // Approx byte size of the entry
     lastAccessed: number;
   };
 };
@@ -50,6 +51,23 @@ const isContextValid = () => {
     return false;
   }
 };
+
+/**
+ * Wraps browser/runtime calls to handle context invalidation gracefully.
+ */
+async function safeBrowserCall<T>(fn: () => Promise<T>): Promise<T | null> {
+  if (!isContextValid()) return null;
+  try {
+    return await fn();
+  } catch (err: any) {
+    if (err.message?.includes('Extension context invalidated')) {
+      console.warn('[SKaraoke:Content] Context invalidated.');
+    } else {
+      console.error('[SKaraoke:Content] Browser call failed:', err);
+    }
+    return null;
+  }
+}
 
 const CONTROLS_ID = 'sly-lyrics-controls';
 let mode: LyricsMode = 'original';
@@ -302,14 +320,12 @@ function startLyricsObserver(): void {
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 
 async function getTargetLang(): Promise<string> {
-  const data = await browser.storage.sync.get('targetLang');
-  return (data.targetLang as string) ?? 'en';
+  const data = await safeBrowserCall(() => browser.storage.sync.get('targetLang'));
+  return (data?.targetLang as string) ?? 'en';
 }
 
 // ─── Persistent Lyrics Cache ──────────────────────────────────────────────────
 
-const EVICT_THRESHOLD_BYTES = 4.5 * 1024 * 1024; // 4.5 MB — start evicting
-const EVICT_TARGET_BYTES = 3.5 * 1024 * 1024; // 3.5 MB — evict down to this
 
 /**
  * Loads any previously cached processed results for the current song.
@@ -328,8 +344,8 @@ async function loadSongCache(key: string): Promise<void> {
     } else {
       // Cold path: first play of this song since browser start — read from storage.
       const storageKey = `lc:${key}`;
-      const data = await browser.storage.local.get(storageKey);
-      entry = data[storageKey] as LyricsCacheEntry | undefined;
+      const data = await safeBrowserCall(() => browser.storage.local.get(storageKey));
+      entry = data?.[storageKey] as LyricsCacheEntry | undefined;
     }
 
     if (!entry) return;
@@ -353,16 +369,13 @@ async function loadSongCache(key: string): Promise<void> {
     }
 
     // Update lastAccessed in storage index (fire-and-forget)
-    if (isContextValid()) {
-      browser.storage.local.get('lc_index').then((d) => {
-        if (!isContextValid()) return;
-        const idx = (d['lc_index'] ?? {}) as LyricsIndex;
-        if (idx[key]) {
-          idx[key].lastAccessed = Date.now();
-          browser.storage.local.set({ lc_index: idx });
-        }
-      }).catch(() => { });
-    }
+    safeBrowserCall(() => browser.storage.local.get('lc_index')).then((d) => {
+      const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
+      if (idx[key]) {
+        idx[key].lastAccessed = Date.now();
+        safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+      }
+    }).catch(() => { });
   } catch (err) {
     console.warn('[SKaraoke:Content] loadSongCache failed:', err);
   }
@@ -392,83 +405,29 @@ async function saveSongCache(key: string): Promise<void> {
     runtimeCache.delete(runtimeCache.keys().next().value!);
   }
 
-  const size = new TextEncoder().encode(JSON.stringify(entry)).length;
   const storageKey = `lc:${key}`;
 
-  browser.storage.local.get('lc_index').then(async (d) => {
-    if (!isContextValid()) return;
-    const idx = (d['lc_index'] ?? {}) as LyricsIndex;
-    idx[key] = { size, lastAccessed: entry.lastAccessed };
-    
-    await evictIfNeeded(idx);
+  safeBrowserCall(() => browser.storage.local.get('lc_index')).then(async (d) => {
+    const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
+    idx[key] = { lastAccessed: entry.lastAccessed };
 
     try {
-      await browser.storage.local.set({ [storageKey]: entry, lc_index: idx });
+      await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
     } catch (err: any) {
-      if (err.message?.includes('exceeded') || err.name === 'QuotaExceededError') {
-        await forceEvict(idx);
-        await browser.storage.local.set({ [storageKey]: entry, lc_index: idx }).catch(e => console.warn(e));
-      } else {
-        console.warn('[SKaraoke:Content] saveSongCache failed:', err);
-      }
+      console.warn('[SKaraoke:Content] saveSongCache failed:', err);
     }
   }).catch((err) => console.warn('[SKaraoke:Content] saveSongCache index get failed:', err));
 }
 
-/** LRU eviction — removes oldest entries until storage.local is under 3.5 MB. */
-async function evictIfNeeded(idx: LyricsIndex): Promise<void> {
-  const runEviction = async (bytes: number) => {
-    if (bytes <= EVICT_THRESHOLD_BYTES) return;
-
-    const sorted = Object.entries(idx).sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
-    const toRemove: string[] = [];
-    let freed = 0;
-
-    for (const [sk, meta] of sorted) {
-      if (bytes - freed <= EVICT_TARGET_BYTES) break;
-      toRemove.push(`lc:${sk}`);
-      freed += meta.size;
-      delete idx[sk];
-    }
-
-    if (toRemove.length === 0) return;
-    await browser.storage.local.remove(toRemove);
-  };
-
-  try {
-    if (typeof browser.storage.local.getBytesInUse === 'function') {
-      const bytes = await browser.storage.local.getBytesInUse(null);
-      await runEviction(bytes);
-    } else {
-      const estimatedBytes = Object.values(idx).reduce((sum, m) => sum + m.size, 0);
-      await runEviction(estimatedBytes);
-    }
-  } catch { /* ignore */ }
-}
-
-async function forceEvict(idx: LyricsIndex): Promise<void> {
-  const sorted = Object.entries(idx).sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
-  const toRemove: string[] = [];
-  let freed = 0;
-  for (const [sk, meta] of sorted) {
-    if (freed >= 1 * 1024 * 1024) break; // forcefully free 1MB
-    toRemove.push(`lc:${sk}`);
-    freed += meta.size;
-    delete idx[sk];
-  }
-  if (toRemove.length > 0) {
-    await browser.storage.local.remove(toRemove);
-  }
-}
 
 /** Removes a single song entry from storage and its index record. */
 function deleteSongCache(key: string): void {
   if (!key) return;
-  browser.storage.local.get('lc_index').then((d) => {
-    const idx = (d['lc_index'] ?? {}) as LyricsIndex;
+  safeBrowserCall(() => browser.storage.local.get('lc_index')).then((d) => {
+    const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
     delete idx[key];
-    browser.storage.local.remove(`lc:${key}`);
-    browser.storage.local.set({ lc_index: idx });
+    safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
+    safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
   }).catch(() => { });
 }
 
@@ -488,14 +447,18 @@ async function fetchProcessed(
 
   const gen = ++processGen;
 
-  const result = await browser.runtime.sendMessage({
+  const result = await safeBrowserCall(() => browser.runtime.sendMessage({
     type: 'PROCESS',
     lines,
     targetLang: lang,
-  }) as ProcessedCache | null;
+  })) as ProcessedCache | null;
 
   if (gen !== processGen) return null; // stale — song or lang changed mid-flight
   if (!result || !Array.isArray(result.translated)) return null;
+
+  if (result.wasTruncated) {
+    showToast('Some long lines were truncated to maintain sync.', 4000);
+  }
 
   cache.processed.set(lang, result);
   saveSongCache(songKey); // persist to storage.local (fire-and-forget)
@@ -526,7 +489,7 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
     mode = next;
     if (preferredMode !== next) {
       preferredMode = next;
-      browser.storage.sync.set({ preferredMode: next });
+      safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
     }
     applyLinesToDOM(cache.original);
     syncButtonStates();
@@ -551,7 +514,7 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
     if (next === 'original') {
       if (preferredMode !== next) {
         preferredMode = next;
-        browser.storage.sync.set({ preferredMode: next });
+        safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
       }
       // Apply text content while shimmer still hides it (-webkit-text-fill-color: transparent),
       // then reveal by removing the shimmer — both land in the same paint frame.
@@ -562,8 +525,10 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
 
       let processed: ProcessedCache | null = null;
       // Fast path: if requesting romanized, ANY cached language contains the exact same romanized array.
+      // Prioritize high-quality romanization (not MyMemory fallback) if multiple exist.
       if (next === 'romanized' && cache.processed.size > 0) {
-        processed = cache.processed.values().next().value ?? null;
+        const entries = Array.from(cache.processed.values());
+        processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0] ?? null;
       } else {
         processed = await fetchProcessed(cache.original, lang);
       }
@@ -577,7 +542,7 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
       currentActiveLang = lang;
       if (preferredMode !== next) {
         preferredMode = next;
-        browser.storage.sync.set({ preferredMode: next });
+        safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
       }
       const lines = next === 'romanized' ? processed.romanized : processed.translated;
       // Apply text content while shimmer still hides it (-webkit-text-fill-color: transparent),
@@ -606,7 +571,8 @@ async function reapplyMode(): Promise<void> {
 
   let processed = cache.processed.get(currentActiveLang);
   if (!processed && mode === 'romanized' && cache.processed.size > 0) {
-    processed = cache.processed.values().next().value;
+    const entries = Array.from(cache.processed.values());
+    processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
   }
 
   if (!processed) return;
@@ -787,7 +753,8 @@ function syncSetup(): void {
   if (preferredMode !== 'original') {
     let processed = cache.processed.get(currentActiveLang);
     if (!processed && preferredMode === 'romanized' && cache.processed.size > 0) {
-      processed = cache.processed.values().next().value;
+      const entries = Array.from(cache.processed.values());
+      processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
     }
 
     if (processed) {
@@ -813,6 +780,9 @@ function syncSetup(): void {
 
 function pollForLyricsContainer(attempts = 0): void {
   if (attempts > 120) {
+    if (attempts === 121) {
+      console.log('[SKaraoke:Content] Lyrics panel still hidden, switching to slow poll fallback...');
+    }
     if (attempts > 130) return; // Ultimate fallback
     setTimeout(() => pollForLyricsContainer(attempts + 1), 500);
     return;
@@ -838,13 +808,10 @@ function onSongChange(newKey: string): void {
   // This easily beats Spotify's 100ms lyrics network fetch, guaranteeing that
   // when syncSetup() inevitably fires, the data is already in fast-memory,
   // preventing the flash of original lyrics entirely on track skip!
-  if (isContextValid()) {
-    browser.storage.local.get(`lc:${newKey}`).then((data) => {
-      if (!isContextValid()) return;
-      const entry = data[`lc:${newKey}`] as LyricsCacheEntry | undefined;
-      if (entry) runtimeCache.set(newKey, entry);
-    }).catch(() => {});
-  }
+  safeBrowserCall(() => browser.storage.local.get(`lc:${newKey}`)).then((data) => {
+    const entry = data?.[`lc:${newKey}`] as LyricsCacheEntry | undefined;
+    if (entry) runtimeCache.set(newKey, entry);
+  }).catch(() => {});
 
   // Visually disable the controls pill instead of deleting it
   const controls = document.getElementById(CONTROLS_ID);
@@ -857,51 +824,53 @@ function onSongChange(newKey: string): void {
 // ─── Storage Listener ────────────────────────────────────────────────────────
 
 function startStorageListener(): void {
-  browser.storage.onChanged.addListener((changes, area) => {
-    if (!isContextValid()) return;
-    if (area === 'local') {
-      if ('lc_index' in changes && changes.lc_index.newValue === undefined) {
-        runtimeCache.clear();
+  safeBrowserCall(async () => {
+    browser.storage.onChanged.addListener((changes, area) => {
+      if (!isContextValid()) return;
+      if (area === 'local') {
+        if ('lc_index' in changes && changes.lc_index.newValue === undefined) {
+          runtimeCache.clear();
+        }
+        return;
       }
-      return;
-    }
-    if (area !== 'sync') return;
+      if (area !== 'sync') return;
 
-    if ('targetLang' in changes) {
-      const newLang = (changes.targetLang.newValue as string | undefined) ?? 'en';
-      currentActiveLang = newLang;
-      if (mode === 'translated') {
-        switchMode('translated', newLang);
-      }
-    }
-
-    if ('dualLyrics' in changes) {
-      dualLyricsEnabled = (changes.dualLyrics.newValue as boolean | undefined) ?? true;
-      if (mode !== 'original' && cache.original.length > 0) {
-        const processed = cache.processed.get(currentActiveLang);
-        if (processed) {
-          const lines = mode === 'romanized' ? processed.romanized : processed.translated;
-          applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined);
+      if ('targetLang' in changes) {
+        const newLang = (changes.targetLang.newValue as string | undefined) ?? 'en';
+        currentActiveLang = newLang;
+        if (mode === 'translated') {
+          switchMode('translated', newLang);
         }
       }
-    }
 
-    // preferredMode changed — could be a reset OR the popup pill acting as remote control.
-    // In either case, immediately switch the live lyrics to reflect the new selection.
-    if ('preferredMode' in changes) {
-      const newPref = (changes.preferredMode.newValue as LyricsMode | undefined) ?? 'original';
-      preferredMode = newPref;
-      // Always switch to the new preferred mode, not just on reset.
-      // This makes the popup pill a real-time remote control for the lyrics page.
-      if (newPref !== mode) {
-        switchMode(newPref);
+      if ('dualLyrics' in changes) {
+        dualLyricsEnabled = (changes.dualLyrics.newValue as boolean | undefined) ?? true;
+        if (mode !== 'original' && cache.original.length > 0) {
+          const processed = cache.processed.get(currentActiveLang);
+          if (processed) {
+            const lines = mode === 'romanized' ? processed.romanized : processed.translated;
+            applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined);
+          }
+        }
       }
-    }
 
-    if ('showPill' in changes) {
-      showPill = (changes.showPill.newValue as boolean | undefined) ?? true;
-      setPillVisibility(showPill);
-    }
+      // preferredMode changed — could be a reset OR the popup pill acting as remote control.
+      // In either case, immediately switch the live lyrics to reflect the new selection.
+      if ('preferredMode' in changes) {
+        const newPref = (changes.preferredMode.newValue as LyricsMode | undefined) ?? 'original';
+        preferredMode = newPref;
+        // Always switch to the new preferred mode, not just on reset.
+        // This makes the popup pill a real-time remote control for the lyrics page.
+        if (newPref !== mode) {
+          switchMode(newPref);
+        }
+      }
+
+      if ('showPill' in changes) {
+        showPill = (changes.showPill.newValue as boolean | undefined) ?? true;
+        setPillVisibility(showPill);
+      }
+    });
   });
 }
 
@@ -968,7 +937,7 @@ function startObserver(): void {
 
 async function main(): Promise<void> {
   if (!isContextValid()) return;
-  try {
+  safeBrowserCall(async () => {
     const prefs = await browser.storage.sync.get(['dualLyrics', 'targetLang', 'preferredMode', 'showPill']);
     dualLyricsEnabled = prefs.dualLyrics !== undefined
       ? (prefs.dualLyrics as boolean)
@@ -976,15 +945,15 @@ async function main(): Promise<void> {
     currentActiveLang = (prefs.targetLang as string) ?? 'en';
     preferredMode = (prefs.preferredMode as LyricsMode) ?? 'original';
     showPill = prefs.showPill !== undefined ? (prefs.showPill as boolean) : true;
-  } catch {
+  }).catch(() => {
     console.warn('[SKaraoke:Content] storage.sync unavailable, using defaults');
     dualLyricsEnabled = true;
     currentActiveLang = 'en';
     preferredMode = 'original';
     showPill = true;
-  }
+  });
 
-  try {
+  safeBrowserCall(async () => {
     const allLocal = await browser.storage.local.get(null);
     for (const [k, v] of Object.entries(allLocal)) {
       if (k.startsWith('lc:') && k !== 'lc_index') {
@@ -992,9 +961,9 @@ async function main(): Promise<void> {
         runtimeCache.set(key, v as LyricsCacheEntry);
       }
     }
-  } catch (err) {
+  }).catch((err) => {
     console.warn('[SKaraoke:Content] Failed to preload runtime cache from storage.local', err);
-  }
+  });
 
   // Listen for messages posted by the main-world fetchInterceptor.
   // We only care about SKL_NATIVE_LYRICS. We no longer track SKL_TRACK_START

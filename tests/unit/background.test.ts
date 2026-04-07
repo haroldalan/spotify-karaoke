@@ -52,18 +52,22 @@ describe('Background Script - chunkByCharCount', () => {
     it('chunks lines perfectly without exceeding maxChars', () => {
         const lines = ['123', '456', '789', '012'];
         // maxChars of 8 means '123\n456' is 7 chars. (123 + 456 + \n).
-        const chunks = chunkByCharCount(lines, 8);
-        expect(chunks).toEqual([['123', '456'], ['789', '012']]);
+        const result = chunkByCharCount(lines, 8);
+        expect(result.chunks).toEqual([['123', '456'], ['789', '012']]);
+        expect(result.wasTruncated).toBe(false);
     });
 
     it('handles a single line extending beyond maxChars gracefully (truncates to maintain index alignment)', () => {
         const lines = ['1234567890', '123'];
-        const chunks = chunkByCharCount(lines, 5);
+        const result = chunkByCharCount(lines, 5);
         // It truncates the oversized line to maxChars (5) and maintains the 1:1 line mapping
-        expect(chunks).toEqual([['12345'], ['123']]);
+        expect(result.chunks).toEqual([['12345'], ['123']]);
+        expect(result.wasTruncated).toBe(true);
     });
 
     it('handles empty arrays', () => {
-        expect(chunkByCharCount([], 10)).toEqual([]);
+        const result = chunkByCharCount([], 10);
+        expect(result.chunks).toEqual([]);
+        expect(result.wasTruncated).toBe(false);
     });
 });

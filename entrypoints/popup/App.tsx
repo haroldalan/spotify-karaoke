@@ -308,6 +308,11 @@ export default function App() {
     refreshStorageInfo();
   }, []);
 
+  function formatBytes(bytes: number): string {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
   async function refreshStorageInfo() {
     try {
       // Settings in sync storage
@@ -328,11 +333,8 @@ export default function App() {
         localBytes = new TextEncoder().encode(JSON.stringify(all)).length;
       }
 
-      const syncKb = (syncBytes / 1024).toFixed(1);
-      const cacheKb = (localBytes / 1024).toFixed(1);
-
-      setSyncInfo(`Settings: ${syncKb} KB`);
-      setLocalInfo(`Cache: ${cacheKb} KB`);
+      setSyncInfo(`Settings: ${formatBytes(syncBytes)}`);
+      setLocalInfo(`Cache: ${formatBytes(localBytes)}`);
     } catch {
       setSyncInfo('Unable to calculate');
       setLocalInfo('Unable to calculate');

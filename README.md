@@ -25,7 +25,7 @@ Switch between modes using the floating pill controls injected directly into the
 
 **Native script restoration:** For Hindi, Tamil, Korean, and other non-Latin songs, Spotify often serves romanized fallback lyrics. This extension automatically replaces them with the correct native script — before Spotify even renders the page.
 
-**Dual Lyrics mode** - in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference. Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
+**Dual Lyrics mode** - in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference (suppressed when identical to the primary line). Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
 
 | Dual Lyrics On | Dual Lyrics Off |
 | :---: | :---: |
@@ -51,6 +51,9 @@ There are three ways to switch between Original, Romanized, and Translated:
 | **Extension popup** | The same pill is replicated inside the popup - acts as a remote control and always reflects the current mode, even if the floating pill is hidden. |
 | **Keyboard shortcuts** | While the lyrics panel is open, press `O` (Original), `R` (Romanized), or `T` (Translated). Safe to use - shortcuts are ignored when focus is in a text input or search bar. |
 
+> [!NOTE]
+> Floating controls and keyboard shortcuts only function when Spotify's lyrics panel is open. Click the microphone icon in the player to open it.
+
 Power users can toggle off the floating pill entirely via **Show Floating Controls** in the popup, then use keyboard shortcuts or the popup pill for a completely unobstructed lyrics view.
 
 | Floating Controls On | Floating Controls Off |
@@ -69,7 +72,10 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 **Manual install (Developer Mode):**
 1. Download the latest `.zip` from the [Releases page](../../releases) and extract it.
 2. Open your browser's extensions page (`chrome://extensions` or `about:debugging`).
-3. Enable **Developer Mode**, then click **Load unpacked** (Chrome) or **Load Temporary Add-on** (Firefox) and select the extracted folder.
+3. Enable **Developer Mode**, then click **Load unpacked** (Chrome) or **Load Temporary Add-on** (Firefox) and select the `manifest.json` file inside the extracted folder.
+
+> [!TIP]
+> **Firefox:** Temporary add-ons are removed when the browser restarts. For a persistent install, use the Firefox Add-ons store link above.
 
 ---
 
@@ -108,9 +114,9 @@ Romanize and Translate modes then operate on the correct native source, producin
 |---|---|
 | **Interception point** | `document_start`, MAIN world — before React first paint |
 | **Romanization** | 9 local libraries · zero API calls for JP/KO/ZH/Indic/Cyrillic/Thai/Tamil |
-| **Stale-cancel guards** | 2 independent generation counters (`_currentInterceptGeneration` in interceptor · `processGen` in content script) |
+| **Stale-cancel guards** | 2 independent stale-cancel mechanisms (per-track generation Map in interceptor · `processGen` counter in content script) |
 | **Translation fallback** | Google Translate → MyMemory → original preserved |
-| **Cache** | 10-song in-memory LRU + 4.5 MB persistent LRU (`browser.storage.local`, evicts to 3.5 MB) |
+| **Cache** | 10-song in-memory LRU + unlimited persistent cache (`browser.storage.local`, no eviction) |
 | **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
 
 ---
@@ -154,7 +160,11 @@ Spotify Karaoke uses an injected DOM engine and a service worker to process lyri
 <details>
 <summary>Technical deep-dive</summary>
 
-**Lyrics injection:** A `MutationObserver` watches Spotify's `<main>` element for newly rendered lyric lines. When the lyrics change, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements. Spotify's own React state is never touched.
+**Lyrics injection:** A `MutationObserver` watches `document.body` for song key updates (`aria-label`) and newly rendered lyric lines.
+
+The observer processes mutations in two passes: **Pass 1** handles song key updates to ensure state coherence, and **Pass 2** handles DOM structure changes to detect lyric injection. This prevents race conditions where lyrics might be processed against the previous song's key.
+
+When lyrics are detected, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements. Spotify's own React state is never touched.
 
 **Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
 
@@ -176,12 +186,14 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ## Privacy & Disclaimer
 
-- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync` and mirrored in `localStorage` for zero-latency UI hydration. Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` with an **unlimited quota** (and LRU eviction) to avoid redundant API calls. Lyric text is sent to Google Translate or MyMemory when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/doc/tos.php).
+- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync` and mirrored in `localStorage` within the popup context for zero-latency UI hydration (First Paint). Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` with no size limit and no eviction — every song you play is retained permanently until you clear the cache manually via the extension popup. Cache data never leaves your device. Lyric text is sent to Google Translate or MyMemory when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/doc/tos.php).
 - **Disclaimer:** Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
 
 ---
 
 <div align="center">
-  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a><br>
+  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a> · <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie/reviews"><img src="https://img.shields.io/badge/Chrome-Leave_a_Review-yellow?logo=googlechrome&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a> · <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/reviews"><img src="https://img.shields.io/badge/Firefox-Leave_a_Review-orange?logo=firefox&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a>
+  <br><br>
   <i>Made by Harold Alan. If you find it useful, a ⭐ on GitHub goes a long way.</i>
 </div>
+

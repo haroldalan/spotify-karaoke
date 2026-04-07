@@ -3,6 +3,18 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.0.5] — 2026-04-07
+
+### Added
+- **Unlimited Lyrics Storage**: Integrated the `unlimitedStorage` permission and optimized the content script to bypass the default 10MB local layout quota.
+- **Auto-Scaling Storage UI**: Updated the extension popup to automatically scale storage usage labels between KB and MB for high-capacity lyric libraries.
+- **Romanization Fast-Path Prioritization**: Refined the mode-switching logic to prioritize high-quality romanization, preventing low-quality fallback data from entering the cache when better alternatives exist.
+
+### Fixed
+- **Cache Eviction Lifecycle**: Removed redundant LRU eviction logic and byte-size accounting from the content script to simplify the local database structure.
+- **Permission Compliance**: Refined the internal security audit test suite to handle the new `unlimitedStorage` requirement while maintaining strict host-permission guards.
+- **Background Synchronization Tests**: Fixed regression in background unit tests specifically relating to the internal line-truncation return types.
+
 ## [3.0.5] — 2026-04-04
 
 ### Added
