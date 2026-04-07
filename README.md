@@ -1,7 +1,7 @@
 <div align="center">
   <img src="public/icon128.png" alt="Spotify Karaoke" width="96">
   <h1>Spotify Karaoke</h1>
-  <p>Sing along to any Spotify song — karaoke-style, with synchronized romanization and translation</p>
+  <p>Karaoke-style lyrics with romanization for 18 scripts and translation into 130+ languages — right inside Spotify</p>
 
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie"><img src="https://img.shields.io/badge/Chrome-Install-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome Web Store"></a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
