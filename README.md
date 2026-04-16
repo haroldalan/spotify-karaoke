@@ -12,68 +12,42 @@
 </div>
 
 ---
+### <img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="24" height="24"> Phonetic Romanization
+Universal support for any script, with optimized local engines for 16 major writing systems.
+*Example: `안녕하세요` → `an-nyeong-ha-se-yo`*
 
-### 🌟 Key Features of Spotify Karaoke
+---
 
-<table width="100%">
-  <tr>
-    <td width="50" align="center" valign="top">
-      <img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="24" height="24">
-    </td>
-    <td>
-      <b>Phonetic Romanization</b><br>
-      Universal support for any script, with optimized local engines for 16 major writing systems.<br>
-      <i>Example: <code>안녕하세요</code> → <code>an-nyeong-ha-se-yo</code></i>
-    </td>
-  </tr>
-  <tr>
-    <td width="50" align="center" valign="top">
-      <img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="24" height="24">
-    </td>
-    <td>
-      <b>Real-time Translation</b><br>
-      Read lyrics in 132 languages to understand the meaning behind every line.<br>
-      <i>Example: <code>君を愛してる</code> → <code>I love you</code></i>
-    </td>
-  </tr>
-  <tr>
-    <td width="50" align="center" valign="top">
-      <img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="24" height="24">
-    </td>
-    <td>
-      <b>Native Restoration</b><br>
-      Bypass low-quality fallbacks and restore original, high-fidelity native scripts automatically.<br>
-      <i>Example: <code>Anyonhasyo</code> ✨ → <code>안녕하세요</code></i>
-    </td>
-  </tr>
-  <tr>
-    <td width="50" align="center" valign="top">
-      <img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="24" height="24">
-    </td>
-    <td>
-      <i>Coming Soon</i> — <b>Smart Fetch</b><br>
-      Automatic lyrics discovery for songs that aren't officially supported by Spotify.<br>
-      <i>Example: <code>Lyrics not available</code> 🔍 → <code>Synced Lyrics found</code></i>
-    </td>
-  </tr>
-  <tr>
-    <td width="50" align="center" valign="top">
-      <img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="24" height="24">
-    </td>
-    <td>
-      <i>Coming Soon</i> — <b>Ultimate Triple View</b><br>
-      Original, Romanized, and Translated text all in a single, perfectly synced frame.<br>
-      <i>Example: Stacked lyrics (<code>君を愛してる</code> / <code>Kimi o aishiteru</code> / <code>I love you</code>)</i>
-    </td>
-  </tr>
-</table>
+### <img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="24" height="24"> Real-time Translation
+Read lyrics in 132 languages to understand the meaning behind every line.
+*Example: `君を愛してる` → `I love you`*
+
+---
+
+### <img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="24" height="24"> Native Restoration
+Bypass low-quality fallbacks and restore original, high-fidelity native scripts automatically.
+*Example: `Anyonhasyo` ✨ → `안녕하세요`*
+
+---
+
+### <img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="24" height="24"> *Coming Soon* — Smart Fetch
+Automatic lyrics discovery for songs that aren't officially supported by Spotify.
+*Example: `Lyrics not available` 🔍 → `Synced Lyrics found`*
+
+---
+
+### <img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="24" height="24"> *Coming Soon* — Ultimate Triple View
+Original, Romanized, and Translated text all in a single, perfectly synced frame.
+*Example: Stacked lyrics (`君を愛してる` / `Kimi o aishiteru` / `I love you`)*
 
 ---
 
 ## Demo reel
 
 <div align="center">
-  ![](assets/demo.mp4)
+  <a href="https://www.youtube.com/watch?v=Ac-_37aJmoI">
+    <img src="https://img.youtube.com/vi/Ac-_37aJmoI/maxresdefault.jpg" width="100%" alt="Spotify Karaoke Demo Reel">
+  </a>
 </div>
 
 ---
