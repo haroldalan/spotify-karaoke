@@ -7,48 +7,78 @@
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/" target="_blank"><img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Firefox Add-ons" height="52"/></a>
   <a href="https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom" target="_blank"><img src="https://github.com/user-attachments/assets/9fcd04a5-3d1c-43d2-9253-d3e2b9510030" alt="Microsoft Edge Add-ons" height="52"/></a>
   <br><br>
-  ![License](https://img.shields.io/github/license/haroldalan/spotify-karaoke)
-  ![GitHub release](https://img.shields.io/github/v/release/haroldalan/spotify-karaoke)
+  ![License](https://img.shields.io/github/license/haroldalan/spotify-karaoke?style=flat-square)
+  ![GitHub release](https://img.shields.io/github/v/release/haroldalan/spotify-karaoke?style=flat-square)
+  ![Chrome users](https://img.shields.io/chrome-web-store/users/bhhkohameknlmcgdfafkjplpjalfedie?style=flat-square&label=Chrome%20users&color=1DB954)
+  ![Chrome rating](https://img.shields.io/chrome-web-store/rating/bhhkohameknlmcgdfafkjplpjalfedie?style=flat-square&color=1DB954)
 </div>
 
 ---
-### <img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="24" height="24"> Phonetic Romanization
-Universal support for any script, with optimized local engines for 16 major writing systems.
-*Example: `안녕하세요` → `an-nyeong-ha-se-yo`*
+<div align="center">
 
----
+## ✨ Key Features
 
-### <img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="24" height="24"> Real-time Translation
-Read lyrics in 132 languages to understand the meaning behind every line.
-*Example: `君を愛してる` → `I love you`*
+<table>
+<tr>
+<td align="center">
+<br>
+<img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="36" height="36">
+<br><br>
+<b>Phonetic Romanization</b><br>
+Universal support for any script, with optimized local engines for 16 major writing systems.<br><br>
+<code>안녕하세요</code> → <code>an-nyeong-ha-se-yo</code>
+<br><br>
+</td>
+<td align="center">
+<br>
+<img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="36" height="36">
+<br><br>
+<b>Real-time Translation</b><br>
+Read lyrics in 132 languages to understand the meaning behind every line.<br><br>
+<code>君を愛してる</code> → <code>I love you</code>
+<br><br>
+</td>
+</tr>
+<tr>
+<td align="center">
+<br>
+<img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="36" height="36">
+<br><br>
+<b>Native Restoration</b><br>
+Bypass low-quality fallbacks and restore original, high-fidelity native scripts automatically.<br><br>
+<code>Anyonhasyo</code> → <code>안녕하세요</code>
+<br><br>
+</td>
+<td align="center">
+<br>
+<img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="36" height="36">
+<br><br>
+<i>Coming Soon</i> — <b>Smart Fetch</b><br>
+Automatic lyrics discovery for songs that aren't officially supported by Spotify.<br><br>
+<code>Lyrics not available</code> → <code>Synced Lyrics found</code>
+<br><br>
+</td>
+</tr>
+<tr>
+<td align="center" colspan="2">
+<br>
+<img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="36" height="36">
+<br><br>
+<i>Coming Soon</i> — <b>Ultimate Triple View</b><br>
+Original, Romanized, and Translated text all in a single, perfectly synced frame.<br><br>
+Stacked lyrics (<code>君を愛してる</code> / <code>Kimi o aishiteru</code> / <code>I love you</code>)
+<br><br>
+</td>
+</tr>
+</table>
 
----
-
-### <img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="24" height="24"> Native Restoration
-Bypass low-quality fallbacks and restore original, high-fidelity native scripts automatically.
-*Example: `Anyonhasyo` ✨ → `안녕하세요`*
-
----
-
-### <img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="24" height="24"> *Coming Soon* — Smart Fetch
-Automatic lyrics discovery for songs that aren't officially supported by Spotify.
-*Example: `Lyrics not available` 🔍 → `Synced Lyrics found`*
-
----
-
-### <img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="24" height="24"> *Coming Soon* — Ultimate Triple View
-Original, Romanized, and Translated text all in a single, perfectly synced frame.
-*Example: Stacked lyrics (`君を愛してる` / `Kimi o aishiteru` / `I love you`)*
+</div>
 
 ---
 
 ## Demo reel
 
-<div align="center">
-  <a href="https://www.youtube.com/watch?v=Ac-_37aJmoI">
-    <img src="https://img.youtube.com/vi/Ac-_37aJmoI/maxresdefault.jpg" width="100%" alt="Spotify Karaoke Demo Reel">
-  </a>
-</div>
+https://github.com/user-attachments/assets/f6afc346-9dc0-4429-8733-5c8df94c8eaf
 
 ---
 
@@ -99,7 +129,6 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 | :---: | :---: |
 | <img src="assets/popup-floating-controls-on.png" width="380" alt="Floating controls visible"> | <img src="assets/popup-floating-controls-off.png" width="380" alt="Floating controls hidden"> |
 
-
 ---
 
 ## Installation
@@ -120,12 +149,12 @@ If you wish to test the latest features before they hit the stores, you can inst
 4. Click **Load unpacked** and select the folder where you extracted the extension.
 
 #### Mozilla Firefox
+> [!IMPORTANT]
+> **Firefox Limitation:** Temporary add-ons are removed when the browser restarts. For a permanent install, please use the [Firefox Add-ons store](#-official-browser-stores-recommended).
 1. Download and extract the latest release `.zip`.
 2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
 3. Click **Load Temporary Add-on...**.
 4. Select the `manifest.json` file inside the extracted folder.
-> [!IMPORTANT]
-> **Firefox Limitation:** Temporary add-ons are removed when the browser restarts. For a permanent install, please use the [Firefox Add-ons store](#-official-browser-stores-recommended).
 
 #### Microsoft Edge
 1. Download and extract the latest release `.zip`.
@@ -152,8 +181,9 @@ Romanize and Translate modes then operate on the correct native source, producin
 
 ## Romanization Coverage
 
-| **Universal Support** *(Fallback)* | `transliteration` | Local |
+| Script | Library | Engine |
 | --- | --- | --- |
+| **Universal** *(fallback)* | `transliteration` | 🌐 API |
 | **Japanese** (Kanji + Kana) | `@sglkc/kuroshiro` + Kuromoji | Local |
 | **Korean** (Hangul) | `@romanize/korean` | Local |
 | **Chinese** (Hanzi) | `pinyin-pro` | Local |
@@ -164,17 +194,19 @@ Romanize and Translate modes then operate on the correct native source, producin
 | **Malayalam, Bengali, Arabic, Hebrew** | Google Translate (`dt=rm`) | API |
 | **Translation** (All 132 languages) | Google Translate → MyMemory fallback | API |
 
+> ⚡ **Local** — zero latency, runs entirely in your browser. &nbsp; 🌐 **API** — requires a network call to Google Translate.
+
 ---
 
 ## Under the Hood
 
-| | |
-|---|---|
+| Component | Detail |
+| :--- | :--- |
+| **Local romanization** | 10 libraries · zero API latency for 16 optimized scripts |
 | **Interception point** | `document_start`, MAIN world — before React first paint |
-| **Romanization** | 10 local libraries · Zero API latency for 16 optimized scripts |
-| **Stale-cancel guards** | 2 independent stale-cancel mechanisms (per-track Generation Map · `processGen` parity counter) |
+| **Cache** | 10-song RAM cache + unlimited SSD library (`browser.storage.local`) |
+| **Stale-cancel guards** | Generation Map + `processGen` parity counter (2 independent mechanisms) |
 | **Translation fallback** | Google Translate → MyMemory → original preserved |
-| **Cache** | 10-song instant RAM cache + unlimited SSD library (`browser.storage.local`) |
 | **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
 
 ---
@@ -237,6 +269,8 @@ When lyrics are detected, the engine reads the current mode (Original / Romanize
 
 ## Contributing
 
+Issues, ideas, and PRs are welcome — especially for romanization accuracy improvements or new script support.
+
 1. Fork the repository.
 2. Create a feature branch: `git checkout -b feature/your-feature`
 3. Commit your changes: `git commit -m 'feat: describe what you added'`
@@ -248,8 +282,11 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ## Privacy & Disclaimer
 
-- **Privacy:** No personal data is collected. Your settings (language preference, mode, UI preferences) are stored in `browser.storage.sync` and mirrored in `localStorage` within the popup context for zero-latency UI hydration (First Paint). Processed lyrics (romanized/translated text) are cached locally in `browser.storage.local` with no size limit and no eviction — every song you play is retained permanently until you clear the cache manually via the extension popup. Cache data never leaves your device. Lyric text is sent to Google Translate or MyMemory when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/doc/tos.php).
-- **Disclaimer:** Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
+> [!NOTE]
+> **No personal data is collected.** Settings are stored in `browser.storage.sync`. Processed lyrics are cached locally in `browser.storage.local` and never leave your device. Lyric text is sent to Google Translate or MyMemory only when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/doc/tos.php).
+
+> [!WARNING]
+> Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
 
 ---
 
