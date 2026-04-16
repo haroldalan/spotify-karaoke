@@ -1,14 +1,34 @@
 <div align="center">
-  <img src="public/icon128.png" alt="Spotify Karaoke" width="96">
-  <h1>Spotify Karaoke</h1>
-  <p>Karaoke-style lyrics with romanization for 18 scripts and translation into 130+ languages — right inside Spotify</p>
-
-  <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie"><img src="https://img.shields.io/badge/Chrome-Install-blue?logo=googlechrome&logoColor=white&style=for-the-badge" alt="Chrome Web Store"></a>
-  <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/"><img src="https://img.shields.io/badge/Firefox-Install-orange?logo=firefox&logoColor=white&style=for-the-badge" alt="Firefox Add-ons"></a>
+  <h1><img src="assets/marquee-promo-tile.png" alt="Spotify Karaoke" width="500">
+  </h1>
+  <p>Universal script romanization and real-time translation for 132 languages — right inside Spotify</p>
+  
+  <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie" target="_blank"><img src="https://developer.chrome.com/static/docs/webstore/branding/image/iNEddTyWiMfLSwFD6qGq.png" alt="Chrome Web Store" height="52"/></a>
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/" target="_blank"><img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Firefox Add-ons" height="52"/></a>
+  <a href="https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom" target="_blank"><img src="https://github.com/user-attachments/assets/9fcd04a5-3d1c-43d2-9253-d3e2b9510030" alt="Microsoft Edge Add-ons" height="52"/></a>
   <br><br>
-  ![GitHub release](https://img.shields.io/github/v/release/haroldalan/spotify-karaoke)
   ![License](https://img.shields.io/github/license/haroldalan/spotify-karaoke)
-  ![TypeScript](https://img.shields.io/github/languages/top/haroldalan/spotify-karaoke)
+  ![GitHub release](https://img.shields.io/github/v/release/haroldalan/spotify-karaoke)
+</div>
+
+---
+
+### 🌟 Key Features of Spotify Karaoke
+
+| | |
+| :--- | :--- |
+| <img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="24" height="24"> | **Phonetic Romanization**<br>Universal support for any script, with optimized local engines for 16 major writing systems.<br>*Example: `안녕하세요` → `an-nyeong-ha-se-yo`* |
+| <img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="24" height="24"> | **Real-time Translation**<br>Read lyrics in 132 languages to understand the meaning behind every line.<br>*Example: `君を愛してる` → `I love you`* |
+| <img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="24" height="24"> | **Native Restoration**<br>Bypass low-quality fallbacks and restore original, high-fidelity native scripts automatically.<br>*Example: `Anyonhasyo` ✨ → `안녕하세요`* |
+| <img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="24" height="24"> | *Coming Soon* — **Smart Fetch**<br>Automatic lyrics discovery for songs that aren't officially supported by Spotify.<br>*Example: `Lyrics not available` 🔍 → `Synced Lyrics found`* |
+| <img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="24" height="24"> | *Coming Soon* — **Ultimate Triple View**<br>Original, Romanized, and Translated text all in a single, perfectly synced frame.<br>*Example: Stacked lyrics (`君を愛してる` / `Kimi o aishiteru` / `I love you`)* |
+
+---
+
+## Demo reel
+
+<div align="center">
+  <video src="assets/demo.mp4" width="100%" autoplay muted loop playsinline></video>
 </div>
 
 ---
@@ -18,12 +38,12 @@
 Spotify's built-in lyrics panel doesn't help you sing along to songs in languages you don't read. `Spotify Karaoke` fixes that. It adds three lyric display modes to the Spotify web player:
 
 - **Original** - lyrics as Spotify shows them, unchanged.
-- **Romanized** - non-Latin scripts (Japanese, Korean, Tamil, Hindi, etc.) rendered phonetically in the Latin alphabet so you can sing along.
-- **Translated** - lyrics translated into any of 100+ languages.
+- **Romanized** - any non-Latin script (Japanese, Korean, Arabic, Indic, Thai, etc.) rendered phonetically in the Latin alphabet for instant sing-along.
+- **Translated** - lyrics translated into any of 132 languages.
 
 Switch between modes using the floating pill controls injected directly into the lyrics panel, the popup, or keyboard shortcuts. No page reload, no flicker.
 
-**Native script restoration:** For Hindi, Tamil, Korean, and other non-Latin songs, Spotify often serves romanized fallback lyrics. This extension automatically replaces them with the correct native script — before Spotify even renders the page.
+**Native script restoration:** For global non-Latin scripts (Hindi, Thai, Arabic, CJK, etc.), Spotify often serves low-quality romanized fallback lyrics. This extension automatically intercepts and restores the original, high-fidelity native script — before Spotify even renders the page.
 
 **Dual Lyrics mode** - in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference (suppressed when identical to the primary line). Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
 
@@ -65,17 +85,34 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 
 ## Installation
 
-**From the browser store (recommended):**
-- [Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie) - Chrome, Edge, Brave, and other Chromium browsers
-- [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/)
+### 🌐 Official Browser Stores (Recommended)
+- **[Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie)** — Chrome, Brave, and other Chromium browsers.
+- **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/)** — Mozilla Firefox.
+- **[Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom)** — Microsoft Edge.
 
-**Manual install (Developer Mode):**
-1. Download the latest `.zip` from the [Releases page](../../releases) and extract it.
-2. Open your browser's extensions page (`chrome://extensions` or `about:debugging`).
-3. Enable **Developer Mode**, then click **Load unpacked** (Chrome) or **Load Temporary Add-on** (Firefox) and select the `manifest.json` file inside the extracted folder.
+### 🛠️ Manual Installation (Developer Mode)
 
-> [!TIP]
-> **Firefox:** Temporary add-ons are removed when the browser restarts. For a persistent install, use the Firefox Add-ons store link above.
+If you wish to test the latest features before they hit the stores, you can install the extension manually.
+
+#### Google Chrome / Brave / Opera
+1. Download the latest release `.zip` from the **[Releases page](../../releases)** and extract it.
+2. Open your browser and navigate to `chrome://extensions/`.
+3. Enable **Developer mode** (usually a toggle in the top-right corner).
+4. Click **Load unpacked** and select the folder where you extracted the extension.
+
+#### Mozilla Firefox
+1. Download and extract the latest release `.zip`.
+2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
+3. Click **Load Temporary Add-on...**.
+4. Select the `manifest.json` file inside the extracted folder.
+> [!IMPORTANT]
+> **Firefox Limitation:** Temporary add-ons are removed when the browser restarts. For a permanent install, please use the [Firefox Add-ons store](#-official-browser-stores-recommended).
+
+#### Microsoft Edge
+1. Download and extract the latest release `.zip`.
+2. Navigate to `edge://extensions/`.
+3. Enable **Developer mode** (toggle in the bottom-left sidebar).
+4. Click **Load unpacked** and select the folder where you extracted the extension.
 
 ---
 
@@ -87,24 +124,26 @@ Spotify Karaoke fixes this automatically. When you play a supported song, the ex
 
 Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
-**Supported languages:** All non-Latin scripts (Hindi, Tamil, Thai, Arabic, Telugu, Japanese, Korean, etc.).
+> [!TIP]
+> **Initialization Note:** If the restoration doesn't trigger immediately after installation, simply refresh your Spotify tab. Once the interceptor "hits" for the first time, it remains active and captures 100% of future lyric requests in that session. (In the rare case that the restoration doesn't trigger, it either means that the native lyrics for this song don't exist on Musixmatch, or that something is seriously wrong. If its the latter case, please raise an issue with me)
+
+**Supported coverage:** Deep restoration and optimization for all major non-Latin scripts globally (Tamil, CJK, Hindi, Arabic, Thai, Cyrillic, Hebrew, etc.).
 
 ---
 
 ## Romanization Coverage
 
-| Script | Library | Processing |
-| :--- | :--- | :--- |
+| **Universal Support** *(Fallback)* | `transliteration` | Local |
+| --- | --- | --- |
 | **Japanese** (Kanji + Kana) | `@sglkc/kuroshiro` + Kuromoji | Local |
 | **Korean** (Hangul) | `@romanize/korean` | Local |
 | **Chinese** (Hanzi) | `pinyin-pro` | Local |
 | **Tamil** | `tamil-romanizer` | Local |
 | **Indic** (Devanagari, Telugu, Gujarati, Gurmukhi, Kannada, Odia) | `@indic-transliteration/sanscript` | Local |
-| **Cyrillic** (Russian, Ukrainian, etc.) | `cyrillic-to-translit-js` | Local |
+| **Cyrillic** (Russian, Ukrainian, Bulgarian, Serbian, Belarusian) | `cyrillic-to-translit-js` | Local |
 | **Thai** | `@dehoist/romanize-thai` | Local |
 | **Malayalam, Bengali, Arabic, Hebrew** | Google Translate (`dt=rm`) | API |
-| **Any script** *(Fallback)* | `transliteration` | Local |
-| **Translation** (All scripts) | Google Translate → MyMemory fallback | API |
+| **Translation** (All 132 languages) | Google Translate → MyMemory fallback | API |
 
 ---
 
@@ -113,10 +152,10 @@ Romanize and Translate modes then operate on the correct native source, producin
 | | |
 |---|---|
 | **Interception point** | `document_start`, MAIN world — before React first paint |
-| **Romanization** | 9 local libraries · zero API calls for JP/KO/ZH/Indic/Cyrillic/Thai/Tamil |
-| **Stale-cancel guards** | 2 independent stale-cancel mechanisms (per-track generation Map in interceptor · `processGen` counter in content script) |
+| **Romanization** | 10 local libraries · Zero API latency for 16 optimized scripts |
+| **Stale-cancel guards** | 2 independent stale-cancel mechanisms (per-track Generation Map · `processGen` parity counter) |
 | **Translation fallback** | Google Translate → MyMemory → original preserved |
-| **Cache** | 10-song in-memory LRU + unlimited persistent cache (`browser.storage.local`, no eviction) |
+| **Cache** | 10-song instant RAM cache + unlimited SSD library (`browser.storage.local`) |
 | **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
 
 ---
@@ -132,11 +171,15 @@ npm install
 
 npm run dev          # Chrome (live reload)
 npm run dev:firefox  # Firefox (live reload)
+npm run dev:edge     # Edge (live reload)
 
 npm run build          # Production build - Chrome
 npm run build:firefox  # Production build - Firefox
+npm run build:edge     # Production build - Edge
+
 npm run zip            # Package for Chrome Web Store submission
 npm run zip:firefox    # Package for Firefox Add-ons submission
+npm run zip:edge       # Package for Edge Add-ons submission
 
 npm run test           # Run unit and component test suite
 ```
@@ -192,7 +235,7 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 ---
 
 <div align="center">
-  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a> · <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie/reviews"><img src="https://img.shields.io/badge/Chrome-Leave_a_Review-yellow?logo=googlechrome&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a> · <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/reviews"><img src="https://img.shields.io/badge/Firefox-Leave_a_Review-orange?logo=firefox&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a>
+  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a> · <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie/reviews"><img src="https://img.shields.io/badge/Chrome-Leave_a_Review-yellow?logo=googlechrome&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a> · <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/reviews"><img src="https://img.shields.io/badge/Firefox-Leave_a_Review-orange?logo=firefox&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a> · <a href="https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom/reviews"><img src="https://img.shields.io/badge/Edge-Leave_a_Review-blue?logo=microsoftedge&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a>
   <br><br>
   <i>Made by Harold Alan. If you find it useful, a ⭐ on GitHub goes a long way.</i>
 </div>

@@ -10,7 +10,7 @@ export default defineConfig({
   }),
   manifest: {
     name: 'Spotify Karaoke - Romanize & Translate Lyrics',
-    description: 'Karaoke-style lyrics with romanization for 18 scripts and translation into 130+ languages — right inside Spotify.',
+    description: 'Karaoke-style lyrics with romanization for all scripts and translation into 132 languages — right inside Spotify.',
     icons: {
       16: "icon16.png",
       48: "icon48.png",
