@@ -291,8 +291,13 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 ---
 
 <div align="center">
-  MIT License · <a href="https://ko-fi.com/haroldalan"><img src="https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi" style="vertical-align:middle"></a> · <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie/reviews"><img src="https://img.shields.io/badge/Chrome-Leave_a_Review-yellow?logo=googlechrome&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a> · <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/reviews"><img src="https://img.shields.io/badge/Firefox-Leave_a_Review-orange?logo=firefox&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a> · <a href="https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom/reviews"><img src="https://img.shields.io/badge/Edge-Leave_a_Review-blue?logo=microsoftedge&logoColor=white&style=flat" alt="Leave a review" style="vertical-align:middle"></a>
-  <br><br>
-  <i>Made by Harold Alan. If you find it useful, a ⭐ on GitHub goes a long way.</i>
-</div>
 
+[![MIT License](https://img.shields.io/github/license/haroldalan/spotify-karaoke?style=flat)](LICENSE)
+[![Ko-fi](https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/haroldalan)
+[![Chrome Review](https://img.shields.io/badge/Chrome-Leave_a_Review-yellow?logo=googlechrome&logoColor=white&style=flat)](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie/reviews)
+[![Firefox Review](https://img.shields.io/badge/Firefox-Leave_a_Review-orange?logo=firefox&logoColor=white&style=flat)](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/reviews)
+[![Edge Review](https://img.shields.io/badge/Edge-Leave_a_Review-blue?logo=microsoftedge&logoColor=white&style=flat)](https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom/reviews)
+
+*Made by Harold Alan. If you find it useful, a ⭐ on GitHub goes a long way.*
+
+</div>
