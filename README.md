@@ -14,67 +14,67 @@
 </div>
 
 ---
-<div align="center">
 
-## ✨ Key Features
+## Key Features
 
 <table>
 <tr>
-<td align="center">
+<td align="center" width="300">
 <br>
 <img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="36" height="36">
-<br><br>
+<br>
 <b>Phonetic Romanization</b><br>
 Universal support for any script, with optimized local engines for 16 major writing systems.<br><br>
 <code>안녕하세요</code> → <code>an-nyeong-ha-se-yo</code>
 <br><br>
 </td>
-<td align="center">
+<td align="center" width="300">
 <br>
 <img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="36" height="36">
-<br><br>
+<br>
 <b>Real-time Translation</b><br>
 Read lyrics in 132 languages to understand the meaning behind every line.<br><br>
 <code>君を愛してる</code> → <code>I love you</code>
 <br><br>
 </td>
-</tr>
-<tr>
-<td align="center">
+<td align="center" width="300"> 
 <br>
 <img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="36" height="36">
-<br><br>
+<br>
 <b>Native Restoration</b><br>
 Bypass low-quality fallbacks and restore original, high-fidelity native scripts automatically.<br><br>
 <code>Anyonhasyo</code> → <code>안녕하세요</code>
 <br><br>
 </td>
-<td align="center">
+</tr>
+</table>
+
+<br>
+
+**Coming Soon**
+
+<table>
+<tr>
+<td align="center" width="300">
 <br>
 <img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="36" height="36">
-<br><br>
-<i>Coming Soon</i> — <b>Smart Fetch</b><br>
+<br>
+<b>Smart Fetch</b><br>
 Automatic lyrics discovery for songs that aren't officially supported by Spotify.<br><br>
 <code>Lyrics not available</code> → <code>Synced Lyrics found</code>
 <br><br>
 </td>
-</tr>
-<tr>
-<td align="center" colspan="2">
+<td align="center" width="300">
 <br>
 <img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="36" height="36">
-<br><br>
-<i>Coming Soon</i> — <b>Ultimate Triple View</b><br>
+<br>
+<b>Ultimate Triple View</b><br>
 Original, Romanized, and Translated text all in a single, perfectly synced frame.<br><br>
 Stacked lyrics (<code>君を愛してる</code> / <code>Kimi o aishiteru</code> / <code>I love you</code>)
 <br><br>
 </td>
 </tr>
 </table>
-
-</div>
-
----
 
 ## Demo reel
 
@@ -173,7 +173,7 @@ Spotify Karaoke fixes this automatically. When you play a supported song, the ex
 Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
 > [!TIP]
-> **Initialization Note:** If the restoration doesn't trigger immediately after installation, simply refresh your Spotify tab. Once the interceptor "hits" for the first time, it remains active and captures 100% of future lyric requests in that session. (In the rare case that the restoration doesn't trigger, it either means that the native lyrics for this song don't exist on Musixmatch, or that something is seriously wrong. If its the latter case, please raise an issue with me)
+> **Initialization Note:** If the restoration doesn't trigger immediately after installation, simply refresh your Spotify tab. Once the interceptor "hits" for the first time, it remains active and captures 100% of future lyric requests in that session. (In the rare case that the restoration doesn't trigger, it either means that the native lyrics for this song don't exist on Musixmatch, or that something is seriously wrong. If it's the latter case, please raise an issue with me.)
 
 **Supported coverage:** Deep restoration and optimization for all major non-Latin scripts globally (Tamil, CJK, Hindi, Arabic, Thai, Cyrillic, Hebrew, etc.).
 
