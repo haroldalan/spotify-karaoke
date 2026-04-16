@@ -19,7 +19,7 @@
 
 <table>
 <tr>
-<td align="center" width="300">
+<td align="center">
 <br>
 <img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="36" height="36">
 <br>
@@ -28,7 +28,7 @@ Universal support for any script, with optimized local engines for 16 major writ
 <code>안녕하세요</code> → <code>an-nyeong-ha-se-yo</code>
 <br><br>
 </td>
-<td align="center" width="300">
+<td align="center">
 <br>
 <img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="36" height="36">
 <br>
@@ -37,7 +37,7 @@ Read lyrics in 132 languages to understand the meaning behind every line.<br><br
 <code>君を愛してる</code> → <code>I love you</code>
 <br><br>
 </td>
-<td align="center" width="300"> 
+<td align="center"> 
 <br>
 <img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="36" height="36">
 <br>
@@ -55,7 +55,7 @@ Bypass low-quality fallbacks and restore original, high-fidelity native scripts 
 
 <table>
 <tr>
-<td align="center" width="300">
+<td align="center">
 <br>
 <img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="36" height="36">
 <br>
@@ -64,7 +64,7 @@ Automatic lyrics discovery for songs that aren't officially supported by Spotify
 <code>Lyrics not available</code> → <code>Synced Lyrics found</code>
 <br><br>
 </td>
-<td align="center" width="300">
+<td align="center">
 <br>
 <img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="36" height="36">
 <br>
