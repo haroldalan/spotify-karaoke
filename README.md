@@ -183,7 +183,7 @@ Romanize and Translate modes then operate on the correct native source, producin
 
 | Script | Library | Engine |
 | --- | --- | --- |
-| **Universal** *(fallback)* | `transliteration` | 🌐 API |
+| **Universal** *(fallback)* | `transliteration` | Local |
 | **Japanese** (Kanji + Kana) | `@sglkc/kuroshiro` + Kuromoji | Local |
 | **Korean** (Hangul) | `@romanize/korean` | Local |
 | **Chinese** (Hanzi) | `pinyin-pro` | Local |
@@ -194,7 +194,7 @@ Romanize and Translate modes then operate on the correct native source, producin
 | **Malayalam, Bengali, Arabic, Hebrew** | Google Translate (`dt=rm`) | API |
 | **Translation** (All 132 languages) | Google Translate → MyMemory fallback | API |
 
-> ⚡ **Local** — zero latency, runs entirely in your browser. &nbsp; 🌐 **API** — requires a network call to Google Translate.
+> ⚡ **Local** — zero latency, runs entirely in your browser. &nbsp; 🌐 **API** — requires a network call.
 
 ---
 
