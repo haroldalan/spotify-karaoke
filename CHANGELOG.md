@@ -3,6 +3,17 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- **Reusable Romanizer Package**: Extracted script detection and local romanization into a new workspace package, `@spotify-karaoke/romanizer`, with a publish-ready API surface and detector subpath export.
+- **Romanizer Unit Coverage**: Added dedicated package tests for detector behavior, local romanization flows, external-script guards, and mocked Japanese initialization.
+
+### Changed
+- **Background Integration**: `entrypoints/background.ts` now imports script detection and local romanization from `@spotify-karaoke/romanizer`; translation/network fallback behavior remains unchanged.
+- **Content-Script Detection Sync**: Replaced the duplicated latin-fast-path regex helper with `@spotify-karaoke/romanizer/detector` to remove drift risk.
+- **Workspace Layout**: Converted the repo to npm workspaces and moved romanization dependencies into `packages/romanizer`.
+
 ## [3.0.5] — 2026-04-07
 
 ### Added

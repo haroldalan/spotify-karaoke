@@ -1,6 +1,7 @@
 node_modules
 .wxt
 .output
+packages/romanizer/dist
 .agent
 .gemini
 *.txt

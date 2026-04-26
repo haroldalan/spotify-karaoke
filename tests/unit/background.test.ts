@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { detectScript, chunkByCharCount, processLines } from '../../entrypoints/background.ts';
+import { detectScript } from '@spotify-karaoke/romanizer';
+import { chunkByCharCount } from '../../entrypoints/background.ts';
 
 // In WXT/Vitest, wxt sets up a mock browser environment automatically.
 

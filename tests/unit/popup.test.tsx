@@ -2,9 +2,34 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
 import App from '../../entrypoints/popup/App';
 
+function createLocalStorageMock() {
+    const store = new Map<string, string>();
+    return {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+            store.set(key, String(value));
+        },
+        removeItem: (key: string) => {
+            store.delete(key);
+        },
+        clear: () => {
+            store.clear();
+        },
+        key: (index: number) => Array.from(store.keys())[index] ?? null,
+        get length() {
+            return store.size;
+        },
+    };
+}
+
 describe('Popup App Component', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        const localStorageMock = createLocalStorageMock();
+        Object.defineProperty(globalThis, 'localStorage', {
+            value: localStorageMock,
+            configurable: true,
+        });
         (global.browser.storage.sync.get as any).mockResolvedValue({
             targetLang: 'es',
             dualLyrics: true,

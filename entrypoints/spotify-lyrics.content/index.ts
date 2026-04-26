@@ -1,4 +1,5 @@
 import './style.css';
+import { isLatinScript as isLatinScriptLines } from '@spotify-karaoke/romanizer/detector';
 
 export default defineContentScript({
   matches: ['*://open.spotify.com/*'],
@@ -467,17 +468,6 @@ async function fetchProcessed(
 
 // ─── Mode Switching ───────────────────────────────────────────────────────────
 
-// Unicode ranges for every non-Latin script that background.ts tracks.
-// If none of these are present but letters exist, the song is Latin-script.
-// Keep these ranges in sync with detectScript() in background.ts
-const NON_LATIN_SCRIPT_RE =
-  /[\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0900-\u0D7F\u0600-\u06FF\u0590-\u05FF\u0E00-\u0E7F]/
-
-function isLatinScript(lines: string[]): boolean {
-  const text = lines.join('');
-  return !NON_LATIN_SCRIPT_RE.test(text) && /\p{L}/u.test(text);
-}
-
 async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false): Promise<void> {
   if (next === mode && forceLang === undefined) return;
   const previousMode = mode;
@@ -485,7 +475,7 @@ async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading 
 
   // Fast-path: romanizing Latin-script lyrics is a no-op — the original IS
   // the romanized form. Skip the network call and loading state entirely.
-  if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original)) {
+  if (next === 'romanized' && forceLang === undefined && isLatinScriptLines(cache.original)) {
     mode = next;
     if (preferredMode !== next) {
       preferredMode = next;

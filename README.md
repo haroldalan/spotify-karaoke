@@ -202,7 +202,7 @@ Romanize and Translate modes then operate on the correct native source, producin
 
 | Component | Detail |
 | :--- | :--- |
-| **Local romanization** | 10 libraries · zero API latency for 16 optimized scripts |
+| **Local romanization** | `@spotify-karaoke/romanizer` package (10 libraries, 16 optimized scripts) |
 | **Interception point** | `document_start`, MAIN world — before React first paint |
 | **Cache** | 10-song RAM cache + unlimited SSD library (`browser.storage.local`) |
 | **Stale-cancel guards** | Generation Map + `processGen` parity counter (2 independent mechanisms) |
@@ -245,6 +245,8 @@ entrypoints/
     index.ts                 # DOM engine: MutationObserver, mode switching, caching
     style.css
   popup/                     # Preact popup: mode pill, language selector, dual lyrics + visibility toggles
+packages/
+  romanizer/                 # Reusable npm package: script detector + local romanizers
 ```
 
 ### How it works
@@ -260,7 +262,7 @@ The observer processes mutations in two passes: **Pass 1** handles song key upda
 
 When lyrics are detected, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements. Spotify's own React state is never touched.
 
-**Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
+**Romanization & translation:** The background service worker receives lyric lines, uses `@spotify-karaoke/romanizer` for script detection and local romanization, and combines that with Google/MyMemory translation when needed.
 
 **Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute, solving previous race conditions. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses.
 </details>
