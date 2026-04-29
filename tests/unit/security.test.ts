@@ -1,4 +1,15 @@
 // @vitest-environment node
+/**
+ * Security audit tests — scope: extension manifest & permissions only.
+ *
+ * These tests verify that the compiled manifest does not request overly broad
+ * host permissions, sensitive API permissions, or inject scripts into
+ * unapproved origins.
+ *
+ * Note: DOM/XSS input sanitization is not tested here because all dynamic
+ * content writes in this extension use `el.textContent` (not `innerHTML`),
+ * which is safe by construction.
+ */
 import { describe, it, expect } from 'vitest';
 import configObject from '../../wxt.config';
 
@@ -25,11 +36,14 @@ describe('Security and Permissions Audit', () => {
         const manifest = (configObject as any).manifest;
         const permissions = manifest.permissions || [];
 
-        // The extension needs storage for preferences/cache and unlimitedStorage
-        // to lift the local storage quota for lyrics.
-        expect(permissions).toHaveLength(2);
+        // The extension needs:
+        //   storage + unlimitedStorage — preferences and lyrics cache quota
+        //   declarativeNetRequest — required to spoof Origin/Referer headers so the
+        //     YouTube Music API accepts background fetch requests (lyric-test integration)
+        expect(permissions).toHaveLength(3);
         expect(permissions).toContain('storage');
         expect(permissions).toContain('unlimitedStorage');
+        expect(permissions).toContain('declarativeNetRequest');
 
         // Explicitly deny sensitive permissions
         expect(permissions).not.toContain('tabs');
@@ -43,7 +57,7 @@ describe('Security and Permissions Audit', () => {
         const webAccessible = (configObject as any).manifest.web_accessible_resources || [];
         expect(webAccessible.length).toBe(1);
 
-        // The fetch interceptor MUST ONLY match open.spotify.com
+        // Both MAIN world scripts (fetchInterceptor.js, slyBridge.js) MUST ONLY match open.spotify.com
         const interceptorObj = webAccessible[0];
         expect(interceptorObj.matches).toEqual(['*://open.spotify.com/*']);
     });

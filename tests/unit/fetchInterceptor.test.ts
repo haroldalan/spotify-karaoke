@@ -24,6 +24,7 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
                 };
             }
             return {
+                ok: true,
                 clone: function() { return this; },
                 json: async () => {
                     if (url.includes('123')) {
@@ -58,12 +59,13 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
         // wait an event loop tick for async Musixmatch API mocks
         await new Promise(r => setTimeout(r, 50));
 
+        // Fix (Issue 3): target origin is now window.location.origin, not '*'
         expect(window.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'SKL_NATIVE_LYRICS',
                 trackId: '4cOdK2wGLETKBW3PvgPWqT'
             }),
-            '*'
+            expect.any(String)
         );
     });
 

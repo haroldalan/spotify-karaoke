@@ -1,0 +1,229 @@
+// Port of: lyric-test/modules/background/ytm.js
+
+import { nav, fetchWithTimeout } from './fetchUtils';
+
+const YT_BASE = 'https://music.youtube.com/youtubei/v1';
+const YT_API_KEY = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
+
+const ANDROID_CONTEXT = {
+  client: {
+    clientName: 'ANDROID_MUSIC',
+    clientVersion: '7.21.50',
+    hl: 'en',
+    gl: 'US',
+    osName: 'Android',
+    osVersion: '12',
+  },
+};
+
+async function callYtmDirect(endpoint: string, payload: Record<string, unknown>): Promise<unknown> {
+  const response = await fetchWithTimeout(
+    `${YT_BASE}/${endpoint}?alt=json&key=${YT_API_KEY}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.apps.youtube.music/7.21.50 (Linux; U; Android 12; en_US; Pixel 6) gzip',
+      },
+      body: JSON.stringify({ context: ANDROID_CONTEXT, ...payload }),
+    },
+  );
+  if (!response.ok) throw new Error(`YTM HTTP Error: ${response.status}`);
+  return response.json();
+}
+
+function findTypedVideoId(obj: unknown, type: string | null, depth = 0): string | null {
+  if (!obj || typeof obj !== 'object' || depth > 20) return null;
+  const o = obj as Record<string, unknown>;
+
+  if (o.musicResponsiveListItemRenderer) {
+    const renderer = o.musicResponsiveListItemRenderer as Record<string, unknown>;
+    const cols = (renderer.flexColumns as any[])?.[1]
+      ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+    const itemType = ((cols[0] as any)?.text || '').toLowerCase();
+
+    if (type && itemType !== type) return null;
+    return findTypedVideoId(renderer, null, depth + 1);
+  }
+
+  if (o.musicCardShelfRenderer) {
+    return findTypedVideoId(o.musicCardShelfRenderer, null, depth + 1);
+  }
+
+  if (typeof o.videoId === 'string') return o.videoId;
+  if (o.watchEndpoint && typeof (o.watchEndpoint as any).videoId === 'string') {
+    return (o.watchEndpoint as any).videoId;
+  }
+
+  for (const key in o) {
+    const found = findTypedVideoId(o[key], type, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findRenderer(obj: unknown, name: string, depth = 0): Record<string, unknown> | null {
+  if (!obj || typeof obj !== 'object' || depth > 20) return null;
+  const o = obj as Record<string, unknown>;
+  if (o[name]) return o[name] as Record<string, unknown>;
+  for (const key in o) {
+    const found = findRenderer(o[key], name, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+interface LrcLine {
+  startTimeMs?: string | number;
+  cueRange?: { startTimeMilliseconds?: string | number };
+  text?: string;
+  lyricLine?: string;
+}
+
+function convertToLRC(lyricsData: unknown): string | null {
+  const lines: LrcLine[] = Array.isArray(lyricsData)
+    ? lyricsData
+    : ((lyricsData as any)?.lines || (lyricsData as any)?.lyrics || []);
+  if (!lines.length) return null;
+
+  let validTimestamps = false;
+
+  const formattedLines = lines.map((line) => {
+    let ms = parseInt(String(line.startTimeMs ?? line.cueRange?.startTimeMilliseconds ?? ''));
+    if (!isNaN(ms) && ms > 0) validTimestamps = true;
+    if (isNaN(ms)) ms = 0;
+
+    const min = Math.floor(ms / 60000);
+    const sec = ((ms % 60000) / 1000).toFixed(2);
+    const text = line.text || line.lyricLine || '';
+    return `[${min.toString().padStart(2, '0')}:${sec.padStart(5, '0')}]${text}`;
+  });
+
+  if (!validTimestamps) return null;
+  return formattedLines.join('\n');
+}
+
+export interface YtmResult {
+  syncedLyrics?: string;
+  plainLyrics?: string;
+  isSynced: boolean;
+  source?: string;
+}
+
+export async function fetchYtmLyrics(title: string, artist: string): Promise<YtmResult | null> {
+  try {
+    const cleanTitle = title.split(' (')[0].split(' - ')[0].trim();
+    const cleanArtist = artist.split(',')[0].split(' feat.')[0].trim();
+
+    console.log(`[YTM] Searching: ${cleanTitle} by ${cleanArtist}`);
+    const searchRes = await callYtmDirect('search', {
+      query: `${cleanTitle} ${cleanArtist}`,
+      params: 'EgWKAQIIAWAB',
+    });
+
+    let videoId = findTypedVideoId(searchRes, 'song');
+    if (!videoId) videoId = findTypedVideoId(searchRes, null);
+    if (!videoId) return null;
+
+    console.log(`[YTM] Video ID Found: ${videoId}`);
+    const nextRes = await callYtmDirect('next', { videoId });
+
+    const watchNextRenderer = nav(nextRes, [
+      'contents',
+      'singleColumnMusicWatchNextResultsRenderer',
+      'tabbedRenderer',
+      'watchNextTabbedResultsRenderer',
+    ]) as { tabs?: any[] } | null;
+    const tabs = watchNextRenderer?.tabs || [];
+    const lyricsTab = tabs.find((t: any) => {
+      const label = t.tabRenderer?.title || t.tabRenderer?.title?.runs?.[0]?.text;
+      return typeof label === 'string' && label.toLowerCase() === 'lyrics';
+    });
+
+    const instantTimed = findRenderer(nextRes, 'musicTimedLyricsRenderer');
+    if (instantTimed && (instantTimed.lyrics || instantTimed.timedLyricsData)) {
+      console.log(`[YTM] Synced Lyrics Found in Next response!`);
+      const lrc = convertToLRC(instantTimed.lyrics || instantTimed.timedLyricsData);
+      if (lrc) {
+        return {
+          syncedLyrics: lrc,
+          isSynced: true,
+          source: (instantTimed.footer as any)?.runs?.[0]?.text || 'YouTube Music',
+        };
+      }
+    }
+
+    const browseId = (lyricsTab as any)?.tabRenderer?.endpoint?.browseEndpoint?.browseId;
+    if (!browseId) {
+      console.log(`[YTM] No browseId found in lyrics tab.`);
+      return null;
+    }
+
+    console.log(`[YTM] Valid Browse ID Found: ${browseId}`);
+    const browseRes = await callYtmDirect('browse', { browseId });
+
+    const TIMESTAMPED_LYRICS_PATH = [
+      'contents', 'elementRenderer', 'newElement', 'type',
+      'componentType', 'model', 'timedLyricsModel', 'lyricsData',
+    ];
+    const timedData = nav(browseRes, TIMESTAMPED_LYRICS_PATH) as Record<string, unknown> | null;
+
+    if (timedData && timedData.timedLyricsData) {
+      console.log(`[YTM] New format synced lyrics found.`);
+      const lrc = convertToLRC(timedData.timedLyricsData);
+      if (lrc) {
+        return {
+          syncedLyrics: lrc,
+          isSynced: true,
+          source: timedData.sourceMessage as string || 'YouTube Music',
+        };
+      }
+
+      const plainFallback = (timedData.timedLyricsData as any[])
+        .map((l: any) => l.text || l.lyricLine || '')
+        .filter((t: string) => t)
+        .join('\n');
+      if (plainFallback) {
+        console.log(`[YTM] No timestamps in timedLyricsData — falling back to plain lyrics.`);
+        return {
+          plainLyrics: plainFallback,
+          isSynced: false,
+          source: timedData.sourceMessage as string || 'YouTube Music',
+        };
+      }
+    }
+
+    const timedRenderer = findRenderer(browseRes, 'musicTimedLyricsRenderer');
+    if (timedRenderer) {
+      console.log(`[YTM] Legacy format synced lyrics found.`);
+      const lrc = convertToLRC(
+        timedRenderer.lyrics || timedRenderer.timedRendererData || [],
+      );
+      if (lrc) {
+        return {
+          syncedLyrics: lrc,
+          isSynced: true,
+          source: (timedRenderer.footer as any)?.runs?.[0]?.text || 'YouTube Music',
+        };
+      }
+    }
+
+    const plainRenderer = findRenderer(browseRes, 'musicDescriptionShelfRenderer');
+    const lyrics = (plainRenderer?.description as any)?.runs?.[0]?.text;
+
+    if (lyrics) {
+      console.log(`[YTM] Plain lyrics found.`);
+      return {
+        plainLyrics: lyrics,
+        isSynced: false,
+        source: (plainRenderer?.footer as any)?.runs?.[0]?.text || 'YouTube Music',
+      };
+    }
+
+    console.log(`[YTM] Lyrics tab present but NO content found in browse response.`);
+    return null;
+  } catch (err) {
+    console.error(`[YTM] Fetch Error:`, err);
+    return null;
+  }
+}

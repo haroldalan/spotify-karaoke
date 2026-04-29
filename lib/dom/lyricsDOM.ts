@@ -1,0 +1,73 @@
+import { getLyricsLines } from './domQueries';
+import type { SongCache } from '../core/lyricsTypes';
+
+export function snapshotOriginals(cache: SongCache): void {
+  const lines = getLyricsLines();
+
+  lines.forEach((el) => {
+    if (el.hasAttribute('data-sly-original')) return;
+
+    const dualSub = el.querySelector<HTMLElement>('.sly-dual-line');
+    if (dualSub) {
+      el.setAttribute('data-sly-original', dualSub.textContent ?? '');
+      return;
+    }
+    const mainSpan = el.querySelector<HTMLElement>('.sly-main-line');
+    if (mainSpan) {
+      el.setAttribute('data-sly-original', mainSpan.textContent ?? '');
+      return;
+    }
+    el.setAttribute('data-sly-original', el.textContent ?? '');
+  });
+
+  const snapped = lines.map(
+    (el) => el.getAttribute('data-sly-original') ?? ''
+  );
+
+  const hasContent = snapped.some(l => l.trim().length > 0);
+  if (!hasContent) return;
+
+  cache.original = snapped;
+}
+
+export function applyLinesToDOM(
+  lines: string[] | null | undefined,
+  originals: string[] | undefined,
+  dualLyricsEnabled: boolean,
+  setApplying: (v: boolean) => void
+): void {
+  if (!Array.isArray(lines)) return;
+
+  setApplying(true);
+
+  getLyricsLines().forEach((el, i) => {
+    if (lines[i] === undefined) return;
+
+    if (originals?.[i] !== undefined) {
+      el.setAttribute('data-sly-original', originals[i]);
+    }
+
+    const showDual =
+      dualLyricsEnabled &&
+      originals !== undefined &&
+      originals[i] !== undefined &&
+      originals[i] !== lines[i];
+
+    if (showDual) {
+      el.textContent = '';
+      const mainSpan = document.createElement('span');
+      mainSpan.className = 'sly-main-line';
+      mainSpan.textContent = lines[i];
+      el.appendChild(mainSpan);
+
+      const subSpan = document.createElement('span');
+      subSpan.className = 'sly-dual-line';
+      subSpan.textContent = originals![i];
+      el.appendChild(subSpan);
+    } else {
+      el.textContent = lines[i];
+    }
+  });
+
+  setTimeout(() => { setApplying(false); }, 0);
+}

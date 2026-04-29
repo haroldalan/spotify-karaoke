@@ -158,9 +158,10 @@ describe('Content Script Integration (JSDOM)', () => {
         await main();
         await new Promise(r => setTimeout(r, 10));
 
-        // Discard postMessage to ensure synchronous JSDOM execution
+        // Fix (Issue 4): listener now checks event.origin — must set it explicitly in jsdom
         window.dispatchEvent(new MessageEvent('message', {
             source: window,
+            origin: 'https://open.spotify.com',
             data: {
                 type: 'SKL_NATIVE_LYRICS',
                 trackId: '1234567890',

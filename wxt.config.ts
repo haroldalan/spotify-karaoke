@@ -16,11 +16,11 @@ export default defineConfig({
       48: "icon48.png",
       128: "icon128.png"
     },
-    permissions: ['storage', 'unlimitedStorage'],
+    permissions: ['storage', 'unlimitedStorage', 'declarativeNetRequest'],
     content_scripts: [
       {
         matches: ['*://open.spotify.com/*'],
-        js: ['fetchInterceptor.js'],
+        js: ['fetchInterceptor.js', 'slyBridge.js'],
         world: 'MAIN',
         run_at: 'document_start',
       },
@@ -34,10 +34,22 @@ export default defineConfig({
       '*://www.google.com/*',
       '*://api.mymemory.translated.net/*',
       '*://cdn.jsdelivr.net/*',
+      // Layer 2 lyrics fallback providers (lyric-test integration)
+      'https://lrclib.net/*',
+      'https://music.youtube.com/*',
+      'https://i.scdn.co/*',
     ],
 
+    declarative_net_request: {
+      rule_resources: [{
+        id: 'ytm_rules',
+        enabled: true,
+        path: 'rules.json',
+      }],
+    },
+
     web_accessible_resources: [{
-      resources: ['fetchInterceptor.js'],
+      resources: ['fetchInterceptor.js', 'slyBridge.js'],
       matches: ['*://open.spotify.com/*'],
     }],
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { detectScript, chunkByCharCount, processLines } from '../../entrypoints/background.ts';
+import { detectScript } from '../../lib/lyrics/scriptDetector';
+import { chunkByCharCount } from '../../lib/translateClient';
 
 // In WXT/Vitest, wxt sets up a mock browser environment automatically.
 
@@ -60,8 +61,9 @@ describe('Background Script - chunkByCharCount', () => {
     it('handles a single line extending beyond maxChars gracefully (truncates to maintain index alignment)', () => {
         const lines = ['1234567890', '123'];
         const result = chunkByCharCount(lines, 5);
-        // It truncates the oversized line to maxChars (5) and maintains the 1:1 line mapping
-        expect(result.chunks).toEqual([['12345'], ['123']]);
+        // Fix (Issue 9): truncation now always appends '…' — '12345' → '12345…'
+        // The slice is to maxChars chars, then '…' replaces the last char so total stays ≤ maxChars+1
+        expect(result.chunks).toEqual([['12345…'], ['123']]);
         expect(result.wasTruncated).toBe(true);
     });
 

@@ -1,6 +1,6 @@
 {
   "name": "spotify-karaoke",
-  "version": "3.0.5",
+  "version": "3.1.0",
   "description": "WXT browser extension for Chrome/Firefox — romanizes and translates Spotify lyrics in real time",
   "private": true,
   "type": "module",
