@@ -34,13 +34,14 @@ export function applyLinesToDOM(
   lines: string[] | null | undefined,
   originals: string[] | undefined,
   dualLyricsEnabled: boolean,
-  setApplying: (v: boolean) => void
+  setApplying: (v: boolean) => void,
+  targetElements?: Element[]
 ): void {
   if (!Array.isArray(lines)) return;
 
   setApplying(true);
 
-  getLyricsLines().forEach((el, i) => {
+  (targetElements ?? getLyricsLines()).forEach((el, i) => {
     if (lines[i] === undefined) return;
 
     if (originals?.[i] !== undefined) {

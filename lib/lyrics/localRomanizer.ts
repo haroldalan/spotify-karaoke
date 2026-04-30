@@ -71,14 +71,14 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         return k.convert(line, { to: 'romaji', mode: 'spaced' });
       }
       case 'chinese':
-        return pinyin(line, { toneType: 'symbol', type: 'string' });
+        return pinyin(line, { toneType: 'symbol', type: 'string', nonZh: 'consecutive' }).replace(/\s+/g, ' ');
 
       case 'korean':
         return romanizeKorean(line);
 
       case 'cyrillic':
-        return /[іїєґ]/i.test(line) 
-          ? cyrillicTranslitUk.transform(line) 
+        return /[іїєґ]/i.test(line)
+          ? cyrillicTranslitUk.transform(line)
           : cyrillicTranslitRu.transform(line);
 
       case 'devanagari':
@@ -91,7 +91,7 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         return scheme ? Sanscript.t(line, scheme, 'iast') : transliterate(line);
       }
       case 'tamil':
-        return romanizeTamil(line);
+        return romanizeTamil(line).replace(/^[^a-zA-Z]*[a-zA-Z]/, (m) => m.toUpperCase());
 
       case 'thai':
         return romanizeThai(line);

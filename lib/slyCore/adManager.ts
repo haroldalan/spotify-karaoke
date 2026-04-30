@@ -16,8 +16,6 @@ declare global {
  */
 export const slyAdManager: SlyAdManager = {
   messages: [
-    "🎵 Ads hitting different... without lyrics.",
-    "💸 Spotify Premium: lyrics during ads.",
     "⏸️ Ad break. Lyrics on pause.",
     "🎤 Even ads need a moment of silence.",
     "📻 Commercial break. Karaoke resumes shortly.",

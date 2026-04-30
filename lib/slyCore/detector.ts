@@ -118,7 +118,7 @@ window.slyDetectNativeState = function (): DetectorState {
   // 4.5 NATIVE ROMANIZATION DETECTION (Aggressive Forensic Scan)
   // We don't trust Spotify's isDenseTypeface flag. We look at the actual DOM text.
   // However, we ONLY do this for languages that actually use a native script (Tamil, Hindi, etc.)
-  const isNativeLanguage = window.SLY_NATIVE_LANGUAGES.has(window.spotifyState.lyricsProvider as string);
+  const isNativeLanguage = window.SLY_NATIVE_LANGUAGES.has(window.spotifyState.language as string);
 
   // Strictly gate forensic scanning by the confirmed Language Tag.
   if (isNativeLanguage && state.hasNativeLines && timeSinceOpen > 1500 && !window.slyInternalState.forceFallback && state.preFetch?.state !== 'NATIVE_OK') {
@@ -131,7 +131,7 @@ window.slyDetectNativeState = function (): DetectorState {
     const hasNativeScript = window.slyForensics.analyzeText(nativeLines).hasAnyNative;
 
     if (!hasNativeScript && window.spotifyState.lyricsProvider !== 'LRCLIB') {
-      console.log(`[sly-detector] 🔎 EVIDENCE: Forensic DOM scan found NO native characters in a confirmed ${window.spotifyState.lyricsProvider} track. Triggering Fallback.`);
+      console.log(`[sly-detector] 🔎 EVIDENCE: Forensic DOM scan found NO native characters in a confirmed ${window.spotifyState.language} track. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
   }

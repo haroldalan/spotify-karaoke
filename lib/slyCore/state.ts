@@ -16,6 +16,7 @@ export interface SpotifyBridgeState {
 
 export interface SlyInternalState {
   lastTitle: string;
+  lastUri: string;
   currentLyrics: unknown | null;
   customRoot: HTMLElement | null;
   syncAnimFrame: number | null;
@@ -24,6 +25,7 @@ export interface SlyInternalState {
   isUserScrolling: boolean;
   lastActiveIndex: number;
   fetchingForTitle: string;
+  fetchingForUri: string;
   pendingLyricsData: unknown | null;
   trackChangeTime: number;
   panelOpenTime: number;
@@ -36,6 +38,10 @@ export interface SlyInternalState {
   isSpotifyFetching?: boolean;
   interceptorActive?: boolean;
   nativeUpgradedLines?: string[];
+  /** Set by setupSlyBridge when Pipeline B's syncedLyricsRenderer is running.
+   *  slyUpdateSync reads this and yields immediately so both loops don't
+   *  fight over className on the same elements. */
+  slySyncedRendererActive?: boolean;
 }
 
 declare global {
@@ -71,6 +77,7 @@ window.spotifyState = spotifyState;
  */
 export const slyInternalState: SlyInternalState = {
   lastTitle: '',
+  lastUri: '',
   currentLyrics: null,
   customRoot: null,
   syncAnimFrame: null,
@@ -79,6 +86,7 @@ export const slyInternalState: SlyInternalState = {
   isUserScrolling: false,
   lastActiveIndex: -1,
   fetchingForTitle: '',
+  fetchingForUri: '',
   pendingLyricsData: null,
   trackChangeTime: Date.now(),
   panelOpenTime: 0,

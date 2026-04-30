@@ -213,6 +213,29 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
             }));
     }
 
+    // ─── Forensic verification ──────────────────────────────────────────────
+
+    /**
+     * Self-contained native-script verifier.
+     * Mirrors the logic in lyric-test/modules/common/forensics.js `analyzeText()`
+     * and lyric-test/modules/bridge/interceptor.js lines 101-110.
+     *
+     * We cannot call window.slyForensics here because mxmClient runs in the
+     * MAIN world where isolated-world window globals are not accessible.
+     *
+     * Returns true only if the lines contain > 10 native-script characters
+     * (Indic, CJK, Cyrillic, Arabic, Thai) — the same threshold as the
+     * original `isActuallyNative` check.
+     */
+    function verifyNativeScript(lines: SubtitleLine[]): boolean {
+        const NATIVE_REGEX =
+            /[\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F]/g;
+        const sample = lines.slice(0, 15).map(l => l.words).join(' ');
+        const matches = sample.match(NATIVE_REGEX);
+        const nativeCount = matches ? matches.length : 0;
+        return nativeCount > 10;
+    }
+
     async function fetchNativeLines(
         providerLyricsId: string | null,
         spotifyTrackId: string,
@@ -224,7 +247,13 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
 
         const fromId = await fetchSubtitle(providerLyricsId);
         if (isStale()) return null;
-        if (fromId && fromId.length > 0) return fromId;
+        if (fromId && fromId.length > 0) {
+            if (!verifyNativeScript(fromId)) {
+                console.warn('[SKaraoke:Interceptor] ⚠️ Forensic check failed on subtitle (commontrackId) — appears romanized. Trying next strategy.');
+            } else {
+                return fromId;
+            }
+        }
 
         const trackData = await mxmFetch('/track.get', { track_spotify_id: spotifyTrackId });
         if (isStale()) return null;
@@ -237,7 +266,13 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                 
                 const fromTrackId = await fetchSubtitleByTrackId(body.track_id);
                 if (isStale()) return null;
-                if (fromTrackId && fromTrackId.length > 0) return fromTrackId;
+                if (fromTrackId && fromTrackId.length > 0) {
+                    if (!verifyNativeScript(fromTrackId)) {
+                        console.warn('[SKaraoke:Interceptor] ⚠️ Forensic check failed on subtitle (trackId) — appears romanized. Trying next strategy.');
+                    } else {
+                        return fromTrackId;
+                    }
+                }
             }
         }
 
@@ -261,11 +296,26 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
         if (meta) {
             const fromSearch = await fetchSubtitleBySearch(meta.name, meta.artist);
             if (isStale()) return null;
-            if (fromSearch && fromSearch.length > 0) return fromSearch;
+            if (fromSearch && fromSearch.length > 0) {
+                if (!verifyNativeScript(fromSearch)) {
+                    console.warn('[SKaraoke:Interceptor] ⚠️ Forensic check failed on search result — appears romanized. Trying unsynced fallback.');
+                } else {
+                    return fromSearch;
+                }
+            }
         }
 
         const unsynced = await fetchUnsyncedLyrics(providerLyricsId);
         if (isStale()) return null;
+        if (!unsynced) return null;
+
+        // Forensic gate: if the final candidate lines don't contain enough
+        // native-script characters, MXM also returned romanized content.
+        // Returning null signals the interceptor to fire SLY_FORCE_FALLBACK.
+        if (!verifyNativeScript(unsynced)) {
+            console.warn('[SKaraoke:Interceptor] ⚠️ Forensic check failed on unsynced fallback — MXM content appears romanized. Aborting.');
+            return null;
+        }
         return unsynced;
     }
 

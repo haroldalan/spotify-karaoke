@@ -26,6 +26,67 @@ window.addEventListener('sly_state_update', () => {
   window.slyCheckNowPlaying();
 });
 
+// Pipeline B (lifecycleController.ts onSongChange) detects track changes reactively
+// via aria-label mutation and dispatches this event. We listen here so the poll
+// no longer needs to do its own title comparison (Step 2 removed below).
+document.addEventListener('sly:song_change', (e: Event) => {
+  const { uri } = (e as CustomEvent<{ uri?: string }>).detail;
+  const detection = window.slyDetectNativeState();
+  if (detection.title !== 'Unknown' && detection.title !== 'AD_SILENCED') {
+    window.slyResetPlayerState(detection.title, uri);
+  }
+});
+
+// Pipeline B's syncSetup() dispatches this when native lyrics are in the DOM.
+// Triggers the injection gate immediately for the common case where the fetch
+// completed before the panel opened, saving up to 500ms of poll latency.
+// slyCheckNowPlaying() reuses all existing guards — no logic is duplicated.
+document.addEventListener('sly:lyrics_injected', () => {
+  // No guard — call slyCheckNowPlaying() unconditionally so it handles both:
+  //   • Injection gate: pendingLyricsData ready, panel just opened (Case B)
+  //   • Persistence: currentLyrics active, panel re-opened, #lyrics-root-sync missing
+  // Cost for normal songs: one extra cheap call per panel open — negligible since
+  // slyCheckNowPlaying() already runs every 500ms.
+  window.slyCheckNowPlaying();
+});
+
+// Pipeline B's domObserver dispatches this when [data-testid="lyrics-button"] loses
+// its data-active="true" attribute. Handles panel close cleanup immediately instead
+// of waiting up to 500ms for the poll.
+document.addEventListener('sly:panel_close', () => {
+  const root = document.getElementById('lyrics-root-sync');
+  if (!root) return; // slyCore wasn't active, nothing to clean
+  console.log('[sly] Clean-up: Panel closed reactively, removing custom root.');
+  if (window.slyClearStatus) window.slyClearStatus();
+  root.remove();
+  const syncBtn = document.getElementById('sly-sync-button');
+  if (syncBtn) syncBtn.remove();
+  const main = document.querySelector('main.J6wP3V0xzh0Hj_MS') as HTMLElement | null;
+  if (main) { main.classList.remove('sly-active'); main.style.display = ''; }
+  document.querySelectorAll('.hfTlyhd7WCIk9xmP, .bRNotDNzO2suN6vM')
+    .forEach(n => ((n as HTMLElement).style.display = ''));
+  const nativeContainer = document.querySelector(
+    `main.J6wP3V0xzh0Hj_MS .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
+  ) as HTMLElement | null;
+  if (nativeContainer) nativeContainer.style.display = '';
+  // Notify Pipeline B to stop its sync renderer and clear slyActiveContainer.
+  document.dispatchEvent(new CustomEvent('sly:release'));
+});
+
+// slyCore records the incoming lyrics object when Pipeline B signals injection.
+// lyricsObj.lines will be populated by slyBuildLyricsList later (same object reference).
+document.addEventListener('sly:inject', (e: Event) => {
+  const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
+  window.slyInternalState.currentLyrics = lyricsObj;
+});
+
+// sly:takeover only fires when injection fully succeeded (all four DOM steps complete).
+// slyCore clears its own pending state here — no longer Pipeline B's responsibility.
+document.addEventListener('sly:takeover', () => {
+  window.slyInternalState.pendingLyricsData = null;
+  window.slyInternalState.fetchingForTitle = '';
+});
+
 window.slyCheckNowPlaying = function (): void {
   try {
     const detection = window.slyDetectNativeState();
@@ -51,33 +112,45 @@ window.slyCheckNowPlaying = function (): void {
       return;
     }
 
-    // 2. TRACK CHANGE RESET
-    if (title !== 'Unknown' && title !== window.slyInternalState.lastTitle && title !== 'AD_SILENCED') {
-      window.slyResetPlayerState(title, fullUri);
+    // 1.5 FALLBACK TRACK CHANGE DETECTION
+    // Primary path: sly:song_change event from Pipeline B's lifecycleController.
+    // This fallback catches the edge case where that event was missed entirely, or
+    // fired while the bridge scanner still had stale fiber data — causing the
+    // desync guard in slyDetectNativeState() to return the OLD track's title, which
+    // equalled lastTitle and silently skipped slyResetPlayerState().
+    //
+    // Fix: read spotifyState.track directly (same source as the bridge scanner),
+    // bypassing the desync guard. Compare by URI — more reliable than title.
+    //
+    // Double-reset safety: first caller updates lastUri; poll or event whichever
+    // fires second sees fullUri === lastUri and skips. Exactly one reset fires.
+    //
+    // Port of: lyric-test/content.js lines 44-46 (TRACK CHANGE RESET block).
+    {
+      const scannerTitle = (window.spotifyState?.track as Record<string, unknown>)?.name as string | undefined;
+      if (
+        fullUri &&
+        fullUri !== window.slyInternalState.lastUri &&
+        scannerTitle &&
+        scannerTitle !== 'AD_SILENCED'
+      ) {
+        window.slyResetPlayerState(scannerTitle, fullUri);
+      }
     }
 
     // 2. PANEL STATUS CHECK
+    // Primary cleanup: events.ts lyrics button MutationObserver dispatches sly:panel_close.
+    // Orphan guard (belt-and-suspenders): poll detects closed panel with stale #lyrics-root-sync
+    // and triggers the same complete cleanup path rather than duplicating logic here.
+    // Port of: lyric-test/content.js Step 2 (lines 48-68), now event-driven first.
     if (!detection.isOnLyricsPage) {
-      const root = document.getElementById('lyrics-root-sync');
-      if (root) {
-        console.log('[sly] Clean-up: Leaving lyrics page, removing custom root.');
-        if (window.slyClearStatus) window.slyClearStatus();
-        root.remove();
-
-        // Explicitly remove active markers from main container
-        const main = document.querySelector('main.J6wP3V0xzh0Hj_MS') as HTMLElement | null;
-        if (main) {
-          main.classList.remove('sly-active');
-          main.style.display = ''; // Restore Spotify's original display
-        }
-
-        // Restore visibility of any hidden native components
-        document.querySelectorAll('.hfTlyhd7WCIk9xmP, .bRNotDNzO2suN6vM').forEach(n => ((n as HTMLElement).style.display = ''));
-        const nativeContainer = document.querySelector(`main.J6wP3V0xzh0Hj_MS .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
-        if (nativeContainer) nativeContainer.style.display = '';
+      if (document.getElementById('lyrics-root-sync')) {
+        console.log('[sly] Orphan guard: panel closed but #lyrics-root-sync still present — triggering cleanup.');
+        document.dispatchEvent(new CustomEvent('sly:panel_close'));
       }
       return;
     }
+
 
     // RE-INJECTION CHECK: If we are searching, failed, or in an ad, but the panel was re-rendered, restore the HUD.
     if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed || window.slyInternalState.isFetchingHUD || window.slyInternalState.isAdHUDActive) {
@@ -88,21 +161,26 @@ window.slyCheckNowPlaying = function (): void {
           return;
         }
 
-        if (window.slyInternalState.isAdHUDActive) {
-          console.log('[sly] Restore: Re-injecting Ad HUD...');
-          window.slyShowStatus('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
-        } else if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed) {
-          console.log('[sly] Restore: Re-injecting failure HUD...');
-          window.slyShowStatus(
-            "Even Spotify Karaoke couldn't find the lyrics for this song.",
-            'You can help the community by adding them to the open-source database.',
-            true
-          );
+        if (detection.lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback && window.slyInternalState.isFetchingHUD) {
+          console.log('[sly] Re-injection suppressed: Spotify native lyrics recovered.');
+          // Fall through to Decision Engine
         } else {
-          console.log('[sly] Restore: Re-injecting loading HUD...');
-          window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Resuming external search...');
+          if (window.slyInternalState.isAdHUDActive) {
+            console.log('[sly] Restore: Re-injecting Ad HUD...');
+            window.slyShowStatus('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
+          } else if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed) {
+            console.log('[sly] Restore: Re-injecting failure HUD...');
+            window.slyShowStatus(
+              "Even Spotify Karaoke couldn't find the lyrics for this song.",
+              'You can help the community by adding them to the open-source database.',
+              true
+            );
+          } else {
+            console.log('[sly] Restore: Re-injecting loading HUD...');
+            window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Resuming external search...');
+          }
+          return;
         }
-        return;
       }
     }
 
@@ -119,6 +197,7 @@ window.slyCheckNowPlaying = function (): void {
       console.warn(`[sly] Aborting fetch for "${title}" — Spotify recovered to native synced lyrics.`);
       window.slyInternalState.fetchGeneration++;
       window.slyInternalState.fetchingForTitle = '';
+      if (window.slyClearStatus) window.slyClearStatus();
       return;
     }
 
@@ -164,13 +243,12 @@ window.slyCheckNowPlaying = function (): void {
       const hasContent = !!(data.plainLyrics || data.syncedLyrics);
 
       if (hasContent) {
-        if (window.slyInjectLyrics) {
-          const success = window.slyInjectLyrics(data);
-          if (success) {
-            window.slyInternalState.pendingLyricsData = null;
-            window.slyInternalState.fetchingForTitle = '';
-          }
-        }
+        // Hand off execution to Pipeline B. Clearing of pendingLyricsData moves to
+        // the sly:takeover handler — it only fires when injection succeeded, so the
+        // poll-retry-on-failure behaviour is preserved.
+        document.dispatchEvent(new CustomEvent('sly:inject', {
+          detail: { lyricsObj: data },
+        }));
       } else {
         // If data is invalid (no content), clear it anyway to avoid looping
         window.slyInternalState.pendingLyricsData = null;
@@ -186,7 +264,11 @@ window.slyCheckNowPlaying = function (): void {
       // If the panel was re-opened and our DOM was wiped by React, re-inject
       if (!root || !root.isConnected || root.innerHTML === '') {
         console.log('[sly] Restore: Panel re-opened. Re-injecting lyrics DOM...');
-        if (window.slyInjectLyrics) window.slyInjectLyrics(window.slyInternalState.currentLyrics as Record<string, unknown>);
+        // Route through Pipeline B's unified injection path (sly:inject → setupSlyBridge).
+        // slyInjectLyrics is no longer the executor — sly:inject is the contract.
+        document.dispatchEvent(new CustomEvent('sly:inject', {
+          detail: { lyricsObj: window.slyInternalState.currentLyrics as Record<string, unknown> },
+        }));
       } else {
         // Ensure visibility and hijack classes are active
         root.style.display = '';

@@ -29,7 +29,9 @@ window.addEventListener('sly_nav_change', () => {
 const interactionOptions = { passive: true, capture: true };
 
 function handleUserInteraction(e: Event): void {
-  if (window.slyInternalState.customRoot && window.slyInternalState.customRoot.contains(e.target as Node)) {
+  const lyricsRoot = (window.slyInternalState.customRoot as HTMLElement | null)
+    ?? document.getElementById('lyrics-root-sync');
+  if (lyricsRoot && lyricsRoot.contains(e.target as Node)) {
     window.slyInternalState.isUserScrolling = true;
   }
 }
@@ -63,6 +65,62 @@ document.addEventListener('pointerdown', (e: Event) => {
     }
   }
 }, true); // Use capture phase to beat React's internal listeners
+
+// --- LYRICS PANEL CLOSE DETECTOR ---
+// Dispatches 'sly:panel_close' when [data-testid="lyrics-button"] loses data-active="true".
+// This is the sole trigger for content.ts to remove #lyrics-root-sync and clean up sly-active.
+//
+// Implementation note: React may replace the button node entirely during SPA navigation,
+// so we maintain a buttonFinderObserver that re-attaches the attribute watcher whenever
+// a new button instance appears in the DOM.
+
+let lyricsButtonObserver: MutationObserver | null = null;
+let observedButton: Element | null = null;
+
+function attachLyricsButtonObserver(): void {
+  const btn = document.querySelector('[data-testid="lyrics-button"]');
+  if (!btn || btn === observedButton) return; // already watching this exact node
+
+  // Disconnect from any previously observed (now stale) button node
+  if (lyricsButtonObserver) {
+    lyricsButtonObserver.disconnect();
+    lyricsButtonObserver = null;
+  }
+
+  observedButton = btn;
+
+  lyricsButtonObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'attributes' && mutation.attributeName === 'data-active') {
+        const wasActive = mutation.oldValue === 'true';
+        const isNowInactive = (btn as HTMLElement).getAttribute('data-active') !== 'true';
+        if (wasActive && isNowInactive) {
+          console.log('[sly] Panel close detected via lyrics button observer → dispatching sly:panel_close');
+          document.dispatchEvent(new CustomEvent('sly:panel_close'));
+        }
+      }
+    }
+  });
+
+  lyricsButtonObserver.observe(btn, {
+    attributes: true,
+    attributeFilter: ['data-active'],
+    attributeOldValue: true,
+  });
+  console.log('[sly] Lyrics button observer attached.');
+}
+
+// Observe the DOM for the lyrics button's first appearance (or re-appearance after React reconciliation)
+const buttonFinderObserver = new MutationObserver(() => {
+  const btn = document.querySelector('[data-testid="lyrics-button"]');
+  if (btn && btn !== observedButton) {
+    attachLyricsButtonObserver();
+  }
+});
+buttonFinderObserver.observe(document.body, { childList: true, subtree: true });
+
+// Also try right away in case the button already exists at script load time
+attachLyricsButtonObserver();
 
 // --- INSTANT ERROR DETECTION ---
 // Monitors for the specific "Lyrics not available" node to bypass polling delays

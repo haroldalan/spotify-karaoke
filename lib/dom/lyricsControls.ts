@@ -19,6 +19,9 @@ export function injectControls(
   if (existing) {
     existing.classList.remove('sly-loading');
     existing.style.display = showPill ? '' : 'none';
+    if (existing.parentElement !== container) {
+      container.insertBefore(existing, container.firstChild);
+    }
     return;
   }
 
@@ -54,5 +57,11 @@ export function setLoadingState(loading: boolean): void {
     .getElementById(CONTROLS_ID)
     ?.querySelectorAll<HTMLButtonElement>('.sly-lyrics-btn')
     .forEach((b) => (b.disabled = loading));
-  getLyricsContainer()?.classList.toggle('sly-loading', loading);
+    
+  const customRoot = document.getElementById('lyrics-root-sync');
+  const targetContainer = (customRoot && customRoot.style.display !== 'none') 
+    ? customRoot 
+    : getLyricsContainer();
+    
+  targetContainer?.classList.toggle('sly-loading', loading);
 }

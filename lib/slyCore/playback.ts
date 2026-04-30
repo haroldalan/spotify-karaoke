@@ -5,6 +5,7 @@ declare global {
   interface Window {
     slySeekTo: (time: number) => void;
     slyGetPlaybackSeconds: () => number;
+    slyResetPlaybackExtrapolator: () => void;
   }
 }
 
@@ -120,4 +121,15 @@ window.slyGetPlaybackSeconds = function (): number {
 
   const timeDiff = isPlaying ? (now - lastRecordWallTime) / 1000 : 0;
   return lastExtrapolatedTime + timeDiff;
+};
+
+/**
+ * Resets the extrapolation baseline. Call from slyResetPlayerState() on every
+ * track change so the first call to slyGetPlaybackSeconds() after a skip
+ * always reads the live progress bar instead of extrapolating from the
+ * previous song's position.
+ */
+window.slyResetPlaybackExtrapolator = function (): void {
+  lastExtrapolatedTime = 0;
+  lastRecordWallTime = 0; // forces |baselineUiTime - 0| > 0.05 → immediate reset
 };

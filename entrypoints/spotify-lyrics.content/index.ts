@@ -3,7 +3,7 @@ import { isContextValid } from '../../lib/utils/browserUtils';
 import { createDomObserver } from '../../lib/dom/domObserver';
 import { startStorageListener } from '../../lib/core/storageListener';
 import { createModeController } from '../../lib/core/modeController';
-import { createLifecycleController } from '../../lib/core/lifecycleController';
+import { createLifecycleController, setupSlyBridge } from '../../lib/core/lifecycleController';
 import { StateStore } from '../../lib/core/store';
 import { setupKeyboardShortcuts } from '../../lib/core/keyboardListener';
 import { setupMessageListener } from '../../lib/core/messageListener';
@@ -55,12 +55,14 @@ async function main(): Promise<void> {
 
   setupMessageListener(store, switchMode);
   setupKeyboardShortcuts(switchMode);
+  setupSlyBridge(store, switchMode, autoSwitchIfNeeded);
 
   if (!store.domObserver) {
     store.domObserver = createDomObserver({
       onSongChange: (key) => onSongChange(key),
       onLyricsInjected: () => syncSetup(),
       onControlsRemoved: () => trySetup(),
+      onLyricsPanelClosed: () => document.dispatchEvent(new CustomEvent('sly:panel_close')),
       onInvalidate: () => { store.domObserver = null; },
     });
   }

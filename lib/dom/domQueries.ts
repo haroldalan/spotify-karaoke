@@ -1,8 +1,13 @@
 export const getLyricsLines = (): Element[] =>
-  Array.from(document.querySelectorAll('[data-testid="lyrics-line"] > div'));
+  Array.from(document.querySelectorAll('[data-testid="lyrics-line"] > div'))
+    .filter(el => !el.closest('#lyrics-root-sync'))
+    .filter(el => (el.textContent || '').trim() !== '');
 
-export const getLyricsContainer = (): Element | null =>
-  document.querySelector('[data-testid="lyrics-line"]')?.parentElement ?? null;
+export const getLyricsContainer = (): Element | null => {
+  const first = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+    .find(el => !el.closest('#lyrics-root-sync'));
+  return first?.parentElement ?? null;
+};
 
 export const getNowPlayingKey = (): string =>
   document.querySelector('[data-testid="now-playing-widget"]')

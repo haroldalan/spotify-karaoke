@@ -117,8 +117,9 @@ function safeSendMessage(msg: Record<string, unknown>, callback?: (r: Record<str
 
 // --- FETCH TRIGGER ---
 window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string): void {
-  if (window.slyInternalState.fetchingForTitle === title) return;
+  if (window.slyInternalState.fetchingForUri === uri) return;
   window.slyInternalState.fetchingForTitle = title;
+  window.slyInternalState.fetchingForUri = uri;
 
   const pinnedMetadata: Record<string, unknown> = { title, artist, albumArtUrl };
 
@@ -155,8 +156,9 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
     window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
   }
 
-  // Capture the generation at the moment this fetch is dispatched.
+  // Capture the generation and URI at the moment this fetch is dispatched.
   const myGeneration = window.slyInternalState.fetchGeneration;
+  const myUri = uri;
 
   console.log(`[sly] Fetching lyrics for "${title}" by ${artist} (${uri || 'no-uri'}) — sending request to service worker...`);
   safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri } }, (r) => {
@@ -167,8 +169,10 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       return;
     }
 
-    // STALE CHECK 2: Track changed while in flight
-    if (title !== window.slyInternalState.lastTitle) {
+    // STALE CHECK 2: Track URI changed while in flight (tolerates title-only corrections).
+    // Guard requires both sides to be real URIs — skips if lastUri was never set (first boot,
+    // or slyResetPlayerState called without a URI argument).
+    if (myUri && window.slyInternalState.lastUri && myUri !== window.slyInternalState.lastUri) {
       console.log(`[sly] Fetch response for "${title}" discarded — track already changed.`);
       if (window.slyClearStatus) window.slyClearStatus();
       return;

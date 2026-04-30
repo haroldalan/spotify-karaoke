@@ -17,6 +17,11 @@ export class StateStore {
   domObserver: MutationObserver | null = null;
   lyricsObserver: MutationObserver | null = null;
   pollId: number | null = null;
+  slyActiveContainer: HTMLElement | null = null;
+  /** Padding-free array of rendered lyric line elements, set by sly:takeover.
+   *  Used by syncedLyricsRenderer instead of querySelectorAll to avoid the
+   *  2-padding-div index offset that causes sync mismatch on mid-song skip. */
+  slyActiveDomElements: HTMLElement[] = [];
 
   async loadFromStorage(): Promise<void> {
     await safeBrowserCall(async () => {

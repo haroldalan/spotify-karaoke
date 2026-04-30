@@ -6,6 +6,7 @@ export interface DomObserverOpts {
   onSongChange: (key: string) => void;
   onLyricsInjected: () => void;
   onControlsRemoved: () => void;
+  onLyricsPanelClosed?: () => void;
   onInvalidate: () => void;
 }
 
@@ -24,6 +25,15 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
       ) {
         opts.onSongChange(getNowPlayingKey());
       }
+
+      if (
+        mut.type === 'attributes' &&
+        mut.attributeName === 'data-active' &&
+        (mut.target as Element).matches('[data-testid="lyrics-button"]') &&
+        (mut.target as Element).getAttribute('data-active') !== 'true'
+      ) {
+        opts.onLyricsPanelClosed?.();
+      }
     }
 
     for (const mut of mutations) {
@@ -35,6 +45,10 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
           node.matches('[data-testid="lyrics-line"]') ||
           node.querySelector('[data-testid="lyrics-line"]')
         ) {
+          // Do not react to slyCore's own injected lines — they use the same
+          // testid but belong to a separate DOM strategy that Pipeline B must
+          // not touch. Same guard as detector.ts:93.
+          if ((node as Element).closest('#lyrics-root-sync')) break;
           opts.onLyricsInjected();
           break;
         }
@@ -53,7 +67,7 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['aria-label'],
+    attributeFilter: ['aria-label', 'data-active'],
   });
 
   return observer;

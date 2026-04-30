@@ -3,6 +3,24 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.0] — 2026-04-30
+
+### Added
+- **Custom Lyrics Engine (`slyCore`)**: Introduced a massive new rendering engine that can fetch and display lyrics for songs that Spotify natively marks as "Missing" or "Unsynced". The extension now independently fetches lyrics from Musixmatch and seamlessly injects a custom, pixel-perfect synced lyrics UI (`#lyrics-root-sync`) directly into the page.
+- **Custom Synced Renderer**: Built a standalone `requestAnimationFrame` synced lyrics renderer to animate the new custom DOM, perfectly matching Spotify's native active/passed/future highlighting behavior.
+- **Status HUD**: Added a native-style Loading/Error HUD to provide visual feedback while custom lyrics are being fetched in the background.
+- **Design Overhaul**: Redesigned the lyrics controls to perfectly match Spotify's native pill-shaped design aesthetics, including dynamic backdrop-filter blur effects.
+- **Enhanced Loading State**: The shimmering loading effect is now more reliable, with strict teardown guarantees even when translations are aborted or fail.
+
+### Changed
+- **Architectural Rewrite**: Completely refactored the monolithic 40KB content script (`index.ts`) into a highly modular architecture within the new `lib/` directory to support the new `slyCore` engine.
+- **Separation of Concerns**: Split the core extension logic into `slyCore` (handling deep Spotify DOM manipulation and custom lyrics fetching/injection) and `Pipeline B` (handling mode pill orchestration, state management, and synced lyrics rendering).
+
+### Fixed
+- **Infinite Loop on Unsynced Lyrics**: Patched a critical bug where custom unsynced lyrics would cause the DOM to rapidly re-inject every 500ms due to an orphaned `sly:takeover` event.
+- **Stranded Mode Pill Bug**: Fixed a race condition where quickly skipping tracks would trap the extension's UI pill inside Spotify's hidden native container, effectively breaking all extension features until a reload.
+- **Race Condition Guard**: `Pipeline B` now actively aborts UI injection if `slyCore` is busy hijacking the DOM, preventing conflicting layout rendering.
+
 ## [3.0.5] — 2026-04-07
 
 ### Added

@@ -5,8 +5,10 @@ import { applyNativeOverride } from './nativeLyricsHandler';
 import { loadSongCache, saveSongCache } from './lyricsCache';
 import { injectControls, syncButtonStates, CONTROLS_ID } from '../dom/lyricsControls';
 import { createLyricsObserver } from '../dom/lyricsObserver';
+import { createSyncedLyricsRenderer, type LrcLine } from './syncedLyricsRenderer';
 import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
 import { StateStore } from './store';
+import { slyInternalState } from '../slyCore/state';
 
 export interface LifecycleControllerOpts {
   store: StateStore;
@@ -24,7 +26,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     }
     if (!hasLyrics()) return;
     const container = getLyricsContainer();
-    if (!container) return;
+    if (!container) return; // Unlikely due to polling, but safe
+
+    // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
+    if (document.querySelector('main.J6wP3V0xzh0Hj_MS.sly-active')) {
+      return;
+    }
     
     const cache = opts.store.cache;
     if (cache.original.length === 0) snapshotOriginals(cache);
@@ -112,6 +119,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const currentPollId = opts.store.pollId;
     if (currentPollId) { cancelAnimationFrame(currentPollId); opts.store.pollId = null; }
     opts.autoSwitchIfNeeded();
+
+    // Notify slyCore that native lyrics are in the DOM. Triggers its injection
+    // gate immediately for the common case (fetch completed before panel opened),
+    // eliminating up to 500ms of poll latency. Poll remains fallback for slow fetches.
+    document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
   }
 
   function pollForLyricsContainer(attempts = 0): void {
@@ -152,7 +164,172 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const currentPollId = opts.store.pollId;
     if (currentPollId) cancelAnimationFrame(currentPollId);
     pollForLyricsContainer();
+
+    // Notify slyCore of the track change reactively so it no longer needs to
+    // detect this in its 500ms poll. URI is sourced from window.spotifyState
+    // which slyCore's scanner already populates — no new coupling.
+    const uri = (window as any).spotifyState?.track?.uri as string | undefined;
+    document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri } }));
   }
 
   return { trySetup, syncSetup, pollForLyricsContainer, onSongChange };
+}
+
+/**
+ * Registers listeners for the sly:takeover and sly:release events dispatched
+ * by slyCore's domEngine/ui modules.
+ *
+ * sly:takeover — slyCore has hidden the native container and injected
+ *   #lyrics-root-sync. We physically move the mode pill into the new container
+ *   so it remains visible to the user.
+ *
+ * sly:release  — slyCore has removed #lyrics-root-sync (song change or panel
+ *   close). The pill was inside it and is now gone. We disconnect the stale
+ *   lyricsObserver; domObserver's onLyricsInjected() will re-inject the pill
+ *   when native lyrics next appear.
+ *
+ * Must be called once at boot, after createLifecycleController.
+ */
+export function setupSlyBridge(
+  store: StateStore,
+  switchMode: (m: LyricsMode, forceLang?: string, suppressLoading?: boolean) => Promise<void>,
+  autoSwitchIfNeeded: () => void,
+): void {
+  // Created once — opts are evaluated lazily each RAF frame so scavenged CSS
+  // classes and playback state are always current, not captured at boot time.
+  const renderer = createSyncedLyricsRenderer({
+    getPlaybackSeconds: () => (window as any).slyGetPlaybackSeconds?.() ?? 0,
+    // Use the padding-free domElements array stored by sly:takeover instead of
+    // re-querying via querySelectorAll. slyBuildLyricsList adds 2 invisible padding
+    // divs that share [data-testid="lyrics-line"], so querySelectorAll returns
+    // N+3 elements while lrcLines only has N entries — causing a 2-line index
+    // offset that makes synced lyrics appear out-of-sync when skipping mid-song.
+    getOuterElements: () => store.slyActiveDomElements,
+    lineBaseClass:   () => (window as any).SPOTIFY_CLASSES?.lineBase   ?? '',
+    activeClass:     () => (window as any).SPOTIFY_CLASSES?.activeLine ?? '',
+    passedClass:     () => (window as any).SPOTIFY_CLASSES?.passedLine ?? '',
+    futureClass:     () => (window as any).SPOTIFY_CLASSES?.futureLine ?? '',
+    isUserScrolling: () => slyInternalState.isUserScrolling,
+    onActiveIndexChange: (index) => { slyInternalState.lastActiveIndex = index; },
+  });
+
+  // slyCore's injection gate dispatches this when pendingLyricsData is ready and the
+  // panel is open. Pipeline B is now the full orchestrator — it calls slyCore's DOM
+  // creation functions as individual tools and dispatches sly:takeover itself.
+  // slyInjectLyrics is no longer in the call chain after this expansion.
+  document.addEventListener('sly:inject', (e: Event) => {
+    const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
+    if (!lyricsObj || lyricsObj.failed) return;
+
+    const sly = window as any;
+
+    // 1. Prepare the #lyrics-root-sync container (create or clear existing).
+    const root: HTMLElement | null = sly.slyPrepareContainer?.();
+    if (!root) return;
+
+    // 2. Inject core CSS once (sync button styles, custom transitions).
+    sly.slyInjectCoreStyles?.();
+
+    // 3. Copy Spotify's CSS custom properties; hide the native lyrics container.
+    const nativeRef = document.querySelector(
+      `main.J6wP3V0xzh0Hj_MS .${sly.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
+    ) as HTMLElement | null;
+    sly.slyMirrorNativeTheme?.(root, lyricsObj, nativeRef);
+
+    // 4. Build the lyrics DOM lines.
+    //    Also populates lyricsObj.lines and lyricsObj.domElements — required below.
+    sly.slyBuildLyricsList?.(root, lyricsObj);
+
+    // 5. Pipeline B dispatches sly:takeover — slyInjectLyrics no longer does this.
+    //    lyricsObj.lines is now populated by slyBuildLyricsList, so lrcLines is correct.
+    const plainLinesRaw = lyricsObj.isSynced
+      ? (lyricsObj.lines as LrcLine[]).map(l => l.text)
+      : ((lyricsObj.plainLyrics as string) || '').split('\n');
+
+    // Filter to match domEngine's exact logic so arrays align perfectly
+    const plainLines = plainLinesRaw.filter(text => !(!text.trim() && lyricsObj.isSynced));
+
+    const lrcLines: LrcLine[] = lyricsObj.isSynced 
+      ? (lyricsObj.lines as LrcLine[]).filter(l => l.text.trim()) 
+      : [];
+    // Pass domElements (padding-free) so sly:takeover can give them directly to
+    // the renderer — avoids the querySelectorAll index-offset bug.
+    const domElements = (lyricsObj.domElements as HTMLElement[]) ?? [];
+    document.dispatchEvent(new CustomEvent('sly:takeover', {
+      detail: { container: root, plainLines, isSynced: !!lyricsObj.isSynced, lrcLines, domElements },
+    }));
+
+    // 6. Setup the floating Sync button.
+    // slyCore's sly:inject listener records currentLyrics — no write needed here.
+    sly.slySetupSyncButton?.(lyricsObj);
+    // slyUpdateSync is intentionally omitted — Pipeline B's syncedLyricsRenderer owns sync.
+  });
+
+  document.addEventListener('sly:takeover', (e: Event) => {
+    const { container: root, plainLines, isSynced, lrcLines, domElements } = (e as CustomEvent<{
+      container: HTMLElement;
+      plainLines: string[];
+      isSynced: boolean;
+      lrcLines: LrcLine[];
+      domElements: HTMLElement[];
+    }>).detail;
+
+    // Feed slyCore's lyrics into Pipeline B's data model. This populates
+    // cache.original so switchMode can process and apply them.
+    store.cache.original = plainLines;
+    // Clear processed cache to prevent zipping old Native translations onto the Custom DOM
+    store.cache.processed.clear();
+    store.slyActiveContainer = root;
+    // Store padding-free elements so getOuterElements() returns the same set
+    // that lrcLines was built from — index 0 is the first lyric, not a padding div.
+    store.slyActiveDomElements = domElements ?? [];
+
+    // Move the existing pill into slyCore's lyrics content div so it sits at
+    // the same structural level as in native mode. #lyrics-root-sync is the
+    // outer container — the pill must go inside the inner div that directly
+    // wraps the [data-testid="lyrics-line"] elements (mirrors getLyricsContainer()).
+    // slyBuildLyricsList has already run at this point, so the lines are in the DOM.
+    const firstLine = root.querySelector('[data-testid="lyrics-line"]');
+    const pillTarget = (firstLine?.parentElement ?? root) as HTMLElement;
+
+    const existingPill = document.getElementById(CONTROLS_ID);
+    if (existingPill) {
+      pillTarget.insertBefore(existingPill, pillTarget.firstChild);
+      existingPill.classList.remove('sly-loading');
+      existingPill.style.display = store.showPill ? '' : 'none';
+    } else {
+      injectControls(pillTarget, store.showPill, store.mode, store.preferredMode, switchMode);
+    }
+
+    // Disconnect the lyricsObserver — it was aimed at the now-hidden native
+    // container and cannot usefully fire while slyCore owns the lyrics DOM.
+    store.lyricsObserver?.disconnect();
+    store.lyricsObserver = null;
+
+    // Load any previously cached translations before re-applying mode.
+    // cache.original is already set above so loadSongCache's coherence check
+    // (entry.original.length === cache.original.length) passes correctly.
+    // This makes repeat plays instant — no background round-trip needed.
+    loadSongCache(store.songKey, store.cache, store.runtimeCache).then(() => {
+      // Start Pipeline B's RAF sync loop for synced tracks. Sets the
+      // slySyncedRendererActive flag so slyCore's own loop yields immediately.
+      if (isSynced && lrcLines.length > 0) {
+        slyInternalState.slySyncedRendererActive = true;
+        renderer.start(lrcLines);
+      }
+      autoSwitchIfNeeded(true);
+    });
+  });
+
+  document.addEventListener('sly:release', () => {
+    // #lyrics-root-sync (and the pill inside it) has been removed from the DOM.
+    // Stop Pipeline B's sync loop, clear the flag so slyCore's loop can run
+    // again if needed, then clean up the observer reference.
+    slyInternalState.slySyncedRendererActive = false;
+    renderer.stop();
+    store.slyActiveContainer = null;
+    store.slyActiveDomElements = [];  // prevent stale elements from a prior song
+    store.lyricsObserver?.disconnect();
+    store.lyricsObserver = null;
+  });
 }

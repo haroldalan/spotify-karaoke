@@ -15,7 +15,7 @@ declare global {
 export function slyGetCoreStyles(): string {
   return `
         /* 1. SAFETY FLOOR: Prevents seeing the app content when native UI is hidden */
-        main.J6wP3V0xzh0Hj_MS {
+        main.J6wP3V0xzh0Hj_MS.sly-active {
             background-color: #121212 !important;
         }
 

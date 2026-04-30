@@ -12,13 +12,27 @@ export interface ModeControllerOpts {
 }
 
 export function createModeController(opts: ModeControllerOpts) {
-  async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false): Promise<void> {
+  // Returns the inner text divs of slyCore's lyric elements for applyLinesToDOM.
+  // Must use slyActiveDomElements (padding-free) instead of querySelectorAll:
+  // querySelectorAll('[data-testid="lyrics-line"] > div') on slyActiveContainer
+  // returns N+3 inner divs (pad1, pad2, lyric0…lyricN-1, padBottom). Since
+  // cache.original/processed only has N entries, applyLinesToDOM sees
+  // lines[N] = undefined for the last 2 targets → they are skipped → last 2
+  // lyrics stay in original script (un-romanized). The whole mapping is also
+  // shifted by 2, so lyric0 gets lyric2's romanized text, etc.
+  const getTargets = (): Element[] | undefined => {
+    if (!opts.store.slyActiveContainer) return undefined;
+    return opts.store.slyActiveDomElements
+      .map(outer => outer.firstElementChild)
+      .filter((el): el is Element => el !== null);
+  };
+  async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false): Promise<void> {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     const cache = opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
 
-    if (next === mode && forceLang === undefined) return;
+    if (next === mode && forceLang === undefined && !forceRefresh) return;
     const previousMode = mode;
     if (cache.original.length === 0) snapshotOriginals(cache);
 
@@ -28,7 +42,7 @@ export function createModeController(opts: ModeControllerOpts) {
         opts.store.preferredMode = next;
         safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
       }
-      applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+      applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
       syncButtonStates(next);
       return;
     }
@@ -51,7 +65,7 @@ export function createModeController(opts: ModeControllerOpts) {
           opts.store.preferredMode = next;
           safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
         }
-        applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+        applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
         setLoadingState(false);
       } else {
         const lang = forceLang ?? (await getTargetLang());
@@ -67,6 +81,8 @@ export function createModeController(opts: ModeControllerOpts) {
         if (processed === null) {
           opts.store.mode = previousMode;
           syncButtonStates(previousMode);
+          opts.store.isSwitchingMode = false;
+          setLoadingState(false);
           return;
         }
 
@@ -76,7 +92,7 @@ export function createModeController(opts: ModeControllerOpts) {
           safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
         }
         const lines = next === 'romanized' ? processed.romanized : processed.translated;
-        applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+        applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
         setLoadingState(false);
       }
     } catch (err) {
@@ -108,14 +124,14 @@ export function createModeController(opts: ModeControllerOpts) {
     if (!processed) return;
 
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
-    applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+    applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
   }
 
-  function autoSwitchIfNeeded(): void {
+  function autoSwitchIfNeeded(forceRefresh = false): void {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
-    if (mode === 'original' && preferredMode !== 'original') {
-      switchMode(preferredMode);
+    if ((mode === 'original' && preferredMode !== 'original') || forceRefresh) {
+      switchMode(preferredMode, undefined, false, forceRefresh);
     }
   }
 

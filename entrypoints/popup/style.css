@@ -1,16 +1,16 @@
 /* Spotify-inspired Dark Theme */
 :root {
-    --bg-color: #000000;
-    --card-bg: #121212;
-    --card-hover: #1A1A1A;
+    --bg-color: #121212;
+    --card-bg: #181818;
+    --card-hover: #252525;
     --card-active: #282828;
     --text-primary: #FFFFFF;
     --text-secondary: #B3B3B3;
     --border-subtle: rgba(255, 255, 255, 0.1);
-    --spotify-green: #1DB954;
-    --spotify-green-hover: #1ED760;
-    --danger: #E91429;
-    --font-stack: 'Circular', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --spotify-green: #1ed760;
+    --spotify-green-hover: #1fdf64;
+    --danger: #f3727f;
+    --font-stack: 'SpotifyMixUI', 'SpotifyMixUITitle', 'Circular', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 body {
@@ -111,13 +111,14 @@ h1 {
 }
 
 label {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--text-primary);
 }
 
 .description {
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 400;
     color: var(--text-secondary);
     margin: 0;
 }
@@ -140,8 +141,8 @@ label {
     height: 32px;
     background-color: var(--card-active);
     border: 1px solid transparent;
-    border-radius: 4px;
-    padding: 0 12px;
+    border-radius: 500px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -185,8 +186,8 @@ label {
     left: 0;
     width: 100%;
     background-color: #282828;
-    border-radius: 4px;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+    border-radius: 6px;
+    box-shadow: rgba(0, 0, 0, 0.3) 0px 8px 8px;
     z-index: 100;
     overflow: hidden;
     border: 1px solid #3e3e3e;
@@ -201,12 +202,13 @@ label {
     width: 100%;
     background-color: #333;
     border: 1px solid transparent;
-    border-radius: 4px;
-    padding: 6px 10px;
+    border-radius: 500px;
+    padding: 6px 16px;
     color: #fff;
     font-size: 13px;
     outline: none;
     box-sizing: border-box;
+    box-shadow: rgb(18, 18, 18) 0px 1px 0px, rgb(124, 124, 124) 0px 0px 0px 1px inset;
 }
 
 .sly-picker-search:focus {
@@ -341,11 +343,11 @@ select option {
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
-    padding: 4px 12px;
+    padding: 6px 16px;
     border-radius: 500px;
     transition: transform 0.1s ease, color 0.1s ease, border-color 0.1s ease;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 1.4px;
 }
 
 .text-btn:hover {
@@ -522,7 +524,7 @@ input:checked+.slider:before {
 
 /* Rounded sliders */
 .slider.round {
-    border-radius: 34px;
+    border-radius: 500px;
 }
 
 .slider.round:before {
@@ -553,10 +555,10 @@ input:checked+.slider:before {
 
 .modal {
     background-color: var(--card-active);
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: 8px;
+    padding: 24px;
     width: 240px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+    box-shadow: rgba(0, 0, 0, 0.5) 0px 8px 24px;
     transform: scale(0.95);
     transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -586,13 +588,15 @@ input:checked+.slider:before {
 }
 
 .btn {
-    padding: 8px 16px;
+    padding: 8px 24px;
     border-radius: 500px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     cursor: pointer;
     border: none;
     transition: transform 0.1s ease, background-color 0.2s ease, color 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
 }
 
 .btn:hover {
@@ -624,26 +628,34 @@ input:checked+.slider:before {
 /* --- Popup Pill --- */
 .sly-popup-pill {
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     align-items: center;
     gap: 4px;
     padding: 4px;
     background: #282828;
-    border-radius: 32px;
-    width: fit-content;
+    border-radius: 9999px;
+    width: 100%;
+    box-sizing: border-box;
     margin: 4px 0 8px 0;
 }
 
 .sly-lyrics-btn {
+    flex: 1;
     background: transparent;
     border: none;
-    border-radius: 20px;
+    border-radius: 9999px;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 0.8rem;
-    padding: 6px 14px;
+    font-size: 10.5px;
+    padding: 6px 0;
+    text-align: center;
     transition: all 0.2s ease;
-    font-weight: 500;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .sly-lyrics-btn:hover {

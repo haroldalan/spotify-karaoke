@@ -11,7 +11,6 @@ declare global {
     slyMirrorNativeTheme: (root: HTMLElement, lyricsObj: Record<string, unknown>, nativeReference: HTMLElement | null) => void;
     slyBuildLyricsList: (root: HTMLElement, lyricsObj: Record<string, unknown>) => void;
     slySetupSyncButton: (lyricsObj: Record<string, unknown>) => void;
-    slyInjectLyrics: (lyricsObj: Record<string, unknown> | null) => boolean | undefined;
     // Forward refs from ui.js (not yet ported — guarded in source)
     slyParseLRC?: (lrc: string) => { time: number; text: string }[];
     slyUpdateSync?: () => void;
@@ -190,7 +189,7 @@ window.slySetupSyncButton = function (lyricsObj: Record<string, unknown>): void 
     syncBtn.innerHTML = `
             <span class="e-10310-overflow-wrap-anywhere e-10310-button-primary__inner encore-inverted-light-set e-10310-legacy-button--medium e-10310-button--leading">
                 <span aria-hidden="true" class="e-10310-button__icon-wrapper">
-                    <svg data-encore-id="icon" role="img" aria-hidden="true" class="e-10310-icon" viewBox="0 0 24 24" style="--encore-icon-height: 16px; --encore-icon-width: 16px;">
+                    <svg data-encore-id="icon" role="img" aria-hidden="true" class="e-10310-icon" viewBox="0 0 24 24" style="--encore-icon-height: var(--encore-graphic-size-decorative-base); --encore-icon-width: var(--encore-graphic-size-decorative-base);">
                         <path d="M12 0a1 1 0 0 1 1 1v22a1 1 0 1 1-2 0V1a1 1 0 0 1 1-1m5 4a1 1 0 0 1 1 1v14a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1M1 9v6a1 1 0 1 0 2 0V9a1 1 0 1 0-2 0m20 6V9a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0M8 5a1 1 0 0 0-2 0v14a1 1 0 1 0 2 0z"></path>
                     </svg>
                 </span>
@@ -206,45 +205,6 @@ window.slySetupSyncButton = function (lyricsObj: Record<string, unknown>): void 
       }
     });
     document.body.appendChild(syncBtn);
+    requestAnimationFrame(window.slyUpdateSyncButton);
   }
-};
-
-/**
- * Main Entry Point: Orchestrates the injection of custom lyrics into the Spotify UI.
- */
-window.slyInjectLyrics = function (lyricsObj: Record<string, unknown> | null): boolean | undefined {
-  if (window.slyClearStatus) window.slyClearStatus();
-
-  if (!lyricsObj || lyricsObj.failed) {
-    const customRoot = window.slyInternalState.customRoot;
-    if (customRoot) customRoot.style.display = 'none';
-    return;
-  }
-
-  // 1. Prepare Container
-  const root = window.slyPrepareContainer();
-  if (!root) return;
-
-  // 2. Inject Styles
-  window.slyInjectCoreStyles();
-
-  // 3. Mirror Theme
-  const nativeRef = document.querySelector(`main.J6wP3V0xzh0Hj_MS .${window.SPOTIFY_CLASSES.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
-  window.slyMirrorNativeTheme(root, lyricsObj, nativeRef);
-
-  // 4. Build Content
-  window.slyBuildLyricsList(root, lyricsObj);
-
-  // 5. Setup Sync Button
-  window.slySetupSyncButton(lyricsObj);
-
-  // 6. Activate Sync Loop
-  window.slyInternalState.currentLyrics = lyricsObj;
-  console.log(`[sly-ui] 🛠️ SOLUTION: Native lyrics hidden. Custom DOM Engine taking over. Source: ${(lyricsObj.source as string) || 'Unknown'}.`);
-
-  if (window.slyInternalState.syncAnimFrame) cancelAnimationFrame(window.slyInternalState.syncAnimFrame);
-  if (lyricsObj.isSynced && window.slyUpdateSync) {
-    window.slyUpdateSync();
-  }
-  return true;
 };

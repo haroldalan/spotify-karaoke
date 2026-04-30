@@ -8,6 +8,7 @@ declare global {
     slyResetPlayerState: (newTitle: string, uri?: string) => void;
     slyUpdateButtonState: () => void;
     slyUpdateSync: () => void;
+    slyUpdateSyncButton: () => void;
     // Ensure we know about these globals
     slyGetPlaybackSeconds: () => number;
     antigravitySyncAnimFrame?: number;
@@ -42,9 +43,11 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
 
   // 1. Internal State Cleanup
   window.slyInternalState.lastTitle = newTitle;
+  window.slyInternalState.lastUri = uri;
   window.slyInternalState.lastActiveIndex = -1;
   window.slyInternalState.currentLyrics = null;
   window.slyInternalState.fetchingForTitle = '';
+  window.slyInternalState.fetchingForUri = '';
   window.slyInternalState.isUserScrolling = false;
   window.slyInternalState.lastDecision = '';
   window.slyInternalState.panelOpenTime = 0;
@@ -52,12 +55,22 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.fetchGeneration++;
   window.slyInternalState.nativeUpgradedLines = undefined; // Note: original used null, but we type as optional string[]
 
+  // Reset playback extrapolator so the first slyGetPlaybackSeconds() call after
+  // a skip reads the live progress bar DOM instead of extrapolating from the
+  // previous track's position (fixes sync mismatch on mid-song skip).
+  if (window.slyResetPlaybackExtrapolator) window.slyResetPlaybackExtrapolator();
+
   // 2. DOM Cleanup
   if (window.slyClearStatus) window.slyClearStatus();
 
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
   document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
   window.slyInternalState.customRoot = null;
+
+  // Notify Pipeline B that the custom container is gone. It will disconnect its
+  // stale lyricsObserver. The next onLyricsInjected() will re-inject the pill
+  // into whichever native container Spotify restores.
+  document.dispatchEvent(new CustomEvent('sly:release'));
 
   const main = document.querySelector('main.J6wP3V0xzh0Hj_MS') as HTMLElement | null;
   if (main) {
@@ -99,7 +112,71 @@ window.slyUpdateButtonState = function (): void {
   // Note: Visual state is now handled by the Bridge's Unbreakable Shield pulse.
 };
 
+/**
+ * Independent RAF loop that positions and shows/hides the floating Sync button.
+ * Runs regardless of whether slyUpdateSync has yielded to Pipeline B — decoupled
+ * so synced tracks using Pipeline B's renderer still get a functional Sync button.
+ * Self-terminating: stops when the button element is removed from the DOM.
+ */
+window.slyUpdateSyncButton = function (): void {
+  const syncBtn = document.getElementById('sly-sync-button');
+  if (!syncBtn) return; // button removed (song change / reset) — loop terminates
+
+  // Self-Destruct Guard: If the lyrics panel was closed (either by our cleanup or
+  // by React unmounting the full-page route), this button is an orphan. Remove it.
+  const lyricsRoot = (document.getElementById('lyrics-root-sync') as HTMLElement | null)
+    ?? (window.slyInternalState.customRoot as HTMLElement | null);
+  if (!lyricsRoot) {
+    syncBtn.remove();
+    return;
+  }
+
+  const currentLyrics = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
+  const activeIndex = window.slyInternalState.lastActiveIndex;
+  const domElements = currentLyrics?.domElements as HTMLElement[] | undefined;
+
+  if (domElements?.[activeIndex]) {
+    const activeEl = domElements[activeIndex];
+    const elRect = activeEl.getBoundingClientRect();
+
+    const viewportHeight = window.innerHeight;
+    const topSafe = viewportHeight * 0.2;
+    const bottomSafe = viewportHeight * 0.8;
+    const isInView = (elRect.top >= topSafe) && (elRect.bottom <= bottomSafe);
+
+    // Use lyricsRoot calculated at the top for viewport rect math.
+    const viewportRect =
+      lyricsRoot?.closest('[data-overlayscrollbars-viewport]')?.getBoundingClientRect()
+      ?? document.querySelector('main.J6wP3V0xzh0Hj_MS')?.getBoundingClientRect()
+      ?? (lyricsRoot ?? activeEl).getBoundingClientRect();
+
+    const screenBottom = window.innerHeight;
+    const visibleBottom = Math.min(screenBottom, viewportRect.bottom);
+
+    syncBtn.style.left = `${viewportRect.left + viewportRect.width / 2}px`;
+    syncBtn.style.bottom = `${screenBottom - visibleBottom + 16}px`;
+
+    if (window.slyInternalState.isUserScrolling) {
+      if (isInView) {
+        window.slyInternalState.isUserScrolling = false;
+        syncBtn.classList.remove('visible');
+      } else {
+        syncBtn.classList.add('visible');
+      }
+    } else {
+      syncBtn.classList.remove('visible');
+    }
+  }
+
+  requestAnimationFrame(window.slyUpdateSyncButton);
+};
+
 window.slyUpdateSync = function (): void {
+  // Yield to Pipeline B's syncedLyricsRenderer when it's active.
+  // Without this, both RAF loops would fight over className on the same elements.
+  // This loop self-terminates (no RAF rescheduled) — zero ongoing cost.
+  if (window.slyInternalState.slySyncedRendererActive) return;
+
   const currentLyrics = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
   if (!currentLyrics || !currentLyrics.isSynced || !window.slyInternalState.customRoot) return;
 
@@ -152,37 +229,8 @@ window.slyUpdateSync = function (): void {
     }
   }
 
-  const syncBtn = document.getElementById('sly-sync-button');
-  if (syncBtn && domElements[activeIndex]) {
-    const activeEl = domElements[activeIndex];
-    const elRect = activeEl.getBoundingClientRect();
+  // Sync button position + visibility is handled by slyUpdateSyncButton (its own RAF loop).
 
-    const viewportHeight = window.innerHeight;
-    const topSafe = viewportHeight * 0.2;
-    const bottomSafe = viewportHeight * 0.8;
-    const isInView = (elRect.top >= topSafe) && (elRect.bottom <= bottomSafe);
-
-    const viewportRect = window.slyInternalState.customRoot.closest('[data-overlayscrollbars-viewport]')?.getBoundingClientRect()
-      || document.querySelector('main.J6wP3V0xzh0Hj_MS')?.getBoundingClientRect()
-      || window.slyInternalState.customRoot.getBoundingClientRect();
-
-    const screenBottom = window.innerHeight;
-    const visibleBottom = Math.min(screenBottom, viewportRect.bottom);
-
-    syncBtn.style.left = `${viewportRect.left + viewportRect.width / 2}px`;
-    syncBtn.style.bottom = `${screenBottom - visibleBottom + 16}px`;
-
-    if (window.slyInternalState.isUserScrolling) {
-      if (isInView) {
-        window.slyInternalState.isUserScrolling = false;
-        syncBtn.classList.remove('visible');
-      } else {
-        syncBtn.classList.add('visible');
-      }
-    } else {
-      syncBtn.classList.remove('visible');
-    }
-  }
 
   window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
   window.antigravitySyncAnimFrame = window.slyInternalState.syncAnimFrame;
