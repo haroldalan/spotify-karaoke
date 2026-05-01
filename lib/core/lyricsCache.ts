@@ -107,7 +107,7 @@ export async function saveSongCache(
     } catch (err: any) {
       console.warn('[SKaraoke:Content] saveSongCache failed:', err);
     }
-  }).catch((err) => console.warn('[SKaraoke:Content] saveSongCache index get failed:', err));
+  }).catch((err) => { console.warn('[SKaraoke:Content] saveSongCache index get failed:', err); });
 }
 
 export function deleteSongCache(key: string): void {

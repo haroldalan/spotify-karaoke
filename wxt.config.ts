@@ -1,14 +1,15 @@
 import { defineConfig } from 'wxt';
 import preact from '@preact/preset-vite';
+import removeConsole from 'vite-plugin-remove-console';
 
 export default defineConfig({
   vite: (configEnv) => ({
-    plugins: [preact()],
+    plugins: [
+      preact(),
+      ...(configEnv.mode === 'production' ? [removeConsole({ includes: ['log', 'warn', 'error', 'info', 'debug'] })] : []),
+    ],
     optimizeDeps: {
       include: ['@indic-transliteration/sanscript'],
-    },
-    esbuild: {
-      drop: configEnv.mode === 'production' ? ['console', 'debugger'] : [],
     },
   }),
   manifest: {
