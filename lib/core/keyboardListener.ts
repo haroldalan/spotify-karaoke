@@ -7,7 +7,8 @@ export function setupKeyboardShortcuts(switchMode: (mode: LyricsMode) => Promise
     if (e.altKey || e.ctrlKey || e.metaKey) return; // ignore modified combos
     const tag = (document.activeElement as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable) return;
-    if (!getLyricsContainer()) return; // Only active when lyrics panel is open
+    const hasLyricsPanel = !!getLyricsContainer() || !!document.getElementById('lyrics-root-sync');
+    if (!hasLyricsPanel) return; // Only active when lyrics panel is open
 
     if (e.key === 'o' || e.key === 'O') {
       e.preventDefault();
