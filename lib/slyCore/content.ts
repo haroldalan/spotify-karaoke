@@ -105,6 +105,20 @@ window.slyCheckNowPlaying = function (): void {
         window.slyResetPlayerState('AD_SILENCED', fullUri || 'ad');
       }
 
+      // ORPHAN GUARD: Check if the Ad HUD's container is still connected but the
+      // lyrics panel was closed by navigation (button unmounted or deactivated).
+      // Cannot rely on isOnLyricsPage here — hidden-but-present native container
+      // keeps it true even after navigation.
+      if (document.getElementById('lyrics-root-sync')) {
+        const lyricsBtn = document.querySelector('[data-testid="lyrics-button"]');
+        const panelOpen = lyricsBtn?.getAttribute('aria-pressed') === 'true'
+                       || lyricsBtn?.getAttribute('data-active') === 'true';
+        if (!panelOpen) {
+          document.dispatchEvent(new CustomEvent('sly:panel_close'));
+          return;
+        }
+      }
+
       // If on lyrics page, ensure the "Ad Break" HUD is active
       if (detection.isOnLyricsPage) {
         const hud = document.getElementById('sly-status-hud');

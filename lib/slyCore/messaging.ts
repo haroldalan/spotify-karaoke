@@ -107,6 +107,8 @@ window.addEventListener('message', (event) => {
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
     if (trackId === currentTrackId) {
       window.slyInternalState.nativeUpgradedLines = nativeLines;
+      window.slyInternalState.pendingLyricsData = null;
+      window.slyInternalState.fetchingForTitle = '';
     }
   }
 });
