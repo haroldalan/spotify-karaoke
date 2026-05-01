@@ -2,10 +2,13 @@ import { defineConfig } from 'wxt';
 import preact from '@preact/preset-vite';
 
 export default defineConfig({
-  vite: () => ({
+  vite: (configEnv) => ({
     plugins: [preact()],
     optimizeDeps: {
       include: ['@indic-transliteration/sanscript'],
+    },
+    esbuild: {
+      drop: configEnv.mode === 'production' ? ['console', 'debugger'] : [],
     },
   }),
   manifest: {
