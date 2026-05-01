@@ -118,6 +118,7 @@ export default function App() {
   }
 
   async function handleLangChange(lang: string) {
+    if (lang === targetLang) return;
     const prev = targetLang;
     setTargetLang(lang);
     localStorage.setItem('sly_targetLang', lang);
@@ -189,7 +190,9 @@ export default function App() {
 
     // Clear all lyrics cache from local storage
     try {
-      await browser.storage.local.clear();
+      const allLocal = await browser.storage.local.get(null);
+      const lyricsKeys = Object.keys(allLocal).filter(k => k.startsWith('lc:') || k === 'lc_index');
+      if (lyricsKeys.length > 0) await browser.storage.local.remove(lyricsKeys);
     } catch { /* ignore */ }
 
     setTargetLang('en');

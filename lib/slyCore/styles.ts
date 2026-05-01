@@ -56,10 +56,7 @@ export function slyGetCoreStyles(): string {
             overflow: hidden !important;
         }
 
-        /* Nuclear Hijack: Hide any lyrics container that isn't ours, but ONLY when we are active */
-        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active > div:not(#lyrics-root-sync):not(#sly-status-hud) {
-            display: none !important;
-        }
+
 
         /* Also hide native error messages if our HUD is present */
         main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active > .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync) {

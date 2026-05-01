@@ -78,6 +78,21 @@ window.slyPrepareContainer = function (): HTMLElement | null {
 };
 
 /**
+ * Calculates the perceived luminance of a CSS color string.
+ */
+function perceivedLuminance(cssColor: string): number {
+  const tmp = document.createElement('div');
+  tmp.style.color = cssColor;
+  document.body.appendChild(tmp);
+  const rgb = getComputedStyle(tmp).color;
+  document.body.removeChild(tmp);
+  const match = rgb.match(/\d+/g);
+  if (!match) return 0;
+  const [r, g, b] = match.map(Number);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+/**
  * Mirrors the native Spotify theme and applies fallback upgrades.
  */
 window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<string, unknown>, nativeReference: HTMLElement | null): void {
@@ -94,8 +109,13 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
   }
 
   const bg = root.style.getPropertyValue('--lyrics-color-background')?.trim();
-  if (!bg || bg === '#333333' || bg.includes('rgba(51,51,51,1)') || bg === 'rgb(51, 51, 51)') {
-    root.style.setProperty('--lyrics-color-background', (lyricsObj.extractedColor as string) || '#121212');
+  const isBgTooBright = bg && perceivedLuminance(bg) > 0.25;
+  const isBgTooDark = bg === '#333333' || bg.includes('rgba(51,51,51,1)') || bg === 'rgb(51, 51, 51)';
+  
+  if (!bg || isBgTooBright || isBgTooDark) {
+    const rawExtracted = (lyricsObj.extractedColor as string) || '#121212';
+    const safeBg = perceivedLuminance(rawExtracted) > 0.25 ? '#121212' : rawExtracted;
+    root.style.setProperty('--lyrics-color-background', safeBg);
   }
 
   if (nativeReference) (nativeReference as HTMLElement).style.display = 'none';

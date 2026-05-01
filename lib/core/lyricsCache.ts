@@ -2,6 +2,13 @@ import { isContextValid, safeBrowserCall } from '../utils/browserUtils';
 import type { SongCache, LyricsCacheEntry, LyricsIndex } from './lyricsTypes';
 
 const RUNTIME_CACHE_MAX = 10;
+const PERSISTED_CACHE_MAX = 200;
+
+function djb2(str: string): number {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = (h * 33) ^ str.charCodeAt(i);
+  return h >>> 0;
+}
 
 export async function loadSongCache(
   key: string,
@@ -23,7 +30,7 @@ export async function loadSongCache(
 
     if (!entry) return;
 
-    const currentHash = cache.original.join('|').length;
+    const currentHash = djb2(cache.original.join('|'));
     if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
       return;
     }
@@ -63,7 +70,7 @@ export async function saveSongCache(
     original: cache.original,
     processed: processedObj,
     lastAccessed: Date.now(),
-    originalHash: cache.original.join('|').length,
+    originalHash: djb2(cache.original.join('|')),
   };
 
   runtimeCache.set(key, entry);
@@ -84,6 +91,16 @@ export async function saveSongCache(
   safeBrowserCall(() => browser.storage.local.get('lc_index')).then(async (d) => {
     const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
     idx[key] = { lastAccessed: entry.lastAccessed };
+
+    const keys = Object.keys(idx);
+    if (keys.length > PERSISTED_CACHE_MAX) {
+      const sorted = keys.sort((a, b) => (idx[a].lastAccessed ?? 0) - (idx[b].lastAccessed ?? 0));
+      const toEvict = sorted.slice(0, keys.length - PERSISTED_CACHE_MAX);
+      for (const k of toEvict) {
+        delete idx[k];
+        await safeBrowserCall(() => browser.storage.local.remove(`lc:${k}`));
+      }
+    }
 
     try {
       await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
