@@ -56,13 +56,13 @@ document.addEventListener('sly:lyrics_injected', () => {
 document.addEventListener('sly:panel_close', () => {
   // Clear any failed states or manual overrides on panel close so users can recover
   if (window.slyInternalState.currentLyrics) {
-    (window.slyInternalState.currentLyrics as Record<string, unknown>).failed = false;
+    const cl = window.slyInternalState.currentLyrics as Record<string, unknown>;
+    cl.failed = false;
+    if (!cl.lines) {
+      window.slyInternalState.currentLyrics = null;
+    }
   }
   window.slyInternalState.forceFallback = false;
-  if (!window.slyInternalState.fetchingForTitle) {
-    window.slyInternalState.isFetchingHUD = false;
-  }
-  window.slyInternalState.isAdHUDActive = false;
 
   const root = document.getElementById('lyrics-root-sync');
   if (!root) return; // slyCore wasn't active, nothing to clean

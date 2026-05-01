@@ -127,7 +127,9 @@ declare global {
 
     hud.remove();
     window.slyInternalState.statusHUDActive = false;
-    window.slyInternalState.isFetchingHUD = false;
+    if (!window.slyInternalState.fetchingForTitle) {
+      window.slyInternalState.isFetchingHUD = false;
+    }
     window.slyInternalState.isAdHUDActive = false;
   };
 })();
