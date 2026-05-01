@@ -64,7 +64,7 @@ window.slyDetectNativeState = function (): DetectorState {
   state.isOnLyricsPage = (window.location.pathname === '/lyrics') ||
                          (document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true') ||
                          (document.querySelector('[data-testid="now-playing-view-lyrics-button"]')?.getAttribute('aria-pressed') === 'true') ||
-                         !!document.querySelector(`main.J6wP3V0xzh0Hj_MS .${containerClass}:not(#lyrics-root-sync)`);
+                         !!document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`);
 
   if (!trackRecord || !trackRecord.name) {
     if (state.isAd) return state; // Ad without metadata is still an ad
@@ -85,8 +85,8 @@ window.slyDetectNativeState = function (): DetectorState {
   if (state.isAd) return state;
 
   // 2. DOM SCANNING
-  // .hfTlyhd7WCIk9xmP is the container for "Lyrics aren't available"
-  state.hasUnavailableMessage = !!document.querySelector('.hfTlyhd7WCIk9xmP');
+  // Scavenge or fallback to known error containers
+  state.hasUnavailableMessage = !!document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP')) || !!document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'));
 
   // Check for native lines while ignoring our own injected lines
   state.hasNativeLines = !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))

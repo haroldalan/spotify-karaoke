@@ -67,12 +67,12 @@ document.addEventListener('sly:panel_close', () => {
   root.remove();
   const syncBtn = document.getElementById('sly-sync-button');
   if (syncBtn) syncBtn.remove();
-  const main = document.querySelector('main.J6wP3V0xzh0Hj_MS') as HTMLElement | null;
+  const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
   if (main) { main.classList.remove('sly-active'); main.style.display = ''; }
-  document.querySelectorAll('.hfTlyhd7WCIk9xmP, .bRNotDNzO2suN6vM')
+  document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`)
     .forEach(n => ((n as HTMLElement).style.display = ''));
   const nativeContainer = document.querySelector(
-    `main.J6wP3V0xzh0Hj_MS .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
+    `main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
   ) as HTMLElement | null;
   if (nativeContainer) nativeContainer.style.display = '';
   // Notify Pipeline B to stop its sync renderer and clear slyActiveContainer.
@@ -265,7 +265,7 @@ window.slyCheckNowPlaying = function (): void {
     // 6. PERSISTENCE & RE-INJECTION: We already have lyrics active, ensure they stay there.
     if (detection.isOnLyricsPage && (window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
       const root = document.getElementById('lyrics-root-sync');
-      const main = document.querySelector('main.J6wP3V0xzh0Hj_MS');
+      const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
 
       // If the panel was re-opened and our DOM was wiped by React, re-inject
       if (!root || !root.isConnected || root.innerHTML === '') {
@@ -280,8 +280,8 @@ window.slyCheckNowPlaying = function (): void {
         root.style.display = '';
         if (main) main.classList.add('sly-active');
 
-        document.querySelectorAll('.hfTlyhd7WCIk9xmP, .bRNotDNzO2suN6vM').forEach(n => ((n as HTMLElement).style.display = 'none'));
-        const nativeContainer = document.querySelector(`main.J6wP3V0xzh0Hj_MS .${window.SPOTIFY_CLASSES.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
+        document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => ((n as HTMLElement).style.display = 'none'));
+        const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
         if (nativeContainer) nativeContainer.style.display = 'none';
       }
     }

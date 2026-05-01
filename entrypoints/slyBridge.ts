@@ -138,7 +138,8 @@ window.slyOmniscientSearch = function (
 
   window.slyScanSpotifyState = function () {
     const lineNode = document.querySelector('[data-testid="lyrics-line"]');
-    const failNode = document.querySelector('.hfTlyhd7WCIk9xmP');
+    // We cannot use SPOTIFY_CLASSES here since this runs in the MAIN world. Use structural queries.
+    const failNode = document.querySelector('.hfTlyhd7WCIk9xmP') || document.querySelector('.bRNotDNzO2suN6vM') || Array.from(document.querySelectorAll('main div[style*="--lyrics-color-active"] > div')).find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
     const trackNode = document.querySelector('[data-testid="context-item-info-title"]');
     const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
 

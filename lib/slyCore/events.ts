@@ -127,9 +127,14 @@ attachLyricsButtonObserver();
 const errorObserver = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     if (mutation.addedNodes.length) {
-      const hasError = Array.from(mutation.addedNodes).some(node =>
-        node.nodeType === 1 && ((node as HTMLElement).classList.contains('hfTlyhd7WCIk9xmP') || (node as HTMLElement).querySelector('.hfTlyhd7WCIk9xmP'))
-      );
+      const hasError = Array.from(mutation.addedNodes).some(node => {
+        const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
+        const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';
+        return node.nodeType === 1 && (
+          (node as HTMLElement).classList.contains(errCls1) || (node as HTMLElement).querySelector('.' + errCls1) ||
+          (node as HTMLElement).classList.contains(errCls2) || (node as HTMLElement).querySelector('.' + errCls2)
+        );
+      });
       if (hasError) {
         console.log('[sly] Instant Detection: Native error DOM appeared. Triggering engine...');
         if (typeof window.slyCheckNowPlaying === 'function') window.slyCheckNowPlaying();

@@ -5,6 +5,7 @@
  * These are updated dynamically by the scavenger if Spotify changes them.
  */
 export interface SpotifyClasses {
+  mainContainer: string;
   container: string;
   wrapper: string;
   lyricsList: string;
@@ -21,32 +22,46 @@ export interface SpotifyClasses {
   attribution: string;
   paddingLineHelper: string;
   footerGrid: string;
+  // Resilience Additions (Chunk 1)
+  errorContainer: string;
+  errorContainerAlt: string;
+  btnPrimary: string;
+  btnPrimaryInner: string;
+  topSpacer: string;
+  footerInner1: string;
+  footerInner2: string;
 }
 
 declare global {
   interface Window {
     SPOTIFY_CLASSES: SpotifyClasses;
     slyScavengeClasses: () => void;
+    slyDeepScavengeStyles: () => void;
   }
 }
 
 export const SPOTIFY_CLASSES: SpotifyClasses = {
+  mainContainer:     'J6wP3V0xzh0Hj_MS',
   container:         'bbJIIopLxggQmv5x',
   wrapper:           'ktJDHL_Wb5k6zJxf',
   lyricsList:        'GmI3DMxKYRsaA5DM',
   lineBase:          'WnslfFBWTgOIUgNH',
-  // Synced States (Native Hashes)
   passedLine:        'XiH9KR6bhDwEFykV',
   activeLine:        'RL7r4lsMHxMySdFr',
   futureLine:        'Mnf9PkrVHsX90BNf',
-  // Unsynced States
   unsynced:          'AQFBg9wNhDoKJHvS',
   unsyncedMessage:   'ReC7DlF3I_k9g6Vv',
-  // Utils
   textInner:         'a8PTgYsfzc07Np9G',
   attribution:       'NUBq_wlyuwoDUsSg',
   paddingLineHelper: 'aLaX8poOH8kdbmGf',
   footerGrid:        'T0IQrE6mvz4Fs7rc',
+  errorContainer:    'hfTlyhd7WCIk9xmP',
+  errorContainerAlt: 'bRNotDNzO2suN6vM',
+  btnPrimary:        'e-10451-legacy-button e-10451-legacy-button-primary',
+  btnPrimaryInner:   'e-10451-button-primary__inner',
+  topSpacer:         'nIWoY9ePLgi1am10',
+  footerInner1:      'KBRwz1uoWl0AAEsT',
+  footerInner2:      'g5l1TSALoQMUlKhS',
 };
 
 window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
@@ -59,30 +74,139 @@ window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
 export function slyScavengeClasses(): void {
   console.log('[sly-scavenger] Inspecting DOM for class updates...');
 
-  const nativeContainer = document.querySelector(`main.J6wP3V0xzh0Hj_MS div[class^="bbJ"]:not(#lyrics-root-sync)`) as HTMLElement | null;
+  // 1. Main View Wrapper
+  const main = document.querySelector('main');
+  if (main && main.classList.length > 0) {
+    window.SPOTIFY_CLASSES.mainContainer = main.classList[0];
+  }
+
+  // 2. Lyrics Container (Anchor: Inline CSS Variables)
+  const nativeContainer = document.querySelector('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)') as HTMLElement | null;
+  
   if (nativeContainer) {
     window.SPOTIFY_CLASSES.container = nativeContainer.classList[0] || window.SPOTIFY_CLASSES.container;
 
-    const wrapper = nativeContainer.querySelector('div[class^="ktJ"]');
-    if (wrapper) window.SPOTIFY_CLASSES.wrapper = wrapper.classList[0] || window.SPOTIFY_CLASSES.wrapper;
+    // 3. Structural Children
+    if (nativeContainer.children.length > 0) {
+      window.SPOTIFY_CLASSES.topSpacer = nativeContainer.children[0].classList[0] || window.SPOTIFY_CLASSES.topSpacer;
+    }
 
-    const list = nativeContainer.querySelector('div[class^="GmI"]');
-    if (list) window.SPOTIFY_CLASSES.lyricsList = list.classList[0] || window.SPOTIFY_CLASSES.lyricsList;
+    if (nativeContainer.children.length > 1) {
+      const secondChild = nativeContainer.children[1] as HTMLElement;
+      
+      // If the second child has NO lyrics lines, it is the Error Container. Otherwise, it is the Wrapper.
+      if (secondChild.querySelectorAll('[data-testid="lyrics-line"]').length === 0) {
+        window.SPOTIFY_CLASSES.errorContainer = secondChild.classList[0] || window.SPOTIFY_CLASSES.errorContainer;
+      } else {
+        window.SPOTIFY_CLASSES.wrapper = secondChild.classList[0] || window.SPOTIFY_CLASSES.wrapper;
+        const list = secondChild.children[0] as HTMLElement | undefined;
+        if (list) window.SPOTIFY_CLASSES.lyricsList = list.classList[0] || window.SPOTIFY_CLASSES.lyricsList;
+      }
+    }
 
+    const footer = nativeContainer.lastElementChild as HTMLElement | null;
+    // Ensure the footer isn't accidentally the top spacer or error container
+    if (footer && footer !== nativeContainer.children[0] && footer !== nativeContainer.children[1]) {
+      window.SPOTIFY_CLASSES.footerGrid = footer.classList[0] || window.SPOTIFY_CLASSES.footerGrid;
+      if (footer.children.length > 1) {
+        window.SPOTIFY_CLASSES.footerInner1 = footer.children[0].classList[0] || window.SPOTIFY_CLASSES.footerInner1;
+        window.SPOTIFY_CLASSES.footerInner2 = footer.children[1].classList[0] || window.SPOTIFY_CLASSES.footerInner2;
+      }
+    }
+
+    // 4. Line Base
     const lines = nativeContainer.querySelectorAll('[data-testid="lyrics-line"]');
     if (lines.length > 0) {
       window.SPOTIFY_CLASSES.lineBase = lines[0].classList[0] || window.SPOTIFY_CLASSES.lineBase;
+      const inner = lines[0].querySelector('div');
+      if (inner) window.SPOTIFY_CLASSES.textInner = inner.classList[0] || window.SPOTIFY_CLASSES.textInner;
     }
-    console.log('[sly-scavenger] Fingerprinting complete — dictionary updated from live DOM.');
+    console.log('[sly-scavenger] Fingerprinting complete — container dictionary updated.');
   } else {
     console.log('[sly-scavenger] Native container not visible — using cached fingerprints.');
   }
 
-  const attr = document.querySelector('div[class^="NUB"]');
-  if (attr) window.SPOTIFY_CLASSES.attribution = attr.classList[0] || window.SPOTIFY_CLASSES.attribution;
+  // 5. Buttons
+  const btn = document.querySelector('[data-encore-id="buttonPrimary"]');
+  if (btn) {
+    window.SPOTIFY_CLASSES.btnPrimary = btn.className;
+    const inner = btn.querySelector('span');
+    if (inner) window.SPOTIFY_CLASSES.btnPrimaryInner = inner.className;
+  }
+  
+  // 6. Deep CSS Scavenge (Background fetch to bypass CORS)
+  if (typeof window.slyDeepScavengeStyles === 'function') {
+    window.slyDeepScavengeStyles();
+  }
+}
 
-  const foot = document.querySelector('div[class^="T0I"]');
-  if (foot) window.SPOTIFY_CLASSES.footerGrid = foot.classList[0] || window.SPOTIFY_CLASSES.footerGrid;
+let isDeepScavenging = false;
+let hasDeepScavenged = false;
+
+/**
+ * DEEP CSS SCAVENGER
+ * Bypasses DOM ephemerality by reading Spotify's CSS directly via background worker fetch.
+ */
+export function slyDeepScavengeStyles(): void {
+  if (hasDeepScavenged || isDeepScavenging) return;
+
+  document.body.classList.add('sly-fallback');
+
+  const link = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => (l as HTMLLinkElement).href.includes('open.spotifycdn.com'));
+  if (!link) return;
+
+  const url = (link as HTMLLinkElement).href;
+  if (!window.browser || !window.browser.runtime) return;
+
+  isDeepScavenging = true;
+  window.browser.runtime.sendMessage({ type: 'SLY_FETCH_CSS', url }).then((response: any) => {
+    isDeepScavenging = false;
+    if (!response || !response.success || !response.cssText) return;
+    const css = response.cssText;
+    
+    // 1. Find lineBase completely autonomously
+    const baseMatch = css.match(/\.([a-zA-Z0-9_-]+)\{color:var\(--lyrics-color-inactive\)\}/);
+    if (baseMatch) {
+        window.SPOTIFY_CLASSES.lineBase = baseMatch[1];
+    }
+    const lineBase = window.SPOTIFY_CLASSES.lineBase;
+    
+    // 2. Extract stateful hashes
+    const activeRegex = new RegExp(`\\.${lineBase}\\.([a-zA-Z0-9_-]+)\\{[^}]*color:var\\(--lyrics-color-active\\)[^}]*\\}`);
+    const activeMatch = css.match(activeRegex);
+    if (activeMatch) window.SPOTIFY_CLASSES.activeLine = activeMatch[1];
+
+    const futureMatches = Array.from(css.matchAll(new RegExp(`\\.${lineBase}\\.([a-zA-Z0-9_-]+)\\{color:var\\(--lyrics-color-inactive\\)(?:;[^}]*)?\\}`, 'g')));
+    for (const match of futureMatches) {
+        if (match[0].includes('opacity:.5')) {
+            window.SPOTIFY_CLASSES.passedLine = match[1];
+        } else {
+            window.SPOTIFY_CLASSES.futureLine = match[1];
+        }
+    }
+
+    const unsyncedRegex = new RegExp(`\\.${lineBase}\\s+\\.([a-zA-Z0-9_-]+)\\{[^}]*pointer-events:none[^}]*\\}`);
+    const unsyncedMatch = css.match(unsyncedRegex);
+    if (unsyncedMatch) window.SPOTIFY_CLASSES.unsynced = unsyncedMatch[1];
+
+    // 3. Extract standalone UI components
+    const unsyncedMsgRegex = /\.([a-zA-Z0-9_-]+)\{[^}]*margin-top:62px!important[^}]*\}/;
+    const unsyncedMsgMatch = css.match(unsyncedMsgRegex);
+    if (unsyncedMsgMatch) window.SPOTIFY_CLASSES.unsyncedMessage = unsyncedMsgMatch[1];
+
+    const attrRegex = /\.([a-zA-Z0-9_-]+)\{[^}]*margin-bottom:20px;padding:20px 0;display:inline-block[^}]*\}/;
+    const attrMatch = css.match(attrRegex);
+    if (attrMatch) window.SPOTIFY_CLASSES.attribution = attrMatch[1];
+
+    document.body.classList.remove('sly-fallback');
+
+    console.log('[sly-scavenger] Deep CSS Scavenge complete:', { ...window.SPOTIFY_CLASSES });
+    hasDeepScavenged = true;
+  }).catch((err: any) => {
+    isDeepScavenging = false;
+    console.error('[sly-scavenger] Deep CSS Scavenge failed:', err);
+  });
 }
 
 window.slyScavengeClasses = slyScavengeClasses;
+window.slyDeepScavengeStyles = slyDeepScavengeStyles;

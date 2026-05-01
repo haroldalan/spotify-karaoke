@@ -28,7 +28,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (!container) return; // Unlikely due to polling, but safe
 
     // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
-    if (document.querySelector('main.J6wP3V0xzh0Hj_MS.sly-active')) {
+    if (document.querySelector('main.' + ((window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS') + '.sly-active')) {
       return;
     }
     
@@ -232,7 +232,7 @@ export function setupSlyBridge(
 
     // 3. Copy Spotify's CSS custom properties; hide the native lyrics container.
     const nativeRef = document.querySelector(
-      `main.J6wP3V0xzh0Hj_MS .${sly.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
+      `main.${sly.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${sly.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
     ) as HTMLElement | null;
     sly.slyMirrorNativeTheme?.(root, lyricsObj, nativeRef);
 

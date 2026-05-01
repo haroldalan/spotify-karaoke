@@ -22,7 +22,7 @@ declare global {
     if (!root) return;
 
     // 2. Mirror theme and hide the native Spotify container
-    const nativeRef = document.querySelector(`main.J6wP3V0xzh0Hj_MS .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
+    const nativeRef = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
 
     // Ensure we have the color even on failure/loading
     const extractedColor = (metadata?.extractedColor as string) ||
@@ -94,8 +94,8 @@ declare global {
       // Full Native Encore Button Anatomy:
       content += `
                 <div class="sly-hud-cta-wrapper">
-                    <a href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold e-10310-legacy-button e-10310-legacy-button-primary">
-                        <span class="e-10310-overflow-wrap-anywhere e-10310-button-primary__inner encore-inverted-light-set e-10310-legacy-button--medium">
+                    <a href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnPrimary || 'e-10451-legacy-button e-10451-legacy-button-primary'}">
+                        <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnPrimaryInner || 'e-10451-button-primary__inner'} encore-inverted-light-set e-10451-legacy-button--medium">
                             Add lyrics to LRCLIB
                         </span>
                     </a>
@@ -118,11 +118,11 @@ declare global {
     if (!hud) return;
 
     // Restore native container visibility
-    const nativeRef = document.querySelector(`main.J6wP3V0xzh0Hj_MS .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
+    const nativeRef = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
     if (nativeRef) nativeRef.style.display = '';
 
     // Release the scroll lock
-    const main = document.querySelector('main.J6wP3V0xzh0Hj_MS');
+    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
     if (main) main.classList.remove('sly-active');
 
     hud.remove();

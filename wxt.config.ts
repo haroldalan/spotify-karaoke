@@ -28,6 +28,7 @@ export default defineConfig({
     host_permissions: [
       '*://open.spotify.com/*',
       '*://spclient.wg.spotify.com/*',
+      '*://open.spotifycdn.com/*',
       '*://apic-desktop.musixmatch.com/*',
       '*://translate.googleapis.com/*',
       '*://translate.google.com/*',

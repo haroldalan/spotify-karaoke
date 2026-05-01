@@ -48,6 +48,7 @@ window.slyCreateDOMLine = function (text: string, _index: number, isSynced: bool
  * Injects core CSS for the sync button and custom transitions.
  */
 window.slyInjectCoreStyles = function (): void {
+  document.body.classList.add('sly-fallback');
   if (document.getElementById('sly-core-styles')) return;
   const style = document.createElement('style');
   style.id = 'sly-core-styles';
@@ -59,7 +60,7 @@ window.slyInjectCoreStyles = function (): void {
  * Prepares the main #lyrics-root-sync container.
  */
 window.slyPrepareContainer = function (): HTMLElement | null {
-  const rootParent = document.querySelector('main.J6wP3V0xzh0Hj_MS') as HTMLElement | null;
+  const rootParent = document.querySelector(`main.${window.SPOTIFY_CLASSES.mainContainer}`) as HTMLElement | null;
   if (!rootParent) return null;
 
   let root = document.getElementById('lyrics-root-sync') as HTMLElement | null;
@@ -113,7 +114,7 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   lyricsObj.lines = isSynced ? lines : texts.map((t: string) => ({ time: 0, text: t }));
 
   const topSpacer = document.createElement('div');
-  topSpacer.className = 'nIWoY9ePLgi1am10';
+  topSpacer.className = window.SPOTIFY_CLASSES.topSpacer;
   root.appendChild(topSpacer);
 
   const wrapper = document.createElement('div');
@@ -122,39 +123,46 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   const list = document.createElement('div');
   list.className = window.SPOTIFY_CLASSES.lyricsList;
 
-  const innerWrapper = document.createElement('div');
+  // Synced lyrics have an inner div, Unsynced lyrics append directly to list
+  const targetWrapper = isSynced ? document.createElement('div') : list;
+  if (isSynced) {
+    list.appendChild(targetWrapper);
+  }
 
   if (!isSynced) {
     const header = document.createElement('p');
-    header.className = `e-10310-text encore-text-body-small ${window.SPOTIFY_CLASSES.unsyncedMessage}`;
+    header.className = `e-10451-text encore-text-body-small ${window.SPOTIFY_CLASSES.unsyncedMessage}`;
     header.setAttribute('data-encore-id', 'text');
+    header.dir = 'auto';
     header.textContent = "These lyrics aren't synced to the song yet.";
-    innerWrapper.appendChild(header);
+    targetWrapper.appendChild(header);
   }
 
   // Padding & Lines
   for (let i = 0; i < 2; i++) {
     const pad = window.slyCreateDOMLine('', -1, isSynced);
-    pad.className += ` ${isSynced ? window.SPOTIFY_CLASSES.passedLine : window.SPOTIFY_CLASSES.unsynced} ${window.SPOTIFY_CLASSES.paddingLineHelper}`;
-    innerWrapper.appendChild(pad);
+    if (isSynced) {
+      pad.className = `${window.SPOTIFY_CLASSES.lineBase} ${window.SPOTIFY_CLASSES.passedLine} ${window.SPOTIFY_CLASSES.paddingLineHelper}`;
+    }
+    targetWrapper.appendChild(pad);
   }
 
   const domElements: HTMLElement[] = [];
   texts.forEach((text: string, i: number) => {
-    if (!text.trim() && isSynced) return;
+    // DO NOT skip empty lines! LRCLIB provides empty lines with valid sync indices.
+    // Skipping them breaks the index mapping.
     const el = window.slyCreateDOMLine(text, i, isSynced, isSynced ? () => {
       const lyricsLines = lyricsObj.lines as { time: number; text: string }[];
       const time = lyricsLines[i]?.time;
       if (typeof time === 'number' && window.slySeekTo) window.slySeekTo(time);
     } : null);
-    innerWrapper.appendChild(el);
+    targetWrapper.appendChild(el);
     domElements.push(el);
   });
 
   if (isSynced) {
     const pad = window.slyCreateDOMLine('', -1, true);
-    pad.className += ` ${window.SPOTIFY_CLASSES.futureLine} ${window.SPOTIFY_CLASSES.paddingLineHelper}`;
-    innerWrapper.appendChild(pad);
+    targetWrapper.appendChild(pad);
   }
 
   lyricsObj.domElements = domElements;
@@ -162,16 +170,15 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   // Attribution
   const attr = document.createElement('div');
   attr.className = window.SPOTIFY_CLASSES.attribution;
-  attr.innerHTML = `<p class="e-10310-text encore-text-body-small" data-encore-id="text" dir="auto">Lyrics provided by Spotify Karaoke</p>`;
-  innerWrapper.appendChild(attr);
+  attr.innerHTML = `<p class="encore-text-body-small" data-encore-id="text" dir="auto">Lyrics provided by Spotify Karaoke</p>`;
+  targetWrapper.appendChild(attr);
 
-  list.appendChild(innerWrapper);
   wrapper.appendChild(list);
   root.appendChild(wrapper);
 
   const foot = document.createElement('div');
   foot.className = window.SPOTIFY_CLASSES.footerGrid;
-  foot.innerHTML = '<div class="KBRwz1uoWl0AAEsT"></div><div class="g5l1TSALoQMUlKhS"></div>';
+  foot.innerHTML = `<div class="${window.SPOTIFY_CLASSES.footerInner1}"></div><div class="${window.SPOTIFY_CLASSES.footerInner2}"></div>`;
   root.appendChild(foot);
 };
 
@@ -185,11 +192,11 @@ window.slySetupSyncButton = function (lyricsObj: Record<string, unknown>): void 
   if (!syncBtn) {
     syncBtn = document.createElement('button');
     syncBtn.id = 'sly-sync-button';
-    syncBtn.className = 'encore-text-body-medium-bold e-10310-legacy-button e-10310-legacy-button-primary';
+    syncBtn.className = `encore-text-body-medium-bold ${window.SPOTIFY_CLASSES.btnPrimary}`;
     syncBtn.innerHTML = `
-            <span class="e-10310-overflow-wrap-anywhere e-10310-button-primary__inner encore-inverted-light-set e-10310-legacy-button--medium e-10310-button--leading">
-                <span aria-hidden="true" class="e-10310-button__icon-wrapper">
-                    <svg data-encore-id="icon" role="img" aria-hidden="true" class="e-10310-icon" viewBox="0 0 24 24" style="--encore-icon-height: var(--encore-graphic-size-decorative-base); --encore-icon-width: var(--encore-graphic-size-decorative-base);">
+            <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES.btnPrimaryInner} encore-inverted-light-set e-10451-legacy-button--medium e-10451-button--leading">
+                <span aria-hidden="true" class="e-10451-button__icon-wrapper">
+                    <svg data-encore-id="icon" role="img" aria-hidden="true" class="e-10451-icon" viewBox="0 0 24 24" style="--encore-icon-height: var(--encore-graphic-size-decorative-base); --encore-icon-width: var(--encore-graphic-size-decorative-base);">
                         <path d="M12 0a1 1 0 0 1 1 1v22a1 1 0 1 1-2 0V1a1 1 0 0 1 1-1m5 4a1 1 0 0 1 1 1v14a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1M1 9v6a1 1 0 1 0 2 0V9a1 1 0 1 0-2 0m20 6V9a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0M8 5a1 1 0 0 0-2 0v14a1 1 0 1 0 2 0z"></path>
                     </svg>
                 </span>

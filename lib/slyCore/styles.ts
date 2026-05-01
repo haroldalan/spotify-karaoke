@@ -15,14 +15,14 @@ declare global {
 export function slyGetCoreStyles(): string {
   return `
         /* 1. SAFETY FLOOR: Prevents seeing the app content when native UI is hidden */
-        main.J6wP3V0xzh0Hj_MS.sly-active {
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active {
             background-color: #121212 !important;
         }
 
-        #lyrics-root-sync .${window.SPOTIFY_CLASSES.lineBase} {
+        #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
             transition: color 0.1s ease-out, opacity 0.1s ease-out !important;
         }
-        #lyrics-root-sync .${window.SPOTIFY_CLASSES.paddingLineHelper} {
+        #lyrics-root-sync .${window.SPOTIFY_CLASSES?.paddingLineHelper || 'aLaX8poOH8kdbmGf'} {
             height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important;
             overflow: hidden !important; border: none !important;
         }
@@ -32,7 +32,7 @@ export function slyGetCoreStyles(): string {
             visibility: hidden; opacity: 0; border: none; background: none; padding: 0;
         }
         #sly-sync-button.visible { visibility: visible; opacity: 1; }
-        #sly-sync-button .e-10310-legacy-button { border-radius: 500px; display: flex; align-items: center; justify-content: center; }
+        #sly-sync-button { border-radius: 500px; display: flex; align-items: center; justify-content: center; }
         #sly-sync-button:hover { transform: translateX(-50%) scale(1.04) !important; opacity: 0.95 !important; }
         #sly-sync-button:active { transform: translateX(-50%) scale(0.98); }
 
@@ -45,24 +45,24 @@ export function slyGetCoreStyles(): string {
             flex: 1;
         }
         /* Lock main parent scrolling ONLY when HUD (Loading/Error) is active */
-        main.J6wP3V0xzh0Hj_MS.sly-active {
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active {
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;
             min-height: 500px !important;
             height: 100% !important;
         }
-        main.J6wP3V0xzh0Hj_MS.sly-active:has(#sly-status-hud) {
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active:has(#sly-status-hud) {
             overflow: hidden !important;
         }
 
         /* Nuclear Hijack: Hide any lyrics container that isn't ours, but ONLY when we are active */
-        main.J6wP3V0xzh0Hj_MS.sly-active > div:not(#lyrics-root-sync):not(#sly-status-hud) {
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active > div:not(#lyrics-root-sync):not(#sly-status-hud) {
             display: none !important;
         }
 
         /* Also hide native error messages if our HUD is present */
-        main.J6wP3V0xzh0Hj_MS.sly-active > .${window.SPOTIFY_CLASSES.container}:not(#lyrics-root-sync) {
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active > .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync) {
             display: none !important;
         }
 
@@ -102,23 +102,60 @@ export function slyGetCoreStyles(): string {
         /* 2. ZERO-FLICKER HIJACK (Pre-Logic Shield)
            Hides the entire native lyrics container immediately if it detects an error child. 
            This happens via CSS before our JS engine can even process the event. */
-        .${window.SPOTIFY_CLASSES.container}:has(.hfTlyhd7WCIk9xmP),
-        .${window.SPOTIFY_CLASSES.container}:has(.bRNotDNzO2suN6vM) {
+        .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:has(.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}),
+        .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:has(.${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}) {
             opacity: 0 !important;
             pointer-events: none !important;
             transition: none !important;
         }
 
         /* Fallback for browsers with limited :has() support or specific node transitions */
-        .hfTlyhd7WCIk9xmP, .bRNotDNzO2suN6vM { 
+        .${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'} { 
             opacity: 0 !important; 
             pointer-events: none !important; 
         }
 
         /* Seamless Hijack: Hide Spotify's native error container ONLY when we are active */
-        main.J6wP3V0xzh0Hj_MS.sly-active .hfTlyhd7WCIk9xmP, 
-        main.J6wP3V0xzh0Hj_MS.sly-active .bRNotDNzO2suN6vM { 
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active .${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, 
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'} { 
             display: none !important; 
+        }
+
+        /* --- FALLBACK SPOTIFY CLONE STYLES --- */
+        /* These styles are ONLY active if the deep scavenger fails (i.e. body has .sly-fallback). 
+           This prevents them from unconditionally overriding Spotify's actual native CSS. */
+        
+        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
+            font-family: SpotifyMixUITitle, CircularSp-Arab, CircularSp-Hebr, CircularSp-Cyrl, CircularSp-Grek, CircularSp-Deva, "Helvetica Neue", helvetica, arial, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, "MS Gothic", sans-serif;
+            font-weight: 700;
+            font-size: 2.2rem;
+            line-height: 1.2;
+            padding: 8px 0;
+            cursor: pointer;
+            transform-origin: left center;
+            transition: color 0.15s ease-out, transform 0.15s ease-out, opacity 0.15s ease-out !important;
+            color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
+        }
+
+        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.passedLine || 'XiH9KR6bhDwEFykV'} {
+            color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
+            opacity: 0.5;
+        }
+
+        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.activeLine || 'RL7r4lsMHxMySdFr'} {
+            color: var(--lyrics-color-active, #ffffff);
+        }
+
+        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.futureLine || 'Mnf9PkrVHsX90BNf'} {
+            color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
+        }
+
+        body.sly-fallback .${window.SPOTIFY_CLASSES?.attribution || 'NUBq_wlyuwoDUsSg'} {
+            color: var(--lyrics-color-inactive, #b3b3b3);
+            margin-top: 32px;
+            font-family: SpotifyMixUI, sans-serif;
+            font-size: 0.88rem;
+            font-weight: 400;
         }
     `;
 }

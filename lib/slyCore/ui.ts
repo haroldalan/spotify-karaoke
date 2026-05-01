@@ -72,7 +72,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // into whichever native container Spotify restores.
   document.dispatchEvent(new CustomEvent('sly:release'));
 
-  const main = document.querySelector('main.J6wP3V0xzh0Hj_MS') as HTMLElement | null;
+  const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
   if (main) {
     main.classList.remove('sly-active');
     main.style.display = '';
@@ -84,7 +84,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
 
   // 3. Restore Spotify Native UI visibility
   const containerClass = window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x';
-  const nativeContainer = document.querySelector(`main.J6wP3V0xzh0Hj_MS .${containerClass}:not(#lyrics-root-sync)`) as HTMLElement | null;
+  const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`) as HTMLElement | null;
   if (nativeContainer) {
     nativeContainer.style.display = '';
     nativeContainer.style.opacity = '';
@@ -92,7 +92,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   }
 
   // Restore native error messages/providers
-  document.querySelectorAll('.hfTlyhd7WCIk9xmP, .bRNotDNzO2suN6vM').forEach(n => {
+  document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => {
     (n as HTMLElement).style.display = '';
     (n as HTMLElement).style.opacity = '';
     (n as HTMLElement).style.pointerEvents = '';
@@ -147,7 +147,7 @@ window.slyUpdateSyncButton = function (): void {
     // Use lyricsRoot calculated at the top for viewport rect math.
     const viewportRect =
       lyricsRoot?.closest('[data-overlayscrollbars-viewport]')?.getBoundingClientRect()
-      ?? document.querySelector('main.J6wP3V0xzh0Hj_MS')?.getBoundingClientRect()
+      ?? document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`)?.getBoundingClientRect()
       ?? (lyricsRoot ?? activeEl).getBoundingClientRect();
 
     const screenBottom = window.innerHeight;

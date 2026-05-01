@@ -43,6 +43,17 @@ export default defineBackground(() => {
       }
 
       // ----------------------------------------------------------------
+      // New handler: Fetch Spotify CSS to bypass CORS for Deep Scavenger
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_FETCH_CSS') {
+        fetch((msg as any).url)
+          .then(res => res.text())
+          .then(text => sendResponse({ success: true, cssText: text }))
+          .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      // ----------------------------------------------------------------
       // New handler: fetch missing/unsynced lyrics from YTM + LRCLIB
       // Port of: lyric-test/service-worker.js FETCH_LYRICS block
       // Full 4-layer cache: L1 memory → L2 persistent → L3 in-flight → L4 network
