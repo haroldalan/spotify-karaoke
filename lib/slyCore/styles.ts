@@ -102,22 +102,20 @@ export function slyGetCoreStyles(): string {
         /* 2. ZERO-FLICKER HIJACK (Pre-Logic Shield)
            Hides the entire native lyrics container immediately if it detects an error child. 
            This happens via CSS before our JS engine can even process the event. */
-        .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:has(.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}),
-        .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:has(.${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}) {
+        .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:has(.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}) {
             opacity: 0 !important;
             pointer-events: none !important;
             transition: none !important;
         }
 
         /* Fallback for browsers with limited :has() support or specific node transitions */
-        .${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'} { 
+        .${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'} { 
             opacity: 0 !important; 
             pointer-events: none !important; 
         }
 
         /* Seamless Hijack: Hide Spotify's native error container ONLY when we are active */
-        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active .${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, 
-        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'} { 
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active .${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'} { 
             display: none !important; 
         }
 
@@ -125,7 +123,7 @@ export function slyGetCoreStyles(): string {
         /* These styles are ONLY active if the deep scavenger fails (i.e. body has .sly-fallback). 
            This prevents them from unconditionally overriding Spotify's actual native CSS. */
         
-        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
+        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
             font-family: SpotifyMixUITitle, CircularSp-Arab, CircularSp-Hebr, CircularSp-Cyrl, CircularSp-Grek, CircularSp-Deva, "Helvetica Neue", helvetica, arial, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, "MS Gothic", sans-serif;
             font-weight: 700;
             font-size: 2.2rem;
@@ -137,20 +135,20 @@ export function slyGetCoreStyles(): string {
             color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
         }
 
-        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.passedLine || 'XiH9KR6bhDwEFykV'} {
+        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.passedLine || 'XiH9KR6bhDwEFykV'} {
             color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
             opacity: 0.5;
         }
 
-        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.activeLine || 'RL7r4lsMHxMySdFr'} {
+        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.activeLine || 'RL7r4lsMHxMySdFr'} {
             color: var(--lyrics-color-active, #ffffff);
         }
 
-        body.sly-fallback .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.futureLine || 'Mnf9PkrVHsX90BNf'} {
+        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.futureLine || 'Mnf9PkrVHsX90BNf'} {
             color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
         }
 
-        body.sly-fallback .${window.SPOTIFY_CLASSES?.attribution || 'NUBq_wlyuwoDUsSg'} {
+        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.attribution || 'NUBq_wlyuwoDUsSg'} {
             color: var(--lyrics-color-inactive, #b3b3b3);
             margin-top: 32px;
             font-family: SpotifyMixUI, sans-serif;

@@ -92,7 +92,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   }
 
   // Restore native error messages/providers
-  document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => {
+  document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}`).forEach(n => {
     (n as HTMLElement).style.display = '';
     (n as HTMLElement).style.opacity = '';
     (n as HTMLElement).style.pointerEvents = '';

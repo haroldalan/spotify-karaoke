@@ -48,7 +48,6 @@ window.slyCreateDOMLine = function (text: string, _index: number, isSynced: bool
  * Injects core CSS for the sync button and custom transitions.
  */
 window.slyInjectCoreStyles = function (): void {
-  document.body.classList.add('sly-fallback');
   if (document.getElementById('sly-core-styles')) return;
   const style = document.createElement('style');
   style.id = 'sly-core-styles';

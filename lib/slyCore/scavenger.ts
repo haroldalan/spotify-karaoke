@@ -24,7 +24,6 @@ export interface SpotifyClasses {
   footerGrid: string;
   // Resilience Additions (Chunk 1)
   errorContainer: string;
-  errorContainerAlt: string;
   btnPrimary: string;
   btnPrimaryInner: string;
   topSpacer: string;
@@ -56,7 +55,6 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
   paddingLineHelper: 'aLaX8poOH8kdbmGf',
   footerGrid:        'T0IQrE6mvz4Fs7rc',
   errorContainer:    'hfTlyhd7WCIk9xmP',
-  errorContainerAlt: 'bRNotDNzO2suN6vM',
   btnPrimary:        'e-10451-legacy-button e-10451-legacy-button-primary',
   btnPrimaryInner:   'e-10451-button-primary__inner',
   topSpacer:         'nIWoY9ePLgi1am10',
@@ -127,7 +125,8 @@ export function slyScavengeClasses(): void {
   }
 
   // 5. Buttons
-  const btn = document.querySelector('[data-encore-id="buttonPrimary"]');
+  const btn = Array.from(document.querySelectorAll('[data-encore-id="buttonPrimary"]'))
+    .find(el => el.className.includes('medium-bold') && !(el as HTMLElement).dataset.testid);
   if (btn) {
     window.SPOTIFY_CLASSES.btnPrimary = btn.className;
     const inner = btn.querySelector('span');
@@ -204,6 +203,7 @@ export function slyDeepScavengeStyles(): void {
     hasDeepScavenged = true;
   }).catch((err: any) => {
     isDeepScavenging = false;
+    document.body.classList.remove('sly-fallback');
     console.error('[sly-scavenger] Deep CSS Scavenge failed:', err);
   });
 }
