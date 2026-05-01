@@ -59,7 +59,9 @@ document.addEventListener('sly:panel_close', () => {
     (window.slyInternalState.currentLyrics as Record<string, unknown>).failed = false;
   }
   window.slyInternalState.forceFallback = false;
-  window.slyInternalState.isFetchingHUD = false;
+  if (!window.slyInternalState.fetchingForTitle) {
+    window.slyInternalState.isFetchingHUD = false;
+  }
   window.slyInternalState.isAdHUDActive = false;
 
   const root = document.getElementById('lyrics-root-sync');

@@ -203,13 +203,15 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
         extractedColor: (r?.data as Record<string, unknown>)?.extractedColor,
       };
 
-      // Show failure screen
-      window.slyShowStatus(
-        "Even Spotify Karaoke couldn't find the lyrics for this song.",
-        'You can help the community by adding them to the open-source database.',
-        true,
-        pinnedMetadata,
-      );
+      // Only show failure HUD if panel is currently open
+      if (document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('data-active') === 'true') {
+        window.slyShowStatus(
+          "Even Spotify Karaoke couldn't find the lyrics for this song.",
+          'You can help the community by adding them to the open-source database.',
+          true,
+          pinnedMetadata,
+        );
+      }
     }
   });
 };
