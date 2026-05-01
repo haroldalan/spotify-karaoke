@@ -99,8 +99,6 @@
   line-height: 1.3;
   letter-spacing: 0.01em;
   overflow-wrap: break-word;
-  /* Ensures it doesn't interfere with shimmer's background-clip */
-  -webkit-text-fill-color: initial;
 }
 
 /* When a line is active (karaoke highlight), keep the sub-line readable

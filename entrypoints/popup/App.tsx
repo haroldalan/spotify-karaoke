@@ -65,6 +65,20 @@ export default function App() {
     refreshStorageInfo();
   }, []);
 
+  useEffect(() => {
+    const listener = (
+      changes: Record<string, browser.storage.StorageChange>,
+      area: string
+    ) => {
+      if (area !== 'sync') return;
+      if ('preferredMode' in changes && changes.preferredMode.newValue !== undefined) {
+        setPreferredMode(changes.preferredMode.newValue as string);
+      }
+    };
+    browser.storage.onChanged.addListener(listener);
+    return () => browser.storage.onChanged.removeListener(listener);
+  }, []);
+
   function formatBytes(bytes: number): string {
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / 1024).toFixed(1)} KB`;
