@@ -99,24 +99,20 @@ window.slyCheckNowPlaying = function (): void {
     const { title, artist, albumArtUrl } = detection;
     const fullUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
 
+    // 0. UNIVERSAL ORPHAN GUARD
+    // Runs before the ad check so it catches the case where the button was
+    // removed entirely (e.g. during an ad) rather than deactivated — the
+    // MutationObserver in events.ts only fires on attribute changes, not removal.
+    if (!detection.isOnLyricsPage && document.getElementById('lyrics-root-sync')) {
+      console.log('[sly] Orphan guard: panel closed but #lyrics-root-sync still present — triggering cleanup.');
+      document.dispatchEvent(new CustomEvent('sly:panel_close'));
+      return;
+    }
+
     // 1. AD SILENCER
     if (detection.isAd) {
       if (window.slyInternalState.lastTitle !== 'AD_SILENCED') {
         window.slyResetPlayerState('AD_SILENCED', fullUri || 'ad');
-      }
-
-      // ORPHAN GUARD: Check if the Ad HUD's container is still connected but the
-      // lyrics panel was closed by navigation (button unmounted or deactivated).
-      // Cannot rely on isOnLyricsPage here — hidden-but-present native container
-      // keeps it true even after navigation.
-      if (document.getElementById('lyrics-root-sync')) {
-        const lyricsBtn = document.querySelector('[data-testid="lyrics-button"]');
-        const panelOpen = lyricsBtn?.getAttribute('aria-pressed') === 'true'
-                       || lyricsBtn?.getAttribute('data-active') === 'true';
-        if (!panelOpen) {
-          document.dispatchEvent(new CustomEvent('sly:panel_close'));
-          return;
-        }
       }
 
       // If on lyrics page, ensure the "Ad Break" HUD is active
@@ -160,14 +156,9 @@ window.slyCheckNowPlaying = function (): void {
 
     // 2. PANEL STATUS CHECK
     // Primary cleanup: events.ts lyrics button MutationObserver dispatches sly:panel_close.
-    // Orphan guard (belt-and-suspenders): poll detects closed panel with stale #lyrics-root-sync
-    // and triggers the same complete cleanup path rather than duplicating logic here.
+    // Orphan guard (belt-and-suspenders): handled above by Step 0 UNIVERSAL ORPHAN GUARD.
     // Port of: lyric-test/content.js Step 2 (lines 48-68), now event-driven first.
     if (!detection.isOnLyricsPage) {
-      if (document.getElementById('lyrics-root-sync')) {
-        console.log('[sly] Orphan guard: panel closed but #lyrics-root-sync still present — triggering cleanup.');
-        document.dispatchEvent(new CustomEvent('sly:panel_close'));
-      }
       return;
     }
 
