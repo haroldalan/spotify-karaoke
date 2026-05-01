@@ -175,6 +175,9 @@ window.slyCheckNowPlaying = function (): void {
         if (detection.lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback && window.slyInternalState.isFetchingHUD) {
           console.log('[sly] Re-injection suppressed: Spotify native lyrics recovered.');
           // Fall through to Decision Engine
+        } else if (window.slyInternalState.pendingLyricsData && (window.slyInternalState.pendingLyricsData as Record<string, unknown>).lines) {
+          // If fetch already completed while the panel was closed, fall through to the injection gate
+          window.slyInternalState.isFetchingHUD = false;
         } else {
           if (window.slyInternalState.isAdHUDActive) {
             console.log('[sly] Restore: Re-injecting Ad HUD...');
