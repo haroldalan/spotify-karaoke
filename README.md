@@ -1,7 +1,7 @@
 <div align="center">
   <h1><img src="assets/marquee-promo-tile.png" alt="Spotify Karaoke" width="500">
   </h1>
-  <p>Automatically fetches synced lyrics for songs that dont have it, and provides additional functionality like romanization for all scripts and translation into 132 languages — right inside Spotify</p>
+  <p>Automatically fetches synced lyrics for songs that don't have it, and provides additional functionality like romanization for all scripts and translation into 132 languages — right inside Spotify</p>
   
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie" target="_blank"><img src="https://developer.chrome.com/static/docs/webstore/branding/image/iNEddTyWiMfLSwFD6qGq.png" alt="Chrome Web Store" height="52"/></a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/" target="_blank"><img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Firefox Add-ons" height="52"/></a>
@@ -88,7 +88,7 @@ https://github.com/user-attachments/assets/f6afc346-9dc0-4429-8733-5c8df94c8eaf
 
 Spotify's lyrics panel has two problems: it sometimes can't find lyrics at all, and when it does, it often can't help you understand them. `Spotify Karaoke` fixes both.
 
-**Smart lyrics fetching:** When Spotify shows "Lyrics not available," the extension quietly searches YouTube Music and LRCLIB in the background. If synced lyrics exist anywhere, they get injected directly into the Spotify lyrics panel — perfectly timed, indistinguishable from native. No user action required.
+**Smart lyrics fetching:** When Spotify shows "Lyrics not available," the extension quietly searches YouTube Music and LRCLIB in the background. If synced lyrics exist anywhere, they get injected directly into the Spotify lyrics panel — perfectly timed, visually integrated with Spotify's native UI. No user action required.
 
 **Romanization & Translation:** Once lyrics are on screen — whether fetched or native — you can switch between three display modes:
 
@@ -101,6 +101,12 @@ Switch between modes using the floating pill controls injected directly into the
 **Native script restoration:** For global non-Latin scripts (Hindi, Thai, Arabic, CJK, etc.), Spotify often serves low-quality romanized fallback lyrics even when the original native-script version exists on Musixmatch. This extension automatically intercepts and restores the original, high-fidelity native script — before Spotify even renders the page. Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
 **Dual Lyrics mode** — in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference (suppressed when identical to the primary line).
+
+**Genetic Lock Shield** — keeps the lyrics panel permanently accessible, even for tracks where Spotify deliberately disables the lyrics button (e.g., instrumentals, podcasts).
+
+**Ad Intermission HUD** — includes a custom 'Intermission' screen during audio ads to maintain a seamless visual experience without breaking the UI.
+
+**Cross-device Sync** — preferences like your target language and display mode automatically sync across all your devices via `storage.sync`.
 
 | Dual Lyrics On | Dual Lyrics Off |
 | :---: | :---: |
@@ -141,7 +147,7 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 
 ### 🌐 Official Browser Stores (Recommended)
 - **[Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie)** — Chrome, Brave, and other Chromium browsers.
-- **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/)** — Mozilla Firefox (≥ 142.0).
+- **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/)** — Mozilla Firefox (≥ 142.0 — requires MV2 with `browser.storage.session` support).
 - **[Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom)** — Microsoft Edge.
 
 ### 🛠️ Manual Installation (Developer Mode)
@@ -206,9 +212,9 @@ Romanize and Translate modes then operate on the correct native source, producin
 | Component | Detail |
 | :--- | :--- |
 | **Smart lyrics fetch** | YouTube Music synced → LRCLIB synced → YouTube Music plain → LRCLIB plain |
-| **Local romanization** | 10 libraries · zero API latency for 16 optimized scripts |
+| **Local romanization** | 10 bundled libraries covering 16+ writing systems |
 | **Interception point** | `document_start`, MAIN world — before React first paint |
-| **Cache** | L1: 10-song RAM · L2: unlimited persistent (`browser.storage.local`) · L3: in-flight deduplication · L4: network |
+| **Cache** | L1: 10-song RAM · L2: 200-song persistent (`browser.storage.local`, LRU-evicted) · L3: in-flight deduplication · L4: network |
 | **React Fiber bridge** | `slyBridge.ts` scans Spotify's Fiber tree at 600ms to extract tokens, track metadata, and queue state |
 | **Playback sync** | Wall-clock extrapolation via `performance.now()` for 60fps sub-second accuracy between Spotify's ~500ms UI ticks |
 | **Stale-cancel guards** | Generation Map + `processGen` parity counter (2 independent mechanisms) |
@@ -283,6 +289,19 @@ When lyrics are detected, the engine reads the current mode (Original / Romanize
 **React Fiber bridge:** `entrypoints/slyBridge.ts` runs in the `MAIN` world and traverses Spotify's React Fiber tree to extract live track metadata, access tokens, and the user's queue. It also maintains a Genetic Lock — an `Object.defineProperty` override that keeps Spotify's lyrics button permanently enabled, even for tracks where Spotify would otherwise disable it.
 
 </details>
+
+---
+
+## Troubleshooting
+
+**Why aren't lyrics showing?**
+Ensure the native Spotify lyrics panel is open. The extension injects into the native UI — click the microphone icon in the player bar to open it.
+
+**The lyrics panel is stuck or glitching.**
+If Spotify changes its internal class names or state becomes corrupt, open the extension popup and click **Reset Data**. This safely clears the local cache and resets your preferences.
+
+**A song is missing lyrics entirely.**
+When the extension cannot find lyrics on YouTube Music or LRCLIB, it will show a "Lyrics Not Found" screen. You can help the community by clicking the **Contribute to LRCLIB** link on that screen to upload the missing lyrics yourself.
 
 ---
 
