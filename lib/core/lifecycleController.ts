@@ -1,5 +1,5 @@
 import { safeBrowserCall } from '../utils/browserUtils';
-import { getNowPlayingKey, hasLyrics, getLyricsContainer } from '../dom/domQueries';
+import { getNowPlayingKey, getLyricsContainer } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
 import { loadSongCache, saveSongCache } from './lyricsCache';
@@ -24,7 +24,6 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const key = getNowPlayingKey();
       if (key) opts.store.songKey = key;
     }
-    if (!hasLyrics()) return;
     const container = getLyricsContainer();
     if (!container) return; // Unlikely due to polling, but safe
 
@@ -129,13 +128,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   function pollForLyricsContainer(attempts = 0): void {
     if (attempts > 120) {
       if (attempts === 121) {
-        console.log('[SKaraoke:Content] Lyrics panel still hidden, switching to slow poll fallback...');
+        console.log('[SKaraoke:Content] Lyrics panel still hidden, switching to infinite slow poll fallback...');
       }
-      if (attempts > 130) return; 
-      setTimeout(() => pollForLyricsContainer(attempts + 1), 500);
+      opts.store.pollId = window.setTimeout(() => pollForLyricsContainer(attempts + 1), 2000) as unknown as number;
       return;
     }
-    if (hasLyrics() && getLyricsContainer()) {
+    if (getLyricsContainer()) {
       trySetup();
     } else {
       opts.store.pollId = requestAnimationFrame(() => pollForLyricsContainer(attempts + 1));
@@ -147,7 +145,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (newKey === songKey) return;
     opts.store.songKey = newKey;
     opts.store.mode = 'original';
-    opts.store.processGenRef.value++;
+    opts.store.romanizedGenRef.value++;
+    opts.store.translatedGenRef.value++;
+    opts.store.switchGenRef.value++;
     opts.store.lyricsObserver?.disconnect();
     opts.store.lyricsObserver = null;
     opts.store.cache = { original: [], processed: new Map() };

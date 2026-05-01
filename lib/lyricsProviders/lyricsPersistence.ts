@@ -13,9 +13,17 @@ export class LyricsPersistence {
    */
   async get(key: string): Promise<FetchedLyricsResult | null> {
     const result = await browser.storage.local.get([key]);
-    if (result[key]) {
+    const entry = result[key] as FetchedLyricsResult | undefined;
+    if (entry) {
+      const age = Date.now() - (entry.persistedAt || 0);
+      const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+      if (age > THIRTY_DAYS) {
+        console.log(`[LyricsPersistence] EXPIRED (TTL): ${key}`);
+        await browser.storage.local.remove(key);
+        return null;
+      }
       console.log(`[LyricsPersistence] HIT: ${key}`);
-      return result[key] as FetchedLyricsResult;
+      return entry;
     }
     console.log(`[LyricsPersistence] MISS: ${key}`);
     return null;

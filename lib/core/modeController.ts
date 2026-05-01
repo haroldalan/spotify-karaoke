@@ -27,6 +27,7 @@ export function createModeController(opts: ModeControllerOpts) {
       .filter((el): el is Element => el !== null);
   };
   async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false): Promise<void> {
+    const currentSwitchGen = ++opts.store.switchGenRef.value;
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     const cache = opts.store.cache;
@@ -73,16 +74,18 @@ export function createModeController(opts: ModeControllerOpts) {
         let processed: ProcessedCache | null = null;
         if (next === 'romanized' && cache.processed.size > 0) {
           const entries = Array.from(cache.processed.values());
-          processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0] ?? null;
-        } else {
-          processed = await fetchProcessed(cache.original, lang, cache, opts.store.songKey, opts.store.runtimeCache, opts.store.processGenRef);
+          processed = entries.find(e => !e.isLowQualityRomanization && e.romanized) ?? entries.find(e => e.romanized) ?? null;
+        } 
+        if (!processed) {
+          const genRef = next === 'romanized' ? opts.store.romanizedGenRef : opts.store.translatedGenRef;
+          processed = await fetchProcessed(cache.original, lang, cache, opts.store.songKey, opts.store.runtimeCache, genRef);
         }
+
+        if (currentSwitchGen !== opts.store.switchGenRef.value) return;
 
         if (processed === null) {
           opts.store.mode = previousMode;
           syncButtonStates(previousMode);
-          opts.store.isSwitchingMode = false;
-          setLoadingState(false);
           return;
         }
 
@@ -101,9 +104,11 @@ export function createModeController(opts: ModeControllerOpts) {
       opts.store.mode = previousMode;
       syncButtonStates(previousMode);
     } finally {
-      opts.store.isSwitchingMode = false;
-      hideToast(true);
-      setLoadingState(false);
+      if (currentSwitchGen === opts.store.switchGenRef.value) {
+        opts.store.isSwitchingMode = false;
+        hideToast(true);
+        setLoadingState(false);
+      }
     }
   }
 

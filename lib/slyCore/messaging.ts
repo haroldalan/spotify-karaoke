@@ -18,6 +18,13 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
     console.log(`%c[sly-sw] ${message.event}`, 'color: #888; font-style: italic;');
     return;
   }
+
+  if (message.type === 'LYRICS_UPGRADED') {
+    const fresh = (message.payload as Record<string, unknown>)?.data;
+    if (!fresh) return;
+    window.slyInternalState.pendingLyricsData = fresh;
+    console.log('[sly-dom] Background fetch succeeded. Pending lyrics data updated for automatic injection.');
+  }
 });
 
 // --- MAIN WORLD MESSAGE BRIDGE ---

@@ -23,5 +23,4 @@ export const getNowPlayingTrackId = (): string | null => {
   return match ? match[1] : null;
 };
 
-export const hasLyrics = (): boolean =>
-  document.querySelector('[data-testid="lyrics-button"]:not([disabled])') !== null;
+

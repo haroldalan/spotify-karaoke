@@ -248,7 +248,7 @@ window.slyOmniscientSearch = function (
     window.postMessage({ source: 'SLY_BRIDGE', data: state }, '*');
   };
 
-  setInterval(window.slyScanSpotifyState, 600);
+  // Scanner interval merged into shield loop (Section 3)
 })();
 
 /* ============================================================
@@ -327,6 +327,7 @@ window.slyOmniscientSearch = function (
     console.log('>>> [sly] Shield Activated (Hybrid Fiber + Observer)');
 
     shieldInterval = setInterval(() => {
+      window.slyScanSpotifyState(); // Merged Scanner
       const btn = document.querySelector('[data-testid="lyrics-button"]');
       const navBar = document.querySelector('[data-testid="now-playing-bar"]');
 
@@ -409,7 +410,22 @@ window.slyOmniscientSearch = function (
           window.slyApplyGeneticLock(obj, 'lyricsHub', true);
         }
       });
-    }, 250); // Increased frequency to beat hover re-renders
+      // 3. Genetic Lock Health Monitor
+      const btnForHealth = document.querySelector('[data-testid="lyrics-button"]');
+      if (btnForHealth) {
+        const btnFiber = window.slyGetFiber(btnForHealth) as Record<string, unknown> | null;
+        if (btnFiber && btnFiber.memoizedProps) {
+          const props = btnFiber.memoizedProps as object;
+          if ('disabled' in props) {
+            const desc = Object.getOwnPropertyDescriptor(props, 'disabled');
+            if (!desc || desc.configurable !== true || typeof desc.get !== 'function') {
+              console.error('%c[SKaraoke:Bridge] Genetic Lock compromised! Spotify modified properties.', 'color: red; font-size: 14px; font-weight: bold;');
+            }
+          }
+        }
+      }
+
+    }, 500); // Merged loop: 500ms coordinates directly with antigravity interval
 
     // Periodic Deep Scan (Total Recall)
     setInterval(() => {

@@ -54,6 +54,12 @@ document.addEventListener('sly:lyrics_injected', () => {
 // its data-active="true" attribute. Handles panel close cleanup immediately instead
 // of waiting up to 500ms for the poll.
 document.addEventListener('sly:panel_close', () => {
+  // Clear any failed states or manual overrides on panel close so users can recover
+  if (window.slyInternalState.currentLyrics) {
+    (window.slyInternalState.currentLyrics as Record<string, unknown>).failed = false;
+  }
+  window.slyInternalState.forceFallback = false;
+
   const root = document.getElementById('lyrics-root-sync');
   if (!root) return; // slyCore wasn't active, nothing to clean
   console.log('[sly] Clean-up: Panel closed reactively, removing custom root.');
@@ -285,5 +291,18 @@ window.slyCheckNowPlaying = function (): void {
   }
 };
 
-window.antigravityInterval = setInterval(window.slyCheckNowPlaying, 500);
-console.log('[sly] DOM Engine booted. Polling every 500ms.');
+function startThrottledPoll() {
+  if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
+  
+  window.slyCheckNowPlaying();
+  
+  // Throttle to 5000ms if native lyrics are perfectly synced and we aren't fetching/forcing
+  const isStandingDown = window.slyDetectNativeState().lyricsState === 'SYNCED' && 
+                         !window.slyInternalState.forceFallback && 
+                         !window.slyInternalState.fetchingForTitle;
+                         
+  const interval = isStandingDown ? 5000 : 500;
+  window.antigravityInterval = setTimeout(startThrottledPoll, interval) as unknown as number;
+}
+startThrottledPoll();
+console.log('[sly] DOM Engine booted. Adaptive polling active.');

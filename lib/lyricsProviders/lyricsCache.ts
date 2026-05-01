@@ -17,6 +17,7 @@ export interface FetchedLyricsResult {
   };
   persistedAt?: number;
   lastCheckedAt?: number;
+  lastAccessed?: number;
 }
 
 export class LyricsCache {
@@ -36,13 +37,24 @@ export class LyricsCache {
   }
 
   get(key: string): FetchedLyricsResult | undefined {
-    return this.cache.get(key);
+    const item = this.cache.get(key);
+    if (item) item.lastAccessed = Date.now();
+    return item;
   }
 
   set(key: string, val: FetchedLyricsResult): void {
+    val.lastAccessed = Date.now();
     this.cache.set(key, val);
     if (this.cache.size > this.limit) {
-      const oldestKey = this.cache.keys().next().value;
+      let oldestKey: string | undefined;
+      let oldestTime = Infinity;
+      for (const [k, v] of this.cache.entries()) {
+        const t = v.lastAccessed ?? 0;
+        if (t < oldestTime) {
+          oldestTime = t;
+          oldestKey = k;
+        }
+      }
       if (oldestKey !== undefined) this.cache.delete(oldestKey);
     }
   }

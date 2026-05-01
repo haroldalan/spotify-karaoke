@@ -8,7 +8,9 @@ export class StateStore {
   dualLyricsEnabled = true;
   songKey = '';
   cache: SongCache = { original: [], processed: new Map() };
-  processGenRef = { value: 0 };
+  romanizedGenRef = { value: 0 };
+  translatedGenRef = { value: 0 };
+  switchGenRef = { value: 0 };
   isApplying = false;
   isSwitchingMode = false;
   showPill = true;

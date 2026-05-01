@@ -13,7 +13,10 @@ export async function fetchProcessed(
 ): Promise<ProcessedCache | null> {
   if (lines.length === 0 || !lines.some(l => l.trim().length > 0)) return null;
 
-  if (cache.processed.has(lang)) return cache.processed.get(lang)!;
+  if (cache.processed.has(lang)) {
+    processGenRef.value++;
+    return cache.processed.get(lang)!;
+  }
 
   const gen = ++processGenRef.value;
 

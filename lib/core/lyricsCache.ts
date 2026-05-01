@@ -23,10 +23,12 @@ export async function loadSongCache(
 
     if (!entry) return;
 
-    if (entry.original.length !== cache.original.length) {
+    const currentHash = cache.original.join('|').length;
+    if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
       return;
     }
 
+    entry.lastAccessed = Date.now();
     cache.original = [...entry.original];
 
     for (const [lang, processed] of Object.entries(entry.processed)) {
@@ -61,11 +63,20 @@ export async function saveSongCache(
     original: cache.original,
     processed: processedObj,
     lastAccessed: Date.now(),
+    originalHash: cache.original.join('|').length,
   };
 
   runtimeCache.set(key, entry);
   if (runtimeCache.size > RUNTIME_CACHE_MAX) {
-    runtimeCache.delete(runtimeCache.keys().next().value!);
+    let oldestKey: string | undefined;
+    let oldestTime = Infinity;
+    for (const [k, v] of runtimeCache.entries()) {
+      if (v.lastAccessed < oldestTime) {
+        oldestTime = v.lastAccessed;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey !== undefined) runtimeCache.delete(oldestKey);
   }
 
   const storageKey = `lc:${key}`;

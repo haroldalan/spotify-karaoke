@@ -9,7 +9,7 @@ export default defineConfig({
     },
   }),
   manifest: {
-    name: 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Lyrics, and Much More!',
+    name: 'Spotify Karaoke - Never See Missing Lyrics, Romanize & Translate Songs, and Much More!',
     description: 'Automatically fetches synced lyrics for songs that dont have it, and provides additional functionality like romanization for all scripts and translation into 132 languages — right inside Spotify.',
     icons: {
       16: "icon16.png",

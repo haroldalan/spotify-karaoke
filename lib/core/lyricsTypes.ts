@@ -18,6 +18,7 @@ export interface LyricsCacheEntry {
     [targetLang: string]: ProcessedCache;
   };
   lastAccessed: number;
+  originalHash?: number;
 }
 
 export type LyricsIndex = {

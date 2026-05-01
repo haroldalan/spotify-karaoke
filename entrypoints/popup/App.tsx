@@ -104,32 +104,56 @@ export default function App() {
   }
 
   async function handleLangChange(lang: string) {
+    const prev = targetLang;
     setTargetLang(lang);
     localStorage.setItem('sly_targetLang', lang);
-    await browser.storage.sync.set({ targetLang: lang });
-    flashSaved();
+    try {
+      await browser.storage.sync.set({ targetLang: lang });
+      flashSaved();
+    } catch {
+      setTargetLang(prev);
+      localStorage.setItem('sly_targetLang', prev);
+    }
   }
 
   async function handleDualLyricsChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
+    const prev = dualLyrics;
     setDualLyrics(checked);
     localStorage.setItem('sly_dualLyrics', String(checked));
-    await browser.storage.sync.set({ dualLyrics: checked });
-    flashSaved();
+    try {
+      await browser.storage.sync.set({ dualLyrics: checked });
+      flashSaved();
+    } catch {
+      setDualLyrics(prev);
+      localStorage.setItem('sly_dualLyrics', String(prev));
+    }
   }
 
   async function handleShowPillChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
+    const prev = showPill;
     setShowPill(checked);
     localStorage.setItem('sly_showPill', String(checked));
-    await browser.storage.sync.set({ showPill: checked });
-    flashSaved();
+    try {
+      await browser.storage.sync.set({ showPill: checked });
+      flashSaved();
+    } catch {
+      setShowPill(prev);
+      localStorage.setItem('sly_showPill', String(prev));
+    }
   }
 
   async function handleModeChange(mode: string) {
+    const prev = preferredMode;
     setPreferredMode(mode);
     localStorage.setItem('sly_preferredMode', mode);
-    await browser.storage.sync.set({ preferredMode: mode });
+    try {
+      await browser.storage.sync.set({ preferredMode: mode });
+    } catch {
+      setPreferredMode(prev);
+      localStorage.setItem('sly_preferredMode', prev);
+    }
   }
 
   async function handleReset(e: React.MouseEvent) {
@@ -149,13 +173,9 @@ export default function App() {
     localStorage.setItem('sly_preferredMode', 'original');
     localStorage.setItem('sly_showPill', 'true');
 
-    // Clear lyrics cache from local storage via the index
+    // Clear all lyrics cache from local storage
     try {
-      const d = await browser.storage.local.get('lc_index');
-      const idx = (d['lc_index'] ?? {}) as Record<string, unknown>;
-      const lcKeys = Object.keys(idx).map((k) => `lc:${k}`);
-      if (lcKeys.length > 0) await browser.storage.local.remove(lcKeys);
-      await browser.storage.local.remove('lc_index');
+      await browser.storage.local.clear();
     } catch { /* ignore */ }
 
     setTargetLang('en');

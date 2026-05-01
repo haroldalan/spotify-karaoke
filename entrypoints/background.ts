@@ -100,7 +100,10 @@ export default defineBackground(() => {
                   console.log(`[ServiceWorker] 😴 Upgrade Check: No synced version found for ${title}. Sleeping for 7 days.`);
                   await lyricsPersistence.set(cacheKey, stored);
                 }
-              }).catch(err => console.error('[ServiceWorker] Upgrade check failed:', err));
+              }).catch(async (err) => {
+                console.error('[ServiceWorker] Upgrade check failed:', err);
+                await lyricsPersistence.set(cacheKey, stored);
+              });
             }
             return;
           }
