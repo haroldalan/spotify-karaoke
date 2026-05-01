@@ -130,10 +130,16 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   window.slyInternalState.fetchingForTitle = title;
   window.slyInternalState.fetchingForUri = uri;
 
+  // Capture the generation and URI at the moment this fetch is dispatched.
+  const myGeneration = window.slyInternalState.fetchGeneration;
+  const myUri = uri;
+
   const pinnedMetadata: Record<string, unknown> = { title, artist, albumArtUrl };
 
-  // Show initial Status HUD
-  // Fast-track color extraction so the "Fetching" screen is already immersive
+  // Show initial Status HUD immediately to prevent blank panel
+  window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
+
+  // Fast-track color extraction to upgrade the HUD asynchronously
   if (albumArtUrl) {
     safeSendMessage({ type: 'GET_COLOR', payload: { albumArtUrl } }, (r) => {
       // 1. STALE TRACK CHECK
@@ -147,27 +153,19 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
         if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
           (window.slyInternalState.currentLyrics as Record<string, unknown>).extractedColor = r.color;
         }
+
+        // 2. ALREADY FINISHED CHECK
+        // If lyrics are already being injected or are in the queue, DO NOT show a fetching HUD.
+        // We check for .lines specifically to avoid "Ghost Payloads" (objects with only color but no text).
+        const hasPayload = !!((window.slyInternalState.pendingLyricsData as Record<string, unknown> | null)?.lines);
+        const hasRendered = !!((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines);
+
+        if (!hasPayload && !hasRendered) {
+          window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
+        }
       }
-
-      // 2. ALREADY FINISHED CHECK
-      // If lyrics are already being injected or are in the queue, DO NOT show a fetching HUD.
-      // We check for .lines specifically to avoid "Ghost Payloads" (objects with only color but no text).
-      const hasPayload = !!((window.slyInternalState.pendingLyricsData as Record<string, unknown> | null)?.lines);
-      const hasRendered = !!((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines);
-
-      if (hasPayload || hasRendered) {
-        return;
-      }
-
-      window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
     });
-  } else {
-    window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
   }
-
-  // Capture the generation and URI at the moment this fetch is dispatched.
-  const myGeneration = window.slyInternalState.fetchGeneration;
-  const myUri = uri;
 
   console.log(`[sly] Fetching lyrics for "${title}" by ${artist} (${uri || 'no-uri'}) — sending request to service worker...`);
   safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri } }, (r) => {
@@ -196,6 +194,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
     } else {
       console.warn(`[sly] Fetch failed for "${title}" — no lyrics found.`);
       window.slyInternalState.fetchingForTitle = '';
+      window.slyInternalState.fetchingForUri = '';
 
       // Save failure state AND extracted color for immersive HUD
       window.slyInternalState.currentLyrics = {

@@ -43,13 +43,18 @@ async function performFetch(title: string, artist: string, uri = 'N/A'): Promise
   return { ok: false };
 }
 
+const colorCache = new Map<string, string>();
+
 /**
  * Fast-track color extraction for instant HUD feedback.
  */
 export async function getColorOnly(albumArtUrl: string | undefined): Promise<string | null> {
   if (!albumArtUrl) return null;
+  if (colorCache.has(albumArtUrl)) return colorCache.get(albumArtUrl)!;
   try {
-    return await extractImageColor(albumArtUrl);
+    const color = await extractImageColor(albumArtUrl);
+    if (color) colorCache.set(albumArtUrl, color);
+    return color;
   } catch (e) {
     return null;
   }
@@ -71,7 +76,15 @@ export async function getLyricsForTrack(
 
   if (albumArtUrl) {
     try {
-      finalData.data.extractedColor = await extractImageColor(albumArtUrl);
+      if (colorCache.has(albumArtUrl)) {
+        finalData.data.extractedColor = colorCache.get(albumArtUrl);
+      } else {
+        const color = await extractImageColor(albumArtUrl);
+        if (color) {
+          colorCache.set(albumArtUrl, color);
+          finalData.data.extractedColor = color;
+        }
+      }
     } catch (e) {
       console.error('[sw-engine] Color extraction failed, proceeding without it.', e);
     }
