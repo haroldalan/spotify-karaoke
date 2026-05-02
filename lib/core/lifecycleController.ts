@@ -328,6 +328,15 @@ export function setupSlyBridge(
     // again if needed, then clean up the observer reference.
     slyInternalState.slySyncedRendererActive = false;
     renderer.stop();
+
+    // Rescue the pill before #lyrics-root-sync is torn down so it doesn't flash.
+    // Parking it on document.body ensures it survives the transition.
+    const pill = document.getElementById(CONTROLS_ID);
+    if (pill) {
+      pill.classList.add('sly-loading');
+      document.body.appendChild(pill);
+    }
+
     store.slyActiveContainer = null;
     store.slyActiveDomElements = [];  // prevent stale elements from a prior song
     store.lyricsObserver?.disconnect();

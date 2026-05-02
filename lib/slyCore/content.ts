@@ -31,6 +31,11 @@ window.addEventListener('sly_state_update', () => {
 // no longer needs to do its own title comparison (Step 2 removed below).
 document.addEventListener('sly:song_change', (e: Event) => {
   const { uri } = (e as CustomEvent<{ uri?: string }>).detail;
+
+  // Skip if this is a repeated dispatch for the URI we already have active.
+  // Covers backwards skips to a recently played track where lastUri matches.
+  if (uri && uri === window.slyInternalState.lastUri) return;
+
   const detection = window.slyDetectNativeState();
   if (detection.title !== 'Unknown' && detection.title !== 'AD_SILENCED') {
     window.slyResetPlayerState(detection.title, uri);
@@ -87,6 +92,10 @@ document.addEventListener('sly:panel_close', () => {
 // lyricsObj.lines will be populated by slyBuildLyricsList later (same object reference).
 document.addEventListener('sly:inject', (e: Event) => {
   const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
+  // Stamp the URI at injection time so Step 1.5 can check if the skip target
+  // is already the track we have lyrics for.
+  const currentUri = (window.spotifyState?.track as Record<string, unknown>)?.uri as string | undefined;
+  if (currentUri) lyricsObj._slyUri = currentUri;
   window.slyInternalState.currentLyrics = lyricsObj;
 });
 
@@ -154,7 +163,16 @@ window.slyCheckNowPlaying = function (): void {
         scannerTitle &&
         scannerTitle !== 'AD_SILENCED'
       ) {
-        window.slyResetPlayerState(scannerTitle, fullUri);
+        // Don't reset if we already have valid lyrics loaded for this exact URI.
+        // This covers backwards skips: fullUri is "new" vs lastUri but currentLyrics
+        // may already be correct for it from a prior play in this session.
+        const cl = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
+        if (cl?.lines && cl._slyUri === fullUri) {
+          // Already correct — just sync lastUri forward so this branch doesn't re-evaluate
+          window.slyInternalState.lastUri = fullUri;
+        } else {
+          window.slyResetPlayerState(scannerTitle, fullUri);
+        }
       }
     }
 
