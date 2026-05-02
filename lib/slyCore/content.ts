@@ -36,6 +36,10 @@ document.addEventListener('sly:song_change', (e: Event) => {
   // Covers backwards skips to a recently played track where lastUri matches.
   if (uri && uri === window.slyInternalState.lastUri) return;
 
+  // Important: zero the panelOpenTime BEFORE detection so the grace period
+  // for the new song is calculated correctly.
+  window.slyInternalState.panelOpenTime = 0;
+
   const detection = window.slyDetectNativeState();
   if (detection.title !== 'Unknown' && detection.title !== 'AD_SILENCED') {
     window.slyResetPlayerState(detection.title, uri);
@@ -171,7 +175,11 @@ window.slyCheckNowPlaying = function (): void {
           // Already correct — just sync lastUri forward so this branch doesn't re-evaluate
           window.slyInternalState.lastUri = fullUri;
         } else {
+          // Track changed — reset state and abort this tick.
+          // Zeroing panelOpenTime here ensures the NEXT poll tick starts a fresh grace period.
+          window.slyInternalState.panelOpenTime = 0;
           window.slyResetPlayerState(scannerTitle, fullUri);
+          return;
         }
       }
     }
