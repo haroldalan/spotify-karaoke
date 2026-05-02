@@ -36,7 +36,10 @@ window.addEventListener('message', (event) => {
 
   } else if (data?.type === 'SLY_FETCH_END') {
     window.slyInternalState.isSpotifyFetching = false;
+    // Retry cascade covering slow React renders of the lyrics panel DOM.
     setTimeout(window.slyCheckNowPlaying, 100);
+    setTimeout(window.slyCheckNowPlaying, 300);
+    setTimeout(window.slyCheckNowPlaying, 600);
 
   } else if (data?.type === 'SLY_INTERCEPT_START') {
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
@@ -193,6 +196,8 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
 
       // We DON'T clear status here; slyInjectLyrics will handle it for a smooth transition
       window.slyInternalState.pendingLyricsData = r.data as Record<string, unknown>;
+      // Kick injection immediately if the panel is already open
+      setTimeout(window.slyCheckNowPlaying, 0);
     } else {
       console.warn(`[sly] Fetch failed for "${title}" — no lyrics found.`);
       window.slyInternalState.fetchingForTitle = '';
