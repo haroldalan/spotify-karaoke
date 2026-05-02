@@ -145,6 +145,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (newKey === songKey) return;
     opts.store.songKey = newKey;
     opts.store.mode = 'original';
+    opts.store.isSwitchingMode = false;
     opts.store.romanizedGenRef.value++;
     opts.store.translatedGenRef.value++;
     opts.store.switchGenRef.value++;
