@@ -109,6 +109,8 @@ window.addEventListener('message', (event) => {
       window.slyInternalState.nativeUpgradedLines = nativeLines;
       window.slyInternalState.pendingLyricsData = null;
       window.slyInternalState.fetchingForTitle = '';
+      window.slyInternalState.fetchingForUri = '';
+      if (window.slyClearStatus) window.slyClearStatus();
     }
   }
 });

@@ -244,12 +244,16 @@ window.slyCheckNowPlaying = function (): void {
       if (lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback) {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
+        window.slyInternalState.fetchingForUri = '';
+        if (window.slyClearStatus) window.slyClearStatus();
         return;
       }
 
       if (lyricsState === 'UNSYNCED' && !data.isSynced && !window.slyInternalState.forceFallback) {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
+        window.slyInternalState.fetchingForUri = '';
+        if (window.slyClearStatus) window.slyClearStatus();
         return;
       }
 
@@ -268,6 +272,8 @@ window.slyCheckNowPlaying = function (): void {
         // If data is invalid (no content), clear it anyway to avoid looping
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
+        window.slyInternalState.fetchingForUri = '';
+        if (window.slyClearStatus) window.slyClearStatus();
       }
     }
 
