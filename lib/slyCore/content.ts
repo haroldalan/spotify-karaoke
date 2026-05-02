@@ -14,7 +14,7 @@ console.log('[sly] DOM Engine starting...');
 if (window.slyInjectCoreStyles) window.slyInjectCoreStyles();
 
 // --- HOT RELOAD CLEANUP PROTOCOL ---
-if (window.antigravityInterval) clearInterval(window.antigravityInterval);
+if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
 if (window.antigravitySyncAnimFrame) cancelAnimationFrame(window.antigravitySyncAnimFrame);
 document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles').forEach(node => node.remove());
 

@@ -342,31 +342,39 @@ window.slyOmniscientSearch = function (
         let node = window.slyGetFiber(btn) as Record<string, unknown> | null;
         let depth = 0;
         let foundInWalk = false;
+        let didLock = false;
 
         while (node && depth < 35) {
           const p = node.memoizedProps as Record<string, unknown> | undefined;
           if (p) {
-            // NATIVE CAPABILITY DETECTION (Pre-Lock)
-            const desc = Object.getOwnPropertyDescriptor(p, 'disabled');
-            const isNativelyDisabled = (desc && typeof desc.get === 'function') ? undefined : p.disabled;
+            // Check if this node contains lyrics configuration properties
+            const hasLockable = 'disabled' in p || 'isEnabled' in p || 'lyricsHub' in p || 'hasLyrics' in p;
 
-            if (isNativelyDisabled !== undefined) {
-              const gracePeriod = 1500;
-              const timeSinceChange = Date.now() - (window.__sly_track_change_time || 0);
-              // Only report "No Lyrics" (disabled: true) after the grace period.
-              // "Has Lyrics" (disabled: false) is reported immediately.
-              if (!isNativelyDisabled) {
-                window.__sly_native_has_lyrics = true;
-              } else if (timeSinceChange > gracePeriod) {
-                window.__sly_native_has_lyrics = false;
+            if (!didLock && hasLockable) {
+              // NATIVE CAPABILITY DETECTION (Pre-Lock)
+              // We check the original value before our lock takes over.
+              const desc = Object.getOwnPropertyDescriptor(p, 'disabled');
+              const isNativelyDisabled = (desc && typeof desc.get === 'function') ? undefined : p.disabled;
+
+              if (isNativelyDisabled !== undefined) {
+                const gracePeriod = 1500;
+                const timeSinceChange = Date.now() - (window.__sly_track_change_time || 0);
+                // Only report "No Lyrics" (disabled: true) after the grace period.
+                // "Has Lyrics" (disabled: false) is reported immediately.
+                if (!isNativelyDisabled) {
+                  window.__sly_native_has_lyrics = true;
+                } else if (timeSinceChange > gracePeriod) {
+                  window.__sly_native_has_lyrics = false;
+                }
               }
-            }
 
-            // Apply the Genetic Lock
-            window.slyApplyGeneticLock(p, 'disabled', false);
-            window.slyApplyGeneticLock(p, 'isEnabled', true);
-            window.slyApplyGeneticLock(p, 'lyricsHub', true);
-            window.slyApplyGeneticLock(p, 'hasLyrics', true);
+              // Apply the Genetic Lock to this props object
+              window.slyApplyGeneticLock(p, 'disabled', false);
+              window.slyApplyGeneticLock(p, 'isEnabled', true);
+              window.slyApplyGeneticLock(p, 'lyricsHub', true);
+              window.slyApplyGeneticLock(p, 'hasLyrics', true);
+              didLock = true;
+            }
 
             if (!foundInWalk) {
               const signatures = ['toggleLyrics', 'onToggle', 'onClick'];
@@ -384,7 +392,8 @@ window.slyOmniscientSearch = function (
               }
             }
           }
-          if (foundInWalk) break;
+          // Optimization: Break early if we've successfully applied the lock AND found the toggle handler.
+          if (foundInWalk && didLock) break;
           node = node.return as Record<string, unknown> | null;
           depth++;
         }
@@ -412,11 +421,10 @@ window.slyOmniscientSearch = function (
         }
       });
       // 3. Genetic Lock Health Monitor
-      const btnForHealth = document.querySelector('[data-testid="lyrics-button"]');
-      if (btnForHealth) {
-        const btnFiber = window.slyGetFiber(btnForHealth) as Record<string, unknown> | null;
-        if (btnFiber && btnFiber.memoizedProps) {
-          const props = btnFiber.memoizedProps as object;
+      if (btn) {
+        const initialFiber = window.slyGetFiber(btn) as Record<string, unknown> | null;
+        if (initialFiber?.memoizedProps) {
+          const props = initialFiber.memoizedProps as object;
           if ('disabled' in props) {
             const desc = Object.getOwnPropertyDescriptor(props, 'disabled');
             if (!desc || desc.configurable !== true || typeof desc.get !== 'function') {

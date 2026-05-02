@@ -15,7 +15,7 @@ async function performFetch(title: string, artist: string, uri = 'N/A'): Promise
   console.log(`[sw-engine] 🛰️ SOURCE 1: Trying YouTube Music for track ${uri}...`);
   const ytm = await fetchYtmLyrics(title, artist).catch(() => null);
   if (ytm?.isSynced) {
-    console.log(`[sw-engine] ✅ SUCCESS: Synced lyrics found on YouTube Music.`);
+    console.log(`[sw-engine] ✅ SUCCESS: Synced lyrics found on YouTube Music [Key: ${ytm.keySource}].`);
     return { ok: true, data: { syncedLyrics: ytm.syncedLyrics, isSynced: true, source: ytm.source } };
   }
 
@@ -28,7 +28,7 @@ async function performFetch(title: string, artist: string, uri = 'N/A'): Promise
   }
 
   if (ytm?.plainLyrics) {
-    console.log(`[sw-engine] ⚠️ PARTIAL: Falling back to plain lyrics from YouTube Music.`);
+    console.log(`[sw-engine] ⚠️ PARTIAL: Falling back to plain lyrics from YouTube Music [Key: ${ytm.keySource}].`);
     return { ok: true, data: { plainLyrics: ytm.plainLyrics, isSynced: false, source: ytm.source } };
   }
 

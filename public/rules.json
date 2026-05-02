@@ -1,6 +1,23 @@
 [
   {
     "id": 1,
+    "priority": 2,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "User-Agent", "operation": "set", "value": "com.google.android.apps.youtube.music/7.21.50 (Linux; U; Android 12; en_US; Pixel 6) gzip" },
+        { "header": "Origin", "operation": "remove" },
+        { "header": "Referer", "operation": "remove" },
+        { "header": "X-Goog-Api-Format-Version", "operation": "set", "value": "2" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "*://music.youtube.com/youtubei/v1/*",
+      "resourceTypes": ["xmlhttprequest", "other"]
+    }
+  },
+  {
+    "id": 2,
     "priority": 1,
     "action": {
       "type": "modifyHeaders",

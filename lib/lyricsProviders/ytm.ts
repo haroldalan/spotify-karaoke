@@ -3,7 +3,36 @@
 import { nav, fetchWithTimeout } from './fetchUtils';
 
 const YT_BASE = 'https://music.youtube.com/youtubei/v1';
-const YT_API_KEY = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
+// Fallback only — used if dynamic fetch fails
+const YT_API_KEY_FALLBACK = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30';
+
+// In-memory cache — lives for the service worker's lifespan
+let cachedApiKey: string | null = null;
+let currentKeySource: 'scraped' | 'fallback' = 'fallback';
+
+export function getYtmKeySource(): string {
+  return currentKeySource;
+}
+
+async function getApiKey(): Promise<string> {
+  if (cachedApiKey) return cachedApiKey;
+  try {
+    const res = await fetchWithTimeout('https://music.youtube.com/', {}, 8000);
+    const html = await res.text();
+    // ytcfg.set({"INNERTUBE_API_KEY":"AIza..."}) is always present in the page HTML
+    const match = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/);
+    if (match?.[1]) {
+      cachedApiKey = match[1];
+      currentKeySource = 'scraped';
+      console.log('[YTM] Dynamic API key acquired.');
+      return cachedApiKey;
+    }
+  } catch (e) {
+    console.warn('[YTM] Dynamic key fetch failed, using fallback.', e);
+  }
+  currentKeySource = 'fallback';
+  return YT_API_KEY_FALLBACK;
+}
 
 const ANDROID_CONTEXT = {
   client: {
@@ -16,9 +45,14 @@ const ANDROID_CONTEXT = {
   },
 };
 
-async function callYtmDirect(endpoint: string, payload: Record<string, unknown>): Promise<unknown> {
+async function callYtmDirect(
+  endpoint: string,
+  payload: Record<string, unknown>,
+  retried = false,
+): Promise<unknown> {
+  const key = await getApiKey();
   const response = await fetchWithTimeout(
-    `${YT_BASE}/${endpoint}?alt=json&key=${YT_API_KEY}`,
+    `${YT_BASE}/${endpoint}?alt=json&key=${key}`,
     {
       method: 'POST',
       headers: {
@@ -28,6 +62,14 @@ async function callYtmDirect(endpoint: string, payload: Record<string, unknown>)
       body: JSON.stringify({ context: ANDROID_CONTEXT, ...payload }),
     },
   );
+
+  if (response.status === 403 && !retried) {
+    // Stale cached key — bust it and retry once with a freshly fetched key
+    console.warn('[YTM] 403 received — busting cached key and retrying once.');
+    cachedApiKey = null;
+    return callYtmDirect(endpoint, payload, true);
+  }
+
   if (!response.ok) throw new Error(`YTM HTTP Error: ${response.status}`);
   return response.json();
 }
@@ -108,6 +150,7 @@ export interface YtmResult {
   plainLyrics?: string;
   isSynced: boolean;
   source?: string;
+  keySource?: string;
 }
 
 export async function fetchYtmLyrics(title: string, artist: string): Promise<YtmResult | null> {
@@ -149,6 +192,7 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
           syncedLyrics: lrc,
           isSynced: true,
           source: (instantTimed.footer as any)?.runs?.[0]?.text || 'YouTube Music',
+          keySource: currentKeySource,
         };
       }
     }
@@ -176,6 +220,7 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
           syncedLyrics: lrc,
           isSynced: true,
           source: timedData.sourceMessage as string || 'YouTube Music',
+          keySource: currentKeySource,
         };
       }
 
@@ -189,6 +234,7 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
           plainLyrics: plainFallback,
           isSynced: false,
           source: timedData.sourceMessage as string || 'YouTube Music',
+          keySource: currentKeySource,
         };
       }
     }
@@ -204,6 +250,7 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
           syncedLyrics: lrc,
           isSynced: true,
           source: (timedRenderer.footer as any)?.runs?.[0]?.text || 'YouTube Music',
+          keySource: currentKeySource,
         };
       }
     }
@@ -217,6 +264,7 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
         plainLyrics: lyrics,
         isSynced: false,
         source: (plainRenderer?.footer as any)?.runs?.[0]?.text || 'YouTube Music',
+        keySource: currentKeySource,
       };
     }
 
