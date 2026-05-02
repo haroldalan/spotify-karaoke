@@ -17,7 +17,6 @@ declare global {
 export const slyAdManager: SlyAdManager = {
   messages: [
     "⏸️ Ad break. Lyrics on pause.",
-    "🎤 Even ads need a moment of silence.",
     "📻 Commercial break. Karaoke resumes shortly.",
     "🎶 Hold tight. The music (and lyrics) will return.",
     "🛑 Ad detected. Suspending lyric sync.",

@@ -154,6 +154,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     opts.store.cache = { original: [], processed: new Map() };
     opts.store.pendingNativeLines.clear();
 
+    // Clear stale container references immediately so autoSwitchIfNeeded
+    // doesn't write into detached DOM nodes before the slyCore poll fires.
+    opts.store.slyActiveContainer = null;
+    opts.store.slyActiveDomElements = [];
+
     safeBrowserCall(() => browser.storage.local.get(`lc:${newKey}`)).then((data) => {
       const entry = data?.[`lc:${newKey}`] as LyricsCacheEntry | undefined;
       if (entry) opts.store.runtimeCache.set(newKey, entry);
@@ -341,5 +346,10 @@ export function setupSlyBridge(
     store.slyActiveDomElements = [];  // prevent stale elements from a prior song
     store.lyricsObserver?.disconnect();
     store.lyricsObserver = null;
+
+    // Unblock trySetup() immediately by removing the active flag from main.
+    // Prevents the "sly-active found, aborting" guard from skipping Song B's setup.
+    const main = document.querySelector(`main.${(window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
+    if (main) main.classList.remove('sly-active');
   });
 }
