@@ -78,6 +78,11 @@ document.addEventListener('sly:panel_close', () => {
   console.log('[sly] Clean-up: Panel closed reactively, removing custom root.');
   if (window.slyClearStatus) window.slyClearStatus();
   root.remove();
+  // Preserve fetching state: if a fetch is in-flight, re-mark isFetchingHUD = true
+  // so the Re-injection Check can restore the loading screen if the panel re-opens.
+  if (window.slyInternalState.fetchingForTitle) {
+    window.slyInternalState.isFetchingHUD = true;
+  }
   const syncBtn = document.getElementById('sly-sync-button');
   if (syncBtn) syncBtn.remove();
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;

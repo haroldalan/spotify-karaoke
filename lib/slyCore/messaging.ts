@@ -176,9 +176,15 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri } }, (r) => {
     // STALE CHECK 1: Generation mismatch — native recovered or track changed mid-flight
     if (myGeneration !== window.slyInternalState.fetchGeneration) {
-      console.log(`[sly] Fetch response for "${title}" discarded — generation is stale.`);
-      if (window.slyClearStatus) window.slyClearStatus();
-      return;
+      // If the generation was bumped but the URI still matches, this is likely a
+      // bridge-scanner stabilization reset (e.g. URI went from 'N/A' -> real).
+      // We allow the response to proceed to avoid a redundant 500ms re-fetch delay.
+      const uriStillMatches = myUri && window.slyInternalState.lastUri && myUri === window.slyInternalState.lastUri;
+      if (!uriStillMatches) {
+        console.log(`[sly] Fetch response for "${title}" discarded — generation is stale.`);
+        if (window.slyClearStatus) window.slyClearStatus();
+        return;
+      }
     }
 
     // STALE CHECK 2: Track URI changed while in flight (tolerates title-only corrections).
