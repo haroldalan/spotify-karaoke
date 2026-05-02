@@ -73,7 +73,6 @@ window.slyPrepareContainer = function (): HTMLElement | null {
     rootParent.appendChild(root);
   }
   rootParent.classList.add('sly-active');
-  root.innerHTML = '';
   return root;
 };
 
@@ -126,6 +125,7 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
  * Constructs the internal lyrics list structure (spacers, padding, lines, and attribution).
  */
 window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<string, unknown>): void {
+  root.innerHTML = '';
   const isSynced = lyricsObj.isSynced as boolean;
   // window.slyParseLRC comes from ui.js (not yet ported) — guarded with || []
   const lines = isSynced ? (window.slyParseLRC?.(lyricsObj.syncedLyrics as string) || []) : [];
