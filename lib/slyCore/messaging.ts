@@ -182,7 +182,8 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       const uriStillMatches = myUri && window.slyInternalState.lastUri && myUri === window.slyInternalState.lastUri;
       if (!uriStillMatches) {
         console.log(`[sly] Fetch response for "${title}" discarded — generation is stale.`);
-        if (window.slyClearStatus) window.slyClearStatus();
+        // Only clear if we aren't already fetching for a new song.
+        if (!window.slyInternalState.fetchingForTitle && window.slyClearStatus) window.slyClearStatus();
         return;
       }
     }
@@ -192,7 +193,8 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
     // or slyResetPlayerState called without a URI argument).
     if (myUri && window.slyInternalState.lastUri && myUri !== window.slyInternalState.lastUri) {
       console.log(`[sly] Fetch response for "${title}" discarded — track already changed.`);
-      if (window.slyClearStatus) window.slyClearStatus();
+      // Only clear if we aren't already fetching for a new song.
+      if (!window.slyInternalState.fetchingForTitle && window.slyClearStatus) window.slyClearStatus();
       return;
     }
 

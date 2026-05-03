@@ -43,6 +43,7 @@ export interface SlyInternalState {
    *  slyUpdateSync reads this and yields immediately so both loops don't
    *  fight over className on the same elements. */
   slySyncedRendererActive?: boolean;
+  nativeRecoveryPending?: boolean;
 }
 
 declare global {

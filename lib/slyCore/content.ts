@@ -244,6 +244,7 @@ window.slyCheckNowPlaying = function (): void {
       console.warn(`[sly] Aborting fetch for "${title}" — Spotify recovered to native synced lyrics.`);
       window.slyInternalState.fetchGeneration++;
       window.slyInternalState.fetchingForTitle = '';
+      window.slyInternalState.nativeRecoveryPending = true;
       if (window.slyClearStatus) window.slyClearStatus();
       return;
     }
@@ -265,6 +266,7 @@ window.slyCheckNowPlaying = function (): void {
           console.log(`[sly-dom] ✅ DECISION: Native lyrics are synced for "${title}" [${fullUri?.split(':').pop() || 'N/A'}]. Engine standing down.`);
           window.slyInternalState.lastDecision = decision;
         }
+        window.slyInternalState.nativeRecoveryPending = false;
       }
     }
 
@@ -346,7 +348,8 @@ function startThrottledPoll() {
   // Throttle to 5000ms if native lyrics are perfectly synced and we aren't fetching/forcing
   const isStandingDown = window.slyDetectNativeState().lyricsState === 'SYNCED' && 
                          !window.slyInternalState.forceFallback && 
-                         !window.slyInternalState.fetchingForTitle;
+                         !window.slyInternalState.fetchingForTitle &&
+                         !window.slyInternalState.nativeRecoveryPending;
                          
   const interval = isStandingDown ? 5000 : 500;
   window.antigravityInterval = setTimeout(startThrottledPoll, interval) as unknown as number;
