@@ -90,6 +90,11 @@ export default defineBackground(() => {
               }
             }
 
+            // Backwards compatibility: Promote old nativeMissing flag to new nativeStatus
+            if ((stored as any).nativeMissing && !stored.nativeStatus) {
+              stored.nativeStatus = 'MISSING';
+            }
+
             lyricsCache.set(cacheKey, stored); // Promote to L1
             sendResponse(stored);
 
@@ -168,20 +173,20 @@ export default defineBackground(() => {
       }
 
       // ----------------------------------------------------------------
-      // New handler: Persistent Native Missing Reporting
+      // New handler: Persistent Native Status Reporting
       // ----------------------------------------------------------------
-      if (msg.type === 'SLY_REPORT_NATIVE_MISSING') {
-        const { title, artist, uri } = msg.payload ?? {};
-        if (!title || !artist) return true;
+      if (msg.type === 'SLY_REPORT_NATIVE_STATUS') {
+        const { title, artist, uri, status } = msg.payload ?? {};
+        if (!title || !artist || !status) return true;
 
         const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
         (async () => {
           const stored = await lyricsPersistence.get(cacheKey);
-          if (stored && !stored.nativeMissing) {
-            stored.nativeMissing = true;
+          if (stored && stored.nativeStatus !== status) {
+            stored.nativeStatus = status;
             lyricsCache.set(cacheKey, stored);
             await lyricsPersistence.set(cacheKey, stored);
-            console.log(`[ServiceWorker] Tagged ${title} as NATIVE_MISSING in persistent cache.`);
+            console.log(`[ServiceWorker] Tagged ${title} as NATIVE_${status} in persistent cache.`);
           }
         })();
         return true;

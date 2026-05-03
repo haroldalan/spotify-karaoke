@@ -110,9 +110,9 @@ window.slyDetectNativeState = function (): DetectorState {
   // Consult the registry populated by the Background script/Interceptor
   state.preFetch = window.slyPreFetchRegistry.getState(state.currentTrackId ?? '') ?? null;
 
-  if (state.preFetch && (state.preFetch.state === 'MISSING' || state.preFetch.state === 'ROMANIZED' || state.preFetch.state === 'UNSYNCED' || state.preFetch.nativeMissing)) {
+  if (state.preFetch && (state.preFetch.state === 'MISSING' || state.preFetch.state === 'ROMANIZED' || state.preFetch.state === 'UNSYNCED' || state.preFetch.nativeStatus)) {
     if (!window.slyInternalState.forceFallback) {
-      const reason = state.preFetch.nativeMissing ? 'PERSISTED_NATIVE_MISSING' : state.preFetch.state;
+      const reason = state.preFetch.nativeStatus ? `PERSISTED_NATIVE_${state.preFetch.nativeStatus}` : state.preFetch.state;
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
@@ -127,7 +127,7 @@ window.slyDetectNativeState = function (): DetectorState {
   if (isNativeLanguage && state.hasNativeLines && timeSinceOpen > 1500 && !window.slyInternalState.forceFallback && state.preFetch?.state !== 'NATIVE_OK') {
     const nativeLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
                             .filter(el => !el.closest('#lyrics-root-sync'))
-                            .slice(0, 15)
+                            .slice(0, 5)
                             .map(el => el.textContent)
                             .join(' ');
 
@@ -136,6 +136,13 @@ window.slyDetectNativeState = function (): DetectorState {
     if (!hasNativeScript && window.spotifyState.lyricsProvider !== 'LRCLIB') {
       console.log(`[sly-detector] 🔎 EVIDENCE: Forensic DOM scan found NO native characters in a confirmed ${window.spotifyState.language} track. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
+      // Report Romanization failure for persistent 0ms hijack next time
+      if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'ROMANIZED') {
+        browser.runtime.sendMessage({
+          type: 'SLY_REPORT_NATIVE_STATUS',
+          payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'ROMANIZED' }
+        }).catch(() => {});
+      }
     }
   }
 
@@ -155,16 +162,23 @@ window.slyDetectNativeState = function (): DetectorState {
   if (state.hasUnavailableMessage && !state.hasNativeLines) {
     state.lyricsState = 'MISSING';
     // Report this track as missing lyrics to the Background persistent cache
-    if (state.currentTrackId && !state.isAd && state.preFetch?.nativeMissing !== true) {
+    if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'MISSING') {
       browser.runtime.sendMessage({
-        type: 'SLY_REPORT_NATIVE_MISSING',
-        payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri }
+        type: 'SLY_REPORT_NATIVE_STATUS',
+        payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'MISSING' }
       }).catch(() => {});
     }
   } else if (isNativeMissing) {
     state.lyricsState = 'MISSING';
   } else if (isNativeUnsynced) {
     state.lyricsState = 'UNSYNCED';
+    // Report native Unsynced state for persistent 0ms hijack next time
+    if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'UNSYNCED' && window.spotifyState.lyricsProvider !== null) {
+      browser.runtime.sendMessage({
+        type: 'SLY_REPORT_NATIVE_STATUS',
+        payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'UNSYNCED' }
+      }).catch(() => {});
+    }
   } else if (isNativeSynced) {
     state.lyricsState = 'SYNCED';
   } else if (state.hasNativeLines) {

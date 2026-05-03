@@ -34,19 +34,6 @@ window.addEventListener('message', (event) => {
   if (data?.type === 'SLY_FETCH_START') {
     window.slyInternalState.isSpotifyFetching = true;
 
-    // PRE-COGNITION: Spotify is fetching color-lyrics for a track.
-    // If it's a future track (pre-load), warm our own L2 cache now.
-    const trackId = data.trackId as string | undefined;
-    const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
-    if (trackId && trackId !== currentTrackId) {
-      // Trigger a silent PREFETCH for the background to warm its L2 cache.
-      // Even without full metadata, the background can use the URI to hit L2 or pre-fetch.
-      browser.runtime.sendMessage({
-        type: 'PREFETCH_LYRICS',
-        payload: { title: 'Unknown', artist: 'Unknown', uri: `spotify:track:${trackId}` }
-      }).catch(() => {});
-    }
-
   } else if (data?.type === 'SLY_FETCH_END') {
     window.slyInternalState.isSpotifyFetching = false;
     // Retry cascade covering slow React renders of the lyrics panel DOM.
@@ -99,7 +86,7 @@ window.addEventListener('message', (event) => {
   } else if (data?.type === 'SLY_PREFETCH_REPORT') {
     const trackId = data.trackId as string;
     const state = data.state as string;
-    const nativeMissing = data.nativeMissing as boolean | undefined;
+    const nativeStatus = data.nativeStatus as 'MISSING' | 'UNSYNCED' | 'ROMANIZED' | undefined;
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
 
     let metadata: Record<string, unknown> | null = null;
@@ -112,7 +99,7 @@ window.addEventListener('message', (event) => {
     }
     window.slyPreFetchRegistry.register(trackId, state, {
       ...(metadata ?? {}),
-      nativeMissing
+      nativeStatus
     });
 
   } else if (data?.type === 'SKL_NATIVE_LYRICS') {
@@ -220,7 +207,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       if (trackId) {
         const state = r.prefetchState || ((r.data as any)?.isSynced ? 'SYNCED' : 'UNSYNCED');
         window.slyPreFetchRegistry.register(trackId, state, {
-          title, artist, nativeMissing: (r as any).nativeMissing
+          title, artist, nativeStatus: (r as any).nativeStatus
         });
       }
     }

@@ -53,7 +53,7 @@ document.addEventListener('sly:song_change', (e: Event) => {
         if (r?.prefetchState && detection.currentTrackId) {
           window.slyPreFetchRegistry.register(detection.currentTrackId, r.prefetchState, {
             title: detection.title, artist: detection.artist,
-            nativeMissing: r.nativeMissing
+            nativeStatus: r.nativeStatus
           });
         }
       }).catch(() => {});
