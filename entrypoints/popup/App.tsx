@@ -133,6 +133,7 @@ export default function App() {
 
   async function handleDualLyricsChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
+    if (checked === dualLyrics) return;
     const prev = dualLyrics;
     setDualLyrics(checked);
     localStorage.setItem('sly_dualLyrics', String(checked));
@@ -147,6 +148,7 @@ export default function App() {
 
   async function handleShowPillChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
+    if (checked === showPill) return;
     const prev = showPill;
     setShowPill(checked);
     localStorage.setItem('sly_showPill', String(checked));
@@ -178,8 +180,14 @@ export default function App() {
 
   async function executeReset() {
     setShowConfirmModal(false);
-    await browser.storage.sync.clear();
-    localStorage.clear();
+    
+    const syncKeys = ['targetLang', 'dualLyrics', 'showPill', 'preferredMode'];
+    await browser.storage.sync.remove(syncKeys);
+    
+    localStorage.removeItem('sly_targetLang');
+    localStorage.removeItem('sly_dualLyrics');
+    localStorage.removeItem('sly_preferredMode');
+    localStorage.removeItem('sly_showPill');
 
     // Write defaults explicitly so onChanged fires with real values
     await browser.storage.sync.set({ targetLang: 'en', dualLyrics: true, preferredMode: 'original', showPill: true });
@@ -188,10 +196,16 @@ export default function App() {
     localStorage.setItem('sly_preferredMode', 'original');
     localStorage.setItem('sly_showPill', 'true');
 
-    // Clear all lyrics cache from local storage
+    // Clear all lyrics cache (L1 processed and L2 background) from local storage
     try {
       const allLocal = await browser.storage.local.get(null);
-      const lyricsKeys = Object.keys(allLocal).filter(k => k.startsWith('lc:') || k === 'lc_index');
+      const lyricsKeys = Object.keys(allLocal).filter(k => 
+        k.startsWith('lc:') || 
+        k === 'lc_index' || 
+        k === 'l2_index' || 
+        k.startsWith('spotify:track:') || 
+        k.includes('|') // title|artist keys
+      );
       if (lyricsKeys.length > 0) await browser.storage.local.remove(lyricsKeys);
     } catch { /* ignore */ }
 

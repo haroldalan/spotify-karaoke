@@ -11,6 +11,16 @@ function wrapHistory(): void {
   window.addEventListener('popstate', () => {
     window.dispatchEvent(new Event('sly_nav_change'));
   });
+
+  // Also trigger check on mouseup/keyup in case it opens a sidebar/lyrics panel
+  window.addEventListener('mouseup', () => {
+    if (typeof window.slyCheckNowPlaying === 'function') window.slyCheckNowPlaying();
+  }, { passive: true });
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (typeof window.slyCheckNowPlaying === 'function') window.slyCheckNowPlaying();
+    }
+  }, { passive: true });
 }
 wrapHistory();
 

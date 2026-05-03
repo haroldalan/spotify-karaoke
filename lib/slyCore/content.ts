@@ -52,7 +52,8 @@ document.addEventListener('sly:song_change', (e: Event) => {
       }).then((r: any) => {
         if (r?.prefetchState && detection.currentTrackId) {
           window.slyPreFetchRegistry.register(detection.currentTrackId, r.prefetchState, {
-            title: detection.title, artist: detection.artist
+            title: detection.title, artist: detection.artist,
+            nativeMissing: r.nativeMissing
           });
         }
       }).catch(() => {});
@@ -300,6 +301,11 @@ window.slyCheckNowPlaying = function (): void {
     // 5. INJECTION GATE: We have fresh lyrics data waiting for the panel to be ready.
     if (window.slyInternalState.pendingLyricsData && detection.isOnLyricsPage) {
       const data = window.slyInternalState.pendingLyricsData as Record<string, unknown>;
+
+      // Stand down if native lyrics are still being discovered by the bridge
+      if (lyricsState === 'LOADING' && !window.slyInternalState.forceFallback) {
+        return;
+      }
 
       // Stand down if native lyrics suddenly became synced or we are unsynced vs unsynced
       if (lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback) {

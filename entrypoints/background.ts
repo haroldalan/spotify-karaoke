@@ -80,6 +80,16 @@ export default defineBackground(() => {
           const stored = await lyricsPersistence.get(cacheKey);
           if (stored) {
             console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
+            
+            // Reconstruct prefetchState if missing (legacy cache support)
+            if (!stored.prefetchState) {
+              if (stored.ok && stored.data) {
+                stored.prefetchState = stored.data.isSynced ? 'SYNCED' : 'UNSYNCED';
+              } else {
+                stored.prefetchState = 'MISSING';
+              }
+            }
+
             lyricsCache.set(cacheKey, stored); // Promote to L1
             sendResponse(stored);
 
@@ -132,12 +142,15 @@ export default defineBackground(() => {
           const fetchTask = (async () => {
             try {
               const result = await getLyricsForTrack(title, artist, albumArtUrl, uri);
-              if (result && result.ok) {
-                result.prefetchState = result.data?.isSynced ? 'SYNCED' : 'UNSYNCED';
+              if (result) {
+                if (result.ok) {
+                  result.prefetchState = result.data?.isSynced ? 'SYNCED' : 'UNSYNCED';
+                } else {
+                  result.prefetchState = 'MISSING';
+                }
+                // Always persist results (including failures) to avoid redundant searches
                 lyricsCache.set(cacheKey, result);
                 await lyricsPersistence.set(cacheKey, result);
-              } else if (result) {
-                result.prefetchState = 'MISSING';
               }
               return result;
             } catch (e) {
@@ -151,6 +164,26 @@ export default defineBackground(() => {
           sendResponse(finalResult);
         })();
 
+        return true;
+      }
+
+      // ----------------------------------------------------------------
+      // New handler: Persistent Native Missing Reporting
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_REPORT_NATIVE_MISSING') {
+        const { title, artist, uri } = msg.payload ?? {};
+        if (!title || !artist) return true;
+
+        const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
+        (async () => {
+          const stored = await lyricsPersistence.get(cacheKey);
+          if (stored && !stored.nativeMissing) {
+            stored.nativeMissing = true;
+            lyricsCache.set(cacheKey, stored);
+            await lyricsPersistence.set(cacheKey, stored);
+            console.log(`[ServiceWorker] Tagged ${title} as NATIVE_MISSING in persistent cache.`);
+          }
+        })();
         return true;
       }
     },

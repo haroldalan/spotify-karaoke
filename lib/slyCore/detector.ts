@@ -110,9 +110,10 @@ window.slyDetectNativeState = function (): DetectorState {
   // Consult the registry populated by the Background script/Interceptor
   state.preFetch = window.slyPreFetchRegistry.getState(state.currentTrackId ?? '') ?? null;
 
-  if (state.preFetch && (state.preFetch.state === 'MISSING' || state.preFetch.state === 'ROMANIZED' || state.preFetch.state === 'UNSYNCED')) {
+  if (state.preFetch && (state.preFetch.state === 'MISSING' || state.preFetch.state === 'ROMANIZED' || state.preFetch.state === 'UNSYNCED' || state.preFetch.nativeMissing)) {
     if (!window.slyInternalState.forceFallback) {
-      console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${state.preFetch.state} state for track ${state.currentTrackId}. Triggering Fallback.`);
+      const reason = state.preFetch.nativeMissing ? 'PERSISTED_NATIVE_MISSING' : state.preFetch.state;
+      console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
   }
@@ -126,7 +127,7 @@ window.slyDetectNativeState = function (): DetectorState {
   if (isNativeLanguage && state.hasNativeLines && timeSinceOpen > 1500 && !window.slyInternalState.forceFallback && state.preFetch?.state !== 'NATIVE_OK') {
     const nativeLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
                             .filter(el => !el.closest('#lyrics-root-sync'))
-                            .slice(0, 5)
+                            .slice(0, 15)
                             .map(el => el.textContent)
                             .join(' ');
 
@@ -141,7 +142,7 @@ window.slyDetectNativeState = function (): DetectorState {
   // 5. DECISION MATRIX
   const isNativeMissing = (state.hasUnavailableMessage ||
                            state.preFetch?.state === 'MISSING' ||
-                           (window.spotifyState.lyricsProvider === null && (Date.now() - window.slyInternalState.songChangeTime) > 800)) && !state.hasNativeLines;
+                           (window.spotifyState.lyricsProvider === null && (Date.now() - window.slyInternalState.songChangeTime) > 2500)) && !state.hasNativeLines;
 
   const isNativeUnsynced = (window.spotifyState.isTimeSynced === false || state.preFetch?.state === 'UNSYNCED') &&
                            window.spotifyState.lyricsProvider !== null &&
@@ -153,6 +154,13 @@ window.slyDetectNativeState = function (): DetectorState {
   // IMMEDIATE HIJACK: If Spotify explicitly says it's missing, bypass all grace periods.
   if (state.hasUnavailableMessage && !state.hasNativeLines) {
     state.lyricsState = 'MISSING';
+    // Report this track as missing lyrics to the Background persistent cache
+    if (state.currentTrackId && !state.isAd && state.preFetch?.nativeMissing !== true) {
+      browser.runtime.sendMessage({
+        type: 'SLY_REPORT_NATIVE_MISSING',
+        payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri }
+      }).catch(() => {});
+    }
   } else if (isNativeMissing) {
     state.lyricsState = 'MISSING';
   } else if (isNativeUnsynced) {

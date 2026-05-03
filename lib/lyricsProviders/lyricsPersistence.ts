@@ -42,6 +42,22 @@ export class LyricsPersistence {
       lastCheckedAt: Date.now(),
     };
     await browser.storage.local.set(entry);
+
+    // Eviction Logic: Maintain an l2_index to track the 200 most recent fetches
+    try {
+      const { l2_index } = await browser.storage.local.get({ l2_index: [] });
+      let index = (l2_index as string[]).filter(k => k !== key);
+      index.push(key);
+
+      if (index.length > 200) {
+        const toRemove = index.splice(0, 50);
+        await browser.storage.local.remove(toRemove);
+      }
+      await browser.storage.local.set({ l2_index: index });
+    } catch (e) {
+      console.warn('[LyricsPersistence] Index update failed:', e);
+    }
+
     console.log(`[LyricsPersistence] SAVED: ${key}`);
   }
 }

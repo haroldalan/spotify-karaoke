@@ -5,6 +5,7 @@ export interface PreFetchEntry {
   timestamp: number;
   title?: string;
   artist?: string;
+  nativeMissing?: boolean;
   [key: string]: unknown;
 }
 

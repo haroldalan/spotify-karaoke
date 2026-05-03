@@ -73,5 +73,5 @@ export function applyLinesToDOM(
   // setTimeout defers the flag reset to a macrotask, ensuring the MutationObserver
   // microtask (which fires during the same synchronous task as the DOM writes above)
   // still sees isApplying=true and skips its re-apply check.
-  setTimeout(() => { setApplying(false); }, 0);
+  setTimeout(() => { setApplying(false); }, 50);
 }

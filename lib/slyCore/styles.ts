@@ -59,7 +59,7 @@ export function slyGetCoreStyles(): string {
 
 
         /* Also hide native error messages if our HUD is present */
-        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active > .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync) {
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync) {
             display: none !important;
         }
 

@@ -64,7 +64,7 @@ export async function handleColorLyrics(
         // Port of: lyric-test/modules/bridge/interceptor.js lines 52-63
         if (spotifyTrackId) {
             if (!data?.lyrics || !lines || lines.length === 0) {
-                slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'MISSING' });
+                slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'MISSING', nativeMissing: true });
             } else if (syncType === 'UNSYNCED') {
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'UNSYNCED' });
             }
