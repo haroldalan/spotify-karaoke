@@ -112,7 +112,7 @@ window.slyDetectNativeState = function (): DetectorState {
 
   if (state.preFetch && (state.preFetch.state === 'MISSING' || state.preFetch.state === 'ROMANIZED' || state.preFetch.state === 'UNSYNCED')) {
     if (!window.slyInternalState.forceFallback) {
-      console.log(`[sly-detector] 🔎 EVIDENCE: Background registry confirmed ${state.preFetch.state} state for track ${state.currentTrackId}. Triggering Fallback.`);
+      console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${state.preFetch.state} state for track ${state.currentTrackId}. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
   }
