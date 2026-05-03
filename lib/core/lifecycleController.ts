@@ -184,7 +184,15 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri } }));
   }
 
-  return { trySetup, syncSetup, pollForLyricsContainer, onSongChange };
+  function trySetupOrPoll(): void {
+    if (getLyricsContainer()) {
+      trySetup();
+    } else {
+      pollForLyricsContainer();
+    }
+  }
+
+  return { trySetup, syncSetup, pollForLyricsContainer, onSongChange, trySetupOrPoll };
 }
 
 /**

@@ -126,6 +126,14 @@ declare global {
     if (main) main.classList.remove('sly-active');
 
     hud.remove();
+
+    // Remove the empty shell. If it has no real lyrics content,
+    // it will sit with min-height:100% and push native lyrics off-screen.
+    const root = document.getElementById('lyrics-root-sync');
+    if (root && !root.querySelector('[data-testid="lyrics-line"]')) {
+      root.remove();
+    }
+
     window.slyInternalState.statusHUDActive = false;
     window.slyInternalState.isFetchingHUD = false;
     window.slyInternalState.isAdHUDActive = false;

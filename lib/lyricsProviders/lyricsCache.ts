@@ -8,6 +8,7 @@
 export interface FetchedLyricsResult {
   ok: boolean;
   error?: string;
+  prefetchState?: 'MISSING' | 'UNSYNCED' | 'SYNCED';
   data?: {
     syncedLyrics?: string;
     plainLyrics?: string;

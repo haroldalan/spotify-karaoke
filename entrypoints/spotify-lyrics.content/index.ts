@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     reapplyMode,
     autoSwitchIfNeeded,
   });
-  const { trySetup, syncSetup, onSongChange } = lifecycleController;
+  const { trySetup, syncSetup, onSongChange, trySetupOrPoll } = lifecycleController;
 
   setupMessageListener(store, switchMode);
   setupKeyboardShortcuts(switchMode);
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     store.domObserver = createDomObserver({
       onSongChange: (key) => onSongChange(key),
       onLyricsInjected: () => syncSetup(),
-      onControlsRemoved: () => trySetup(),
+      onControlsRemoved: () => trySetupOrPoll(),
       onLyricsPanelClosed: () => document.dispatchEvent(new CustomEvent('sly:panel_close')),
       onInvalidate: () => { store.domObserver = null; },
     });

@@ -133,13 +133,16 @@ export default defineBackground(() => {
             try {
               const result = await getLyricsForTrack(title, artist, albumArtUrl, uri);
               if (result && result.ok) {
+                result.prefetchState = result.data?.isSynced ? 'SYNCED' : 'UNSYNCED';
                 lyricsCache.set(cacheKey, result);
                 await lyricsPersistence.set(cacheKey, result);
+              } else if (result) {
+                result.prefetchState = 'MISSING';
               }
               return result;
             } catch (e) {
               console.error('[ServiceWorker] Critical fetch error:', e);
-              return { ok: false };
+              return { ok: false, prefetchState: 'MISSING' } as any;
             }
           })();
 

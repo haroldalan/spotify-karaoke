@@ -43,6 +43,20 @@ document.addEventListener('sly:song_change', (e: Event) => {
   const detection = window.slyDetectNativeState();
   if (detection.title !== 'Unknown' && detection.title !== 'AD_SILENCED') {
     window.slyResetPlayerState(detection.title, uri);
+
+    // Fire-and-forget prefetch to warm cache and seed registry early
+    if (detection.title && detection.artist && !detection.isAd) {
+      browser.runtime.sendMessage({
+        type: 'PREFETCH_LYRICS',
+        payload: { title: detection.title, artist: detection.artist, uri }
+      }).then((r: any) => {
+        if (r?.prefetchState && detection.currentTrackId) {
+          window.slyPreFetchRegistry.register(detection.currentTrackId, r.prefetchState, {
+            title: detection.title, artist: detection.artist
+          });
+        }
+      }).catch(() => {});
+    }
   }
 });
 
@@ -254,6 +268,17 @@ window.slyCheckNowPlaying = function (): void {
 
     if (!window.slyInternalState.currentLyrics && !window.slyInternalState.fetchingForTitle && !window.slyInternalState.pendingLyricsData) {
       if (isMissingOrUnsynced) {
+        // Issue 2 Fix: Defer MISSING decision if we have weak evidence and just changed songs.
+        // This prevents the extension from jumping to a "lyrics unavailable" display while
+        // Spotify's own UI is still settling or loading.
+        const registryIsEmpty = !window.slyPreFetchRegistry.getState(detection.currentTrackId ?? '');
+        const onlyDomEvidence = detection.hasUnavailableMessage && !detection.preFetch;
+        const timeSinceSongChange = Date.now() - window.slyInternalState.songChangeTime;
+
+        if (registryIsEmpty && onlyDomEvidence && timeSinceSongChange < 1000) {
+          return;
+        }
+
         const decision = `${lyricsState.toLowerCase()}:${title}`;
         if (window.slyInternalState.lastDecision !== decision) {
           console.log(`[sly-dom] 🚨 DECISION: Fallback needed (${lyricsState}). Attempting fetch...`);
@@ -266,7 +291,9 @@ window.slyCheckNowPlaying = function (): void {
           console.log(`[sly-dom] ✅ DECISION: Native lyrics are synced for "${title}" [${fullUri?.split(':').pop() || 'N/A'}]. Engine standing down.`);
           window.slyInternalState.lastDecision = decision;
         }
-        window.slyInternalState.nativeRecoveryPending = false;
+        if (window.slyInternalState.nativeRecoveryPending && detection.hasNativeLines) {
+          window.slyInternalState.nativeRecoveryPending = false;
+        }
       }
     }
 

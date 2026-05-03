@@ -198,6 +198,14 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       return;
     }
 
+    if (r?.prefetchState || r?.ok) {
+      const trackId = (uri || myUri)?.split(':').pop();
+      if (trackId) {
+        const state = r.prefetchState || ((r.data as any)?.isSynced ? 'SYNCED' : 'UNSYNCED');
+        window.slyPreFetchRegistry.register(trackId, state, { title, artist });
+      }
+    }
+
     if (r?.ok) {
       const mode = (r.data as Record<string, unknown>)?.isSynced ? 'synced (LRC)' : 'unsynced (plain)';
       console.log(`[sly] Fetch succeeded for "${title}" — got ${mode} lyrics.`);
