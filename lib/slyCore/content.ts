@@ -179,6 +179,7 @@ window.slyCheckNowPlaying = function (): void {
         if (cl?.lines && cl._slyUri === fullUri) {
           // Already correct — just sync lastUri forward so this branch doesn't re-evaluate
           window.slyInternalState.lastUri = fullUri;
+          window.slyInternalState.panelOpenTime = 0;
         } else {
           // Track changed — reset state and abort this tick.
           // Zeroing panelOpenTime here ensures the NEXT poll tick starts a fresh grace period.
@@ -327,7 +328,7 @@ window.slyCheckNowPlaying = function (): void {
         if (main) main.classList.add('sly-active');
 
         document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => ((n as HTMLElement).style.display = 'none'));
-        const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
+        const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
         if (nativeContainer) nativeContainer.style.display = 'none';
       }
     }

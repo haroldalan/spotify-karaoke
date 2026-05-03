@@ -71,8 +71,12 @@ window.slySeekTo = function (time: number): void {
   const progressBar = document.querySelector('[data-testid="progress-bar"]');
   if (progressBar) {
     const durationEl = document.querySelector('[data-testid="playback-duration"]');
-    const p = (durationEl?.textContent || '0:00').replace(/[^0-9:]/g, '').split(':');
-    const durSec = p.length === 2 ? parseInt(p[0]) * 60 + parseInt(p[1]) : 0;
+    const p = (durationEl?.textContent || '0:00').replace(/[^0-9:]/g, '').split(':').map(Number);
+    const durSec = p.length === 3
+      ? p[0] * 3600 + p[1] * 60 + p[2]
+      : p.length === 2
+        ? p[0] * 60 + p[1]
+        : 0;
 
     if (durSec > 0) {
       const rect = progressBar.getBoundingClientRect();
@@ -105,8 +109,12 @@ window.slyGetPlaybackSeconds = function (): number {
   // 2. Extract duration from UI text
   const durationEl = document.querySelector('[data-testid="playback-duration"]');
   const durationStr = durationEl?.textContent || '0:00';
-  const p = durationStr.split(':');
-  const durSec = p.length === 2 ? parseInt(p[0]) * 60 + parseInt(p[1]) : 0;
+  const p = durationStr.split(':').map(Number);
+  const durSec = p.length === 3
+    ? p[0] * 3600 + p[1] * 60 + p[2]
+    : p.length === 2
+      ? p[0] * 60 + p[1]
+      : 0;
 
   const baselineUiTime = posRatio * durSec;
   const isPlaying = !!document.querySelector('[data-testid="control-button-pause"]');

@@ -50,6 +50,8 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.fetchingForUri = '';
   window.slyInternalState.isUserScrolling = false;
   window.slyInternalState.lastDecision = '';
+  window.slyInternalState.songChangeTime = Date.now();
+  window.slyInternalState.songSettlingUntil = Date.now() + 150;
   window.slyInternalState.panelOpenTime = 0;
   window.slyInternalState.forceFallback = false;
   window.slyInternalState.fetchGeneration++;

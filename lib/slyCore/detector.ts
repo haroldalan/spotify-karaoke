@@ -88,9 +88,11 @@ window.slyDetectNativeState = function (): DetectorState {
   // Scavenge or fallback to known error containers
   state.hasUnavailableMessage = !!document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP')) || !!document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'));
 
-  // Check for native lines while ignoring our own injected lines
-  state.hasNativeLines = !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-                                .find(el => !el.closest('#lyrics-root-sync'));
+  // Check for native lines while ignoring our own injected lines.
+  // GHOST GUARD: Ignore lines for 150ms after a song change to allow React to settle.
+  const isSettling = window.slyInternalState.songSettlingUntil && Date.now() < window.slyInternalState.songSettlingUntil;
+  state.hasNativeLines = !isSettling && !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+                                 .find(el => !el.closest('#lyrics-root-sync'));
 
   // 3. GRACE PERIOD HANDLING
 
@@ -139,7 +141,7 @@ window.slyDetectNativeState = function (): DetectorState {
   // 5. DECISION MATRIX
   const isNativeMissing = (state.hasUnavailableMessage ||
                            state.preFetch?.state === 'MISSING' ||
-                           (window.spotifyState.lyricsProvider === null && timeSinceOpen > 2000)) && !state.hasNativeLines;
+                           (window.spotifyState.lyricsProvider === null && (Date.now() - window.slyInternalState.songChangeTime) > 800)) && !state.hasNativeLines;
 
   const isNativeUnsynced = (window.spotifyState.isTimeSynced === false || state.preFetch?.state === 'UNSYNCED') &&
                            window.spotifyState.lyricsProvider !== null &&

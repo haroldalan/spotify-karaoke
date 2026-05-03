@@ -134,6 +134,11 @@ export function slyScavengeClasses(): void {
   }
   
   // 6. Deep CSS Scavenge (Background fetch to bypass CORS)
+  const now = Date.now();
+  if (hasDeepScavenged && now - lastDeepScavengeTime > 24 * 60 * 60 * 1000) {
+    hasDeepScavenged = false;
+  }
+
   if (typeof window.slyDeepScavengeStyles === 'function') {
     window.slyDeepScavengeStyles();
   }
@@ -141,6 +146,7 @@ export function slyScavengeClasses(): void {
 
 let isDeepScavenging = false;
 let hasDeepScavenged = false;
+let lastDeepScavengeTime = 0;
 
 /**
  * DEEP CSS SCAVENGER
@@ -201,6 +207,7 @@ export function slyDeepScavengeStyles(): void {
 
     console.log('[sly-scavenger] Deep CSS Scavenge complete:', { ...window.SPOTIFY_CLASSES });
     hasDeepScavenged = true;
+    lastDeepScavengeTime = Date.now();
   }).catch((err: any) => {
     isDeepScavenging = false;
     document.body.classList.remove('sly-fallback');

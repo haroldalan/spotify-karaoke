@@ -27,7 +27,8 @@ export interface SlyInternalState {
   fetchingForTitle: string;
   fetchingForUri: string;
   pendingLyricsData: unknown | null;
-  trackChangeTime: number;
+  songChangeTime: number;
+  songSettlingUntil: number;
   panelOpenTime: number;
   statusHUDActive: boolean;
   isFetchingHUD: boolean;
@@ -88,7 +89,8 @@ export const slyInternalState: SlyInternalState = {
   fetchingForTitle: '',
   fetchingForUri: '',
   pendingLyricsData: null,
-  trackChangeTime: Date.now(),
+  songChangeTime: Date.now(),
+  songSettlingUntil: 0,
   panelOpenTime: 0,
   statusHUDActive: false,
   isFetchingHUD: false,

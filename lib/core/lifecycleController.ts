@@ -159,6 +159,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     opts.store.slyActiveContainer = null;
     opts.store.slyActiveDomElements = [];
 
+    // Remove any body-orphaned pill from a prior sly:release
+    const orphan = document.getElementById(CONTROLS_ID);
+    if (orphan && orphan.parentElement === document.body) {
+      orphan.remove();
+    }
+
     safeBrowserCall(() => browser.storage.local.get(`lc:${newKey}`)).then((data) => {
       const entry = data?.[`lc:${newKey}`] as LyricsCacheEntry | undefined;
       if (entry) opts.store.runtimeCache.set(newKey, entry);

@@ -61,7 +61,7 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
 
   /** Binary-search style scan for the currently active line index. */
   function findActiveIndex(t: number): number {
-    let active = 0;
+    let active = -1;
     for (let i = 0; i < lines.length; i++) {
       if (t >= lines[i].time) active = i;
       else break;
@@ -88,9 +88,10 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
       const future = opts.futureClass();
 
       outerEls.forEach((el, i) => {
-        if (i === activeIndex)     el.className = `${base} ${active}`;
-        else if (i < activeIndex) el.className = `${base} ${passed}`;
-        else                      el.className = `${base} ${future}`;
+        if (activeIndex === -1)    el.className = `${base} ${future}`;
+        else if (i === activeIndex) el.className = `${base} ${active}`;
+        else if (i < activeIndex)  el.className = `${base} ${passed}`;
+        else                       el.className = `${base} ${future}`;
       });
 
       // Snap on the very first active line (matches slyCore's 'instant' vs 'smooth' logic).
