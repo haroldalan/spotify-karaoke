@@ -128,7 +128,8 @@ window.slyCheckNowPlaying = function (): void {
              window.slyPreFetchRegistry.register(trackId, r.prefetchState || 'MISSING', {
                title, 
                nativeStatus: r.nativeStatus,
-               customStatus: r.prefetchState
+               customStatus: r.prefetchState,
+               reason: 'Persistent Cache Hit'
              });
            }
         } else {
@@ -268,7 +269,10 @@ window.slyCheckNowPlaying = function (): void {
     }
 
     // 3. GRACE PERIOD HANDLING
-    const isMissingOrUnsynced = (lyricsState === 'MISSING' || lyricsState === 'UNSYNCED' || window.slyInternalState.forceFallback);
+    const isMissingOrUnsynced = lyricsState.includes('MISSING') || 
+                                lyricsState.includes('UNSYNCED') || 
+                                lyricsState.includes('ROMANIZED') || 
+                                window.slyInternalState.forceFallback;
 
     if (!window.slyInternalState.currentLyrics && !window.slyInternalState.fetchingForTitle && !window.slyInternalState.pendingLyricsData) {
       if (isMissingOrUnsynced) {

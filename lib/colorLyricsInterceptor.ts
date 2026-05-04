@@ -67,6 +67,8 @@ export async function handleColorLyrics(
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'MISSING', nativeMissing: true });
             } else if (syncType === 'UNSYNCED') {
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'UNSYNCED' });
+            } else if (isDenseTypeface === false && !LATIN_LIKE_LANGS.has(language!)) {
+                slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'ROMANIZED' });
             }
         }
 
@@ -127,6 +129,7 @@ export async function handleColorLyrics(
             type: 'SKL_NATIVE_LYRICS',
             trackId: spotifyTrackId,
             nativeLines: nativeLines.map((l: any) => l.words),
+            isRomanizedUpgrade: isDenseTypeface === false
         }, window.location.origin);
 
         // ── Signals 5 + 7 (success path) ─────────────────────────────────────

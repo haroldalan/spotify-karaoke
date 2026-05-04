@@ -128,6 +128,12 @@ export default defineBackground(() => {
               getLyricsForTrack(title, artist, albumArtUrl, uri).then(async (fresh) => {
                 if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
                   console.log(`[ServiceWorker] ✨ UPGRADE SUCCESS: Found ${fresh.data?.isSynced ? 'synced' : 'new'} lyrics for ${title}`);
+                  
+                  // SLY FIX: Smart Merge. Don't let an upgrade wipe out our known nativeStatus.
+                  if (stored.nativeStatus && !fresh.nativeStatus) {
+                    fresh.nativeStatus = stored.nativeStatus;
+                  }
+
                   await lyricsPersistence.set(cacheKey, fresh);
                   lyricsCache.set(cacheKey, fresh);
 
@@ -172,9 +178,9 @@ export default defineBackground(() => {
                 }
                 // SLY FIX: Smart Merge. Don't let a fresh fetch wipe out our known nativeStatus.
                 const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
-                if (existing?.nativeStatus && !result.nativeStatus) {
-                  result.nativeStatus = existing.nativeStatus;
-                }
+                
+                // Priority: Existing L1/L2 > Payload (Known state) > Fresh Result
+                result.nativeStatus = result.nativeStatus || existing?.nativeStatus || (msg.payload as any)?.nativeStatus;
 
                 // Always persist results (including failures) to avoid redundant searches
                 lyricsCache.set(cacheKey, result);
@@ -216,6 +222,7 @@ export default defineBackground(() => {
             await lyricsPersistence.set(cacheKey, stored);
             console.log(`[ServiceWorker] 💾 SAVED: Native Status for ${title} -> ${status}`);
           }
+          sendResponse({ ok: true });
         })();
         return true;
       }

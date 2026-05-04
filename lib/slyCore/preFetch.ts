@@ -62,7 +62,8 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
       updated.customStatus = state as any;
     }
 
-    console.log(`[sly-prefetch] Merged ${state} for track ${trackId} | Native: ${updated.nativeStatus || 'N/A'} | Custom: ${updated.customStatus || 'N/A'}`);
+    const reason = (metadata.reason as string) || (metadata.source === 'native' ? 'Network/DOM Discovery' : 'Cache/Fetch');
+    console.log(`[sly-prefetch] Merged ${state} for track ${trackId} | Native: ${updated.nativeStatus || 'N/A'} | Custom: ${updated.customStatus || 'N/A'} | Reason: ${reason}`);
     this.states.set(trackId, updated);
   },
 

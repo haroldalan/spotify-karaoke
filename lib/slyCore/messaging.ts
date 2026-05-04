@@ -72,7 +72,7 @@ window.addEventListener('message', (event) => {
     }
 
     if (trackId) {
-      window.slyPreFetchRegistry.register(trackId, 'ROMANIZED', { ...(metadata ?? {}), source: 'native' });
+      window.slyPreFetchRegistry.register(trackId, 'ROMANIZED', { ...(metadata ?? {}), source: 'native', reason: 'Network Intercept (Romanized)' });
     }
 
     if (trackId && currentTrackId && trackId !== currentTrackId) {
@@ -100,16 +100,39 @@ window.addEventListener('message', (event) => {
     window.slyPreFetchRegistry.register(trackId, state, {
       ...(metadata ?? {}),
       nativeStatus,
-      source: 'native'
+      source: 'native',
+      reason: state === 'MISSING' ? 'Network Intercept (404)' : 'Network Intercept'
     });
+
+    // SLY FIX: Persist interceptor discovery to Background so it survives sessions.
+    if (nativeStatus) {
+      safeSendMessage({
+        type: 'SLY_REPORT_NATIVE_STATUS',
+        payload: {
+          title: metadata?.title || 'Unknown',
+          artist: metadata?.artist || 'Unknown',
+          uri: `spotify:track:${trackId}`,
+          status: nativeStatus
+        }
+      });
+    }
 
   } else if (data?.type === 'SKL_NATIVE_LYRICS') {
     const trackId = data.trackId as string;
     const nativeLines = data.nativeLines as string[];
-    console.log(`[sly-dom] 🤝 BRIDGE: Layer 1 (Network) successfully upgraded track ${trackId}. External fallback not required.`);
+    const isRomanizedUpgrade = data.isRomanizedUpgrade as boolean;
+    
+    if (isRomanizedUpgrade) {
+      console.log(`[sly-dom] 🤝 BRIDGE: Layer 1 (Network) successfully de-romanized track ${trackId}.`);
+    } else {
+      console.log(`[sly-dom] 🤝 BRIDGE: Layer 1 (Network) successfully upgraded track ${trackId}. External fallback not required.`);
+    }
 
     // Update registry so we don't try to fetch Layer 2 unnecessarily
-    window.slyPreFetchRegistry.register(trackId, 'NATIVE_OK', { source: 'native' });
+    window.slyPreFetchRegistry.register(trackId, 'NATIVE_OK', { 
+      source: 'native', 
+      reason: isRomanizedUpgrade ? 'De-Romanization Success' : 'Network Upgrade Success' 
+    });
 
     // Optional: Store native lines in internal state for UI tagging
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
@@ -178,7 +201,11 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   }
 
   console.log(`[sly] Fetching lyrics for "${title}" by ${artist} (${uri || 'no-uri'}) — sending request to service worker...`);
-  safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri } }, (r) => {
+
+  const trackId = (uri || myUri)?.split(':').pop();
+  const knownNativeStatus = trackId ? window.slyPreFetchRegistry.getState(trackId)?.nativeStatus : null;
+
+  safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri, nativeStatus: knownNativeStatus } }, (r) => {
     // STALE CHECK 1: Generation mismatch — native recovered or track changed mid-flight
     if (myGeneration !== window.slyInternalState.fetchGeneration) {
       // If the generation was bumped but the URI still matches, this is likely a
@@ -209,7 +236,8 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
         const state = r.prefetchState || ((r.data as any)?.isSynced ? 'SYNCED' : 'UNSYNCED');
         window.slyPreFetchRegistry.register(trackId, state, {
           title, artist, nativeStatus: (r as any).nativeStatus,
-          customStatus: state as any
+          customStatus: state as any,
+          reason: 'External Fetch Result'
         });
       }
     }
