@@ -3,7 +3,7 @@ import { getNowPlayingKey, getLyricsContainer } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
 import { loadSongCache, saveSongCache } from './lyricsCache';
-import { injectControls, syncButtonStates, CONTROLS_ID } from '../dom/lyricsControls';
+import { injectControls, syncButtonStates, setLoadingState, CONTROLS_ID } from '../dom/lyricsControls';
 import { createLyricsObserver } from '../dom/lyricsObserver';
 import { createSyncedLyricsRenderer, type LrcLine } from './syncedLyricsRenderer';
 import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
@@ -52,7 +52,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     opts.autoSwitchIfNeeded();
   }
 
-  function syncSetup(): void {
+  async function syncSetup(): Promise<void> {
     if (!opts.store.songKey) {
       const key = getNowPlayingKey();
       if (key) opts.store.songKey = key;
@@ -64,16 +64,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (cache.original.length === 0) snapshotOriginals(cache);
     applyNativeOverride({ cache, pendingNativeLines: opts.store.pendingNativeLines });
 
-    const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
-    if (runtimeEntry) {
-      if (runtimeEntry.original.length === cache.original.length) {
-        cache.original = [...runtimeEntry.original];
-        for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
-          cache.processed.set(lang, res);
-        }
-        saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
-      }
-    }
+    // Ensure the cache is warm (check runtime then storage) before proceeding.
+    // loadSongCache also performs a hash coherence check against the newly snapshotted originals.
+    await loadSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
 
     injectControls(container, opts.store.showPill, opts.store.mode, opts.store.preferredMode, opts.switchMode);
     
@@ -165,10 +158,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       orphan.remove();
     }
 
-    safeBrowserCall(() => browser.storage.local.get(`lc:${newKey}`)).then((data) => {
-      const entry = data?.[`lc:${newKey}`] as LyricsCacheEntry | undefined;
-      if (entry) opts.store.runtimeCache.set(newKey, entry);
-    }).catch(() => {});
+    if (opts.store.preferredMode !== 'original') {
+      setLoadingState(true);
+    }
 
     const controls = document.getElementById(CONTROLS_ID);
     if (controls) controls.classList.add('sly-loading');
