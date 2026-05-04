@@ -328,6 +328,16 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ---
 
+## Support & Feedback
+
+<a href="https://discord.com/users/370486976643727360" target="_blank">
+  <img src="https://img.shields.io/badge/Discord-Ping_Me_on_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" />
+</a>
+
+If you encounter any bugs, have suggestions for new features, or just want to chat about the project, feel free to reach out!
+
+---
+
 <div align="center">
 
 [![MIT License](https://img.shields.io/github/license/haroldalan/spotify-karaoke?style=flat)](LICENSE)
