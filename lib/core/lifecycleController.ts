@@ -33,12 +33,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (document.querySelector('main.' + ((window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS') + '.sly-active')) {
       return;
     }
-    
+
     const cache = opts.store.cache;
     if (cache.original.length === 0) snapshotOriginals(cache);
-    
+
     injectControls(container, opts.store.showPill, opts.store.mode, opts.store.preferredMode, opts.switchMode);
-    
+
     opts.store.lyricsObserver?.disconnect();
     opts.store.lyricsObserver = createLyricsObserver({
       getIsApplying: () => opts.store.isApplying,
@@ -49,7 +49,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       setApplying: (v) => { opts.store.isApplying = v; },
       onInvalidate: () => { opts.store.lyricsObserver = null; },
     });
-    
+
     await opts.reapplyMode();
     opts.autoSwitchIfNeeded();
   }
@@ -71,7 +71,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
     const currentUri = getTrackUri();
     const cache = opts.store.cache;
-    
+
     // Safety: Wait for storage.local read to finish before checking cache
     if (opts.store.cacheReadyPromise) {
       await opts.store.cacheReadyPromise;
@@ -91,7 +91,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     await loadSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
 
     injectControls(container, opts.store.showPill, opts.store.mode, opts.store.preferredMode, opts.switchMode);
-    
+
     opts.store.lyricsObserver?.disconnect();
     opts.store.lyricsObserver = createLyricsObserver({
       getIsApplying: () => opts.store.isApplying,
@@ -239,10 +239,10 @@ export function setupSlyBridge(
     // N+3 elements while lrcLines only has N entries — causing a 2-line index
     // offset that makes synced lyrics appear out-of-sync when skipping mid-song.
     getOuterElements: () => store.slyActiveDomElements,
-    lineBaseClass:   () => (window as any).SPOTIFY_CLASSES?.lineBase   ?? '',
-    activeClass:     () => (window as any).SPOTIFY_CLASSES?.activeLine ?? '',
-    passedClass:     () => (window as any).SPOTIFY_CLASSES?.passedLine ?? '',
-    futureClass:     () => (window as any).SPOTIFY_CLASSES?.futureLine ?? '',
+    lineBaseClass: () => (window as any).SPOTIFY_CLASSES?.lineBase ?? '',
+    activeClass: () => (window as any).SPOTIFY_CLASSES?.activeLine ?? '',
+    passedClass: () => (window as any).SPOTIFY_CLASSES?.passedLine ?? '',
+    futureClass: () => (window as any).SPOTIFY_CLASSES?.futureLine ?? '',
     isUserScrolling: () => slyInternalState.isUserScrolling,
     onActiveIndexChange: (index) => { slyInternalState.lastActiveIndex = index; },
   });
@@ -283,8 +283,8 @@ export function setupSlyBridge(
     // Filter to match domEngine's exact logic so arrays align perfectly
     const plainLines = plainLinesRaw;
 
-    const lrcLines: LrcLine[] = lyricsObj.isSynced 
-      ? (lyricsObj.lines as LrcLine[]).filter(l => l.text.trim()) 
+    const lrcLines: LrcLine[] = lyricsObj.isSynced
+      ? (lyricsObj.lines as LrcLine[]).filter(l => l.text.trim())
       : [];
     // Pass domElements (padding-free) so sly:takeover can give them directly to
     // the renderer — avoids the querySelectorAll index-offset bug.
@@ -342,7 +342,7 @@ export function setupSlyBridge(
       // slySyncedRendererActive flag so slyCore's own loop yields immediately.
       if (isSynced && lrcLines.length > 0) {
         slyInternalState.slySyncedRendererActive = true;
-        renderer.start(lrcLines);
+        renderer.start(lrcLines, window.slyInternalState.lastActiveIndex);
       }
       autoSwitchIfNeeded(true);
     });

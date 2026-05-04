@@ -332,11 +332,14 @@ window.slyCheckNowPlaying = function (): void {
       const hasContent = !!(data.plainLyrics || data.syncedLyrics);
 
       if (hasContent) {
-        // Hand off execution to Pipeline B. Clearing of pendingLyricsData moves to
-        // the sly:takeover handler — it only fires when injection succeeded, so the
-        // poll-retry-on-failure behaviour is preserved.
+        // Hand off execution to Pipeline B.
+        // Fix (Issue 1): Clear pending data BEFORE dispatching to prevent double-injection
+        // if another poll tick or event fires before the takeover completes.
+        const dataToInject = window.slyInternalState.pendingLyricsData;
+        window.slyInternalState.pendingLyricsData = null;
+        
         document.dispatchEvent(new CustomEvent('sly:inject', {
-          detail: { lyricsObj: data },
+          detail: { lyricsObj: dataToInject },
         }));
       } else {
         // If data is invalid (no content), clear it anyway to avoid looping
