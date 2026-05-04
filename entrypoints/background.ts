@@ -99,18 +99,18 @@ export default defineBackground(() => {
             sendResponse(stored);
 
             // --- UPGRADE LOGIC ---
-            // If we have unsynced lyrics cached, silently check once per week
-            // whether a synced version has become available.
-            const isUnsynced = stored.data && stored.data.isSynced === false;
+            // If we have unsynced or missing lyrics cached, silently check once per week
+            // whether a better version has become available.
+            const needsUpgrade = !stored.ok || (stored.data && stored.data.isSynced === false);
             const lastCheck = stored.lastCheckedAt || 0;
             const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-
-            if (isUnsynced && lastCheck < weekAgo) {
-              console.log(`[ServiceWorker] 💡 Upgrade Check triggered for unsynced track: ${title}`);
+ 
+            if (needsUpgrade && lastCheck < weekAgo) {
+              console.log(`[ServiceWorker] 💡 Upgrade Check triggered for ${stored.ok ? 'unsynced' : 'missing'} track: ${title}`);
               // Perform silent background fetch without blocking the sendResponse above
               getLyricsForTrack(title, artist, albumArtUrl, uri).then(async (fresh) => {
-                if (fresh && fresh.ok && fresh.data?.isSynced) {
-                  console.log(`[ServiceWorker] ✨ UPGRADE SUCCESS: Found synced lyrics for ${title}`);
+                if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
+                  console.log(`[ServiceWorker] ✨ UPGRADE SUCCESS: Found ${fresh.data?.isSynced ? 'synced' : 'new'} lyrics for ${title}`);
                   await lyricsPersistence.set(cacheKey, fresh);
                   lyricsCache.set(cacheKey, fresh);
 

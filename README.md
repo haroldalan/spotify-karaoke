@@ -303,6 +303,9 @@ If Spotify changes its internal class names or state becomes corrupt, open the e
 **A song is missing lyrics entirely.**
 When the extension cannot find lyrics on YouTube Music or LRCLIB, it will show a "Lyrics Not Found" screen. You can help the community by clicking the **Contribute to LRCLIB** link on that screen to upload the missing lyrics yourself.
 
+**I just uploaded lyrics, but they still aren't showing up!**
+To keep things fast, the extension caches the "missing" state for 7 days. If you've just contributed lyrics and want to see them immediately, open the extension popup and click **Reset Data**, then refresh Spotify to force a fresh search.
+
 ---
 
 ## Contributing
