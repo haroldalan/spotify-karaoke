@@ -1,4 +1,5 @@
 // Port of: lyric-test/modules/core/scavenger.js
+import { safeBrowserCall } from '../utils/browserUtils';
 
 /**
  * SPOTIFY_CLASSES: The central dictionary of hashed class names used by Spotify.
@@ -158,15 +159,20 @@ export function slyDeepScavengeStyles(): void {
   document.body.classList.add('sly-fallback');
 
   const link = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => (l as HTMLLinkElement).href.includes('open.spotifycdn.com'));
-  if (!link) return;
+  if (!link) {
+    document.body.classList.remove('sly-fallback');
+    return;
+  }
 
   const url = (link as HTMLLinkElement).href;
-  if (!window.browser || !window.browser.runtime) return;
-
+  
   isDeepScavenging = true;
-  window.browser.runtime.sendMessage({ type: 'SLY_FETCH_CSS', url }).then((response: any) => {
+  safeBrowserCall(() => browser.runtime.sendMessage({ type: 'SLY_FETCH_CSS', url })).then((response: any) => {
     isDeepScavenging = false;
-    if (!response || !response.success || !response.cssText) return;
+    if (!response || !response.success || !response.cssText) {
+        document.body.classList.remove('sly-fallback');
+        return;
+    }
     const css = response.cssText;
     
     // 1. Find lineBase completely autonomously
