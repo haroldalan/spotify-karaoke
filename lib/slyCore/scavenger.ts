@@ -70,7 +70,10 @@ window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
  * Inspects live Spotify elements to discover updated hashed classes.
  * This allows the extension to survive Spotify updates without a manual patch.
  */
-export function slyScavengeClasses(): void {
+export const slyScavengeClasses = function (): void {
+  // Performance Guard: If we are already taking over, do not perform heavy scavenging.
+  if (document.getElementById('lyrics-root-sync')) return;
+
   console.log('[sly-scavenger] Inspecting DOM for class updates...');
 
   // 1. Main View Wrapper
@@ -113,12 +116,19 @@ export function slyScavengeClasses(): void {
       }
     }
 
-    // 4. Line Base
+    // 4. Line Base & Padding Helper
     const lines = nativeContainer.querySelectorAll('[data-testid="lyrics-line"]');
     if (lines.length > 0) {
       window.SPOTIFY_CLASSES.lineBase = lines[0].classList[0] || window.SPOTIFY_CLASSES.lineBase;
       const inner = lines[0].querySelector('div');
       if (inner) window.SPOTIFY_CLASSES.textInner = inner.classList[0] || window.SPOTIFY_CLASSES.textInner;
+
+      // HACK: Find the padding helper class by looking for lines with no text (spacers)
+      const paddingLine = Array.from(lines).find(l => !l.textContent?.trim());
+      if (paddingLine && paddingLine.classList.length > 1) {
+        // The padding helper is usually the second or last class on the spacer element
+        window.SPOTIFY_CLASSES.paddingLineHelper = paddingLine.classList[paddingLine.classList.length - 1];
+      }
     }
     console.log('[sly-scavenger] Fingerprinting complete — container dictionary updated.');
   } else {

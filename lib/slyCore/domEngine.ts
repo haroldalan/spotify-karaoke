@@ -26,7 +26,7 @@ window.slyCreateDOMLine = function (text: string, _index: number, isSynced: bool
   div.dir = 'auto';
   div.dataset.testid = 'lyrics-line';
 
-  const isEmpty = !text.trim() || text === '♪';
+  const isEmpty = !text.trim();
   if (isSynced) {
     div.className = `${window.SPOTIFY_CLASSES.lineBase} ${window.SPOTIFY_CLASSES.futureLine} ${isEmpty ? window.SPOTIFY_CLASSES.paddingLineHelper : ''}`.trim();
   } else {
@@ -95,11 +95,33 @@ function perceivedLuminance(cssColor: string): number {
  * Mirrors the native Spotify theme and applies fallback upgrades.
  */
 window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<string, unknown>, nativeReference: HTMLElement | null): void {
+  const trackId = (window as any).spotifyState?.track?.uri?.split(':').pop();
+  const registryEntry = trackId ? window.slyPreFetchRegistry.getState(trackId) : null;
+
+  // 1. CAPTURE & APPLY: If we have a native reference, steal its truth and learn it.
   if (nativeReference && (nativeReference as HTMLElement).style.cssText) {
     root.style.cssText = (nativeReference as HTMLElement).style.cssText;
+    
+    // Save the "Official" colors to the registry for the next time we skip back to this song
+    if (registryEntry) {
+      registryEntry.savedTheme = {
+        background: nativeReference.style.getPropertyValue('--lyrics-color-background'),
+        inactive: nativeReference.style.getPropertyValue('--lyrics-color-inactive'),
+        active: nativeReference.style.getPropertyValue('--lyrics-color-active'),
+        passed: nativeReference.style.getPropertyValue('--lyrics-color-passed')
+      };
+    }
+  } 
+  // 2. RECALL: If native is missing but we've played this song before, use the learned theme.
+  else if (registryEntry?.savedTheme) {
+    const t = registryEntry.savedTheme as any;
+    root.style.setProperty('--lyrics-color-background', t.background);
+    root.style.setProperty('--lyrics-color-inactive', t.inactive);
+    root.style.setProperty('--lyrics-color-active', t.active);
+    root.style.setProperty('--lyrics-color-passed', t.passed);
   }
 
-  // Upgrade fallback theme colors if they are missing or too dark
+  // 3. FALLBACK: Standard upgrade logic for missing or invalid colors
   const inactive = root.style.getPropertyValue('--lyrics-color-inactive')?.trim();
   if (!inactive || inactive === '#000000' || inactive.includes('rgba(0,0,0,1)') || inactive === 'rgb(0, 0, 0)') {
     root.style.setProperty('--lyrics-color-inactive', 'rgba(255, 255, 255, 0.7)');

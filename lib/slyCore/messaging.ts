@@ -72,7 +72,7 @@ window.addEventListener('message', (event) => {
     }
 
     if (trackId) {
-      window.slyPreFetchRegistry.register(trackId, 'ROMANIZED', metadata ?? {});
+      window.slyPreFetchRegistry.register(trackId, 'ROMANIZED', { ...(metadata ?? {}), source: 'native' });
     }
 
     if (trackId && currentTrackId && trackId !== currentTrackId) {
@@ -99,7 +99,8 @@ window.addEventListener('message', (event) => {
     }
     window.slyPreFetchRegistry.register(trackId, state, {
       ...(metadata ?? {}),
-      nativeStatus
+      nativeStatus,
+      source: 'native'
     });
 
   } else if (data?.type === 'SKL_NATIVE_LYRICS') {
@@ -108,7 +109,7 @@ window.addEventListener('message', (event) => {
     console.log(`[sly-dom] 🤝 BRIDGE: Layer 1 (Network) successfully upgraded track ${trackId}. External fallback not required.`);
 
     // Update registry so we don't try to fetch Layer 2 unnecessarily
-    window.slyPreFetchRegistry.register(trackId, 'NATIVE_OK');
+    window.slyPreFetchRegistry.register(trackId, 'NATIVE_OK', { source: 'native' });
 
     // Optional: Store native lines in internal state for UI tagging
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
@@ -207,7 +208,8 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       if (trackId) {
         const state = r.prefetchState || ((r.data as any)?.isSynced ? 'SYNCED' : 'UNSYNCED');
         window.slyPreFetchRegistry.register(trackId, state, {
-          title, artist, nativeStatus: (r as any).nativeStatus
+          title, artist, nativeStatus: (r as any).nativeStatus,
+          customStatus: state as any
         });
       }
     }

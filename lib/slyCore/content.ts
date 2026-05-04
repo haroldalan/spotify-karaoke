@@ -53,7 +53,8 @@ document.addEventListener('sly:song_change', (e: Event) => {
         if (r?.prefetchState && detection.currentTrackId) {
           window.slyPreFetchRegistry.register(detection.currentTrackId, r.prefetchState, {
             title: detection.title, artist: detection.artist,
-            nativeStatus: r.nativeStatus
+            nativeStatus: r.nativeStatus,
+            source: 'native'
           });
         }
       }).catch(() => {});
@@ -309,6 +310,7 @@ window.slyCheckNowPlaying = function (): void {
 
       // Stand down if native lyrics suddenly became synced or we are unsynced vs unsynced
       if (lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback) {
+        window.slyPreFetchRegistry.register(fullUri || '', 'SYNCED', { title: title, artist: artist, customStatus: 'SYNCED' });
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri = '';
@@ -316,7 +318,8 @@ window.slyCheckNowPlaying = function (): void {
         return;
       }
 
-      if (lyricsState === 'UNSYNCED' && !data.isSynced && !window.slyInternalState.forceFallback) {
+      const hasExtraContent = !!(data.translated || data.romanized);
+      if (lyricsState === 'UNSYNCED' && !data.isSynced && !hasExtraContent && !window.slyInternalState.forceFallback) {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri = '';
@@ -364,7 +367,12 @@ window.slyCheckNowPlaying = function (): void {
 
         document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => ((n as HTMLElement).style.display = 'none'));
         const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
-        if (nativeContainer) nativeContainer.style.display = 'none';
+        if (nativeContainer) {
+          nativeContainer.style.display = 'none';
+          // Re-mirror theme to handle transitions (e.g. MISSING -> UNSYNCED)
+          const sly = (window as any);
+          sly.slyMirrorNativeTheme?.(root, window.slyInternalState.currentLyrics as Record<string, unknown>, nativeContainer);
+        }
       }
     }
     if (window.slyUpdateButtonState) window.slyUpdateButtonState();

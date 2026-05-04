@@ -5,7 +5,8 @@ export interface PreFetchEntry {
   timestamp: number;
   title?: string;
   artist?: string;
-  nativeStatus?: 'MISSING' | 'UNSYNCED' | 'ROMANIZED';
+  nativeStatus?: 'MISSING' | 'UNSYNCED' | 'ROMANIZED' | 'NATIVE_OK';
+  customStatus?: 'SYNCED' | 'UNSYNCED' | 'MISSING';
   [key: string]: unknown;
 }
 
@@ -33,21 +34,33 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
 
   register(trackId: string, state: string, metadata: Record<string, unknown> = {}): void {
     if (!trackId) return;
-    if (!metadata) metadata = {};
 
-    // Never downgrade a successful fetch result.
-    // 'SYNCED' means the extension fetched synced lyrics — this is the ground truth.
-    // Reports from the interceptor about Spotify's native quality (UNSYNCED/MISSING)
-    // must not erase the fact that we already have synced lyrics for this track.
-    const existing = this.states.get(trackId);
-    if (existing?.state === 'SYNCED' && (state === 'UNSYNCED' || state === 'MISSING')) return;
-
-    console.log(`[sly-prefetch] Registered ${state} for track ${trackId}`);
-    this.states.set(trackId, {
-      state,
+    const existing = this.states.get(trackId) || { state: 'LOADING', timestamp: Date.now() };
+    
+    // Logic: If the new state is 'SYNCED' or 'UNSYNCED' coming from our fetch, 
+    // we map it to customStatus. If it comes from the native report, it's nativeStatus.
+    const isNativeReport = metadata.source === 'native' || !!metadata.nativeStatus;
+    
+    const updated: PreFetchEntry = {
+      ...existing,
+      state: isNativeReport ? (state || existing.state) : state,
       timestamp: Date.now(),
-      ...metadata,
-    });
+    };
+
+    // Merging Metadata: Only overwrite if the new values are actually defined
+    if (metadata.title) updated.title = metadata.title as string;
+    if (metadata.artist) updated.artist = metadata.artist as string;
+    if (metadata.nativeStatus) updated.nativeStatus = metadata.nativeStatus as any;
+    if (metadata.customStatus) updated.customStatus = metadata.customStatus as any;
+
+    if (isNativeReport) {
+      updated.nativeStatus = state as any;
+    } else if (state === 'SYNCED' || state === 'UNSYNCED') {
+      updated.customStatus = state as any;
+    }
+
+    console.log(`[sly-prefetch] Merged ${state} for track ${trackId} | Native: ${updated.nativeStatus || 'N/A'} | Custom: ${updated.customStatus || 'N/A'}`);
+    this.states.set(trackId, updated);
   },
 
   getState(trackId: string): PreFetchEntry | undefined {

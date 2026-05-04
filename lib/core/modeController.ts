@@ -43,7 +43,11 @@ export function createModeController(opts: ModeControllerOpts) {
         opts.store.preferredMode = next;
         safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
       }
-      applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
+      const targets = getTargets();
+      if (targets && targets.length !== cache.original.length) {
+        console.warn('[SKaraoke:Content] Alignment mismatch detected (Latin). DOM:', targets.length, 'Cache:', cache.original.length);
+      }
+      applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
       syncButtonStates(next);
       return;
     }
@@ -95,7 +99,11 @@ export function createModeController(opts: ModeControllerOpts) {
           safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
         }
         const lines = next === 'romanized' ? processed.romanized : processed.translated;
-        applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
+        const targets = getTargets();
+        if (targets && targets.length !== cache.original.length) {
+          console.warn('[SKaraoke:Content] Alignment mismatch detected (Processed). DOM:', targets.length, 'Cache:', cache.original.length);
+        }
+        applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
         setLoadingState(false);
       }
     } catch (err) {
@@ -129,7 +137,11 @@ export function createModeController(opts: ModeControllerOpts) {
     if (!processed) return;
 
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
-    applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
+    const targets = getTargets();
+    if (targets && targets.length !== cache.original.length) {
+      console.warn('[SKaraoke:Content] Alignment mismatch detected in reapplyMode. DOM:', targets.length, 'Cache:', cache.original.length);
+    }
+    applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
   }
 
   function autoSwitchIfNeeded(forceRefresh = false): void {

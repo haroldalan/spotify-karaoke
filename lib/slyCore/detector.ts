@@ -110,14 +110,11 @@ window.slyDetectNativeState = function (): DetectorState {
   // Consult the registry populated by the Background script/Interceptor
   state.preFetch = window.slyPreFetchRegistry.getState(state.currentTrackId ?? '') ?? null;
 
-  if (state.preFetch && (
-    state.preFetch.state === 'MISSING' ||
-    state.preFetch.state === 'ROMANIZED' ||
-    state.preFetch.state === 'UNSYNCED' ||
-    (state.preFetch.nativeStatus && state.preFetch.state !== 'SYNCED')
-  )) {
+  if (state.preFetch && (state.preFetch.nativeStatus === 'MISSING' || state.preFetch.nativeStatus === 'ROMANIZED' || state.preFetch.nativeStatus === 'UNSYNCED' || state.preFetch.state === 'MISSING' || state.preFetch.state === 'UNSYNCED' || state.preFetch.state === 'SYNCED')) {
+    const reason = state.preFetch.nativeStatus ? `PERSISTED_NATIVE_${state.preFetch.nativeStatus}` : (state.preFetch.state as string);
+    state.lyricsState = reason; 
+
     if (!window.slyInternalState.forceFallback) {
-      const reason = state.preFetch.nativeStatus ? `PERSISTED_NATIVE_${state.preFetch.nativeStatus}` : state.preFetch.state;
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
@@ -153,10 +150,13 @@ window.slyDetectNativeState = function (): DetectorState {
 
   // 5. DECISION MATRIX
   const isNativeMissing = (state.hasUnavailableMessage ||
+                           state.preFetch?.nativeStatus === 'MISSING' ||
                            state.preFetch?.state === 'MISSING' ||
                            (window.spotifyState.lyricsProvider === null && (Date.now() - window.slyInternalState.songChangeTime) > 2500)) && !state.hasNativeLines;
 
-  const isNativeUnsynced = (window.spotifyState.isTimeSynced === false || state.preFetch?.state === 'UNSYNCED') &&
+  const isNativeUnsynced = (window.spotifyState.isTimeSynced === false || 
+                            state.preFetch?.nativeStatus === 'UNSYNCED' ||
+                            state.preFetch?.state === 'UNSYNCED') &&
                            window.spotifyState.lyricsProvider !== null &&
                            window.spotifyState.lyricsProvider !== undefined;
 
@@ -170,24 +170,26 @@ window.slyDetectNativeState = function (): DetectorState {
     if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'MISSING') {
       browser.runtime.sendMessage({
         type: 'SLY_REPORT_NATIVE_STATUS',
-        payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'MISSING' }
+        payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'MISSING', source: 'native' }
       }).catch(() => {});
     }
-  } else if (isNativeMissing) {
-    state.lyricsState = 'MISSING';
-  } else if (isNativeUnsynced) {
-    state.lyricsState = 'UNSYNCED';
-    // Report native Unsynced state for persistent 0ms hijack next time
-    if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'UNSYNCED' && window.spotifyState.lyricsProvider !== null) {
-      browser.runtime.sendMessage({
-        type: 'SLY_REPORT_NATIVE_STATUS',
-        payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'UNSYNCED' }
-      }).catch(() => {});
+  } else if (!window.slyInternalState.forceFallback) {
+    if (isNativeMissing) {
+      state.lyricsState = 'MISSING';
+    } else if (isNativeUnsynced) {
+      state.lyricsState = 'UNSYNCED';
+      // Report native Unsynced state for persistent 0ms hijack next time
+      if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'UNSYNCED' && window.spotifyState.lyricsProvider !== null) {
+        browser.runtime.sendMessage({
+          type: 'SLY_REPORT_NATIVE_STATUS',
+          payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'UNSYNCED', source: 'native' }
+        }).catch(() => {});
+      }
+    } else if (isNativeSynced) {
+      state.lyricsState = 'SYNCED';
+    } else if (state.hasNativeLines) {
+      state.lyricsState = 'NATIVE_OK';
     }
-  } else if (isNativeSynced) {
-    state.lyricsState = 'SYNCED';
-  } else if (state.hasNativeLines) {
-    state.lyricsState = 'NATIVE_OK';
   }
 
   return state;

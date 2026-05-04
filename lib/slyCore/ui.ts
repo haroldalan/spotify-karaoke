@@ -65,14 +65,13 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // 2. DOM Cleanup
   if (window.slyClearStatus) window.slyClearStatus();
 
+  // Notify Pipeline B that the custom container is about to be gone. 
+  // It will "rescue" the mode pill to document.body before we destroy the root.
+  document.dispatchEvent(new CustomEvent('sly:release'));
+
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
   document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
   window.slyInternalState.customRoot = null;
-
-  // Notify Pipeline B that the custom container is gone. It will disconnect its
-  // stale lyricsObserver. The next onLyricsInjected() will re-inject the pill
-  // into whichever native container Spotify restores.
-  document.dispatchEvent(new CustomEvent('sly:release'));
 
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
   if (main) {

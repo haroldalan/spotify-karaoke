@@ -10,6 +10,8 @@ import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
 import { StateStore } from './store';
 import { slyInternalState } from '../slyCore/state';
 
+const getTrackUri = () => (window as any).spotifyState?.track?.uri;
+
 export interface LifecycleControllerOpts {
   store: StateStore;
   switchMode: (m: LyricsMode, forceLang?: string, suppressLoading?: boolean) => Promise<void>;
@@ -60,7 +62,27 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const container = getLyricsContainer();
     if (!container) return;
 
+    // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
+    // This prevents the Native pipeline from "stealing" the pill back from the Takeover container.
+    const mainCls = (window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS';
+    if (opts.store.slyActiveContainer || document.querySelector(`main.${mainCls}.sly-active`) || document.getElementById('lyrics-root-sync')) {
+      return;
+    }
+
+    const currentUri = getTrackUri();
     const cache = opts.store.cache;
+    
+    // Safety: Wait for storage.local read to finish before checking cache
+    if (opts.store.cacheReadyPromise) {
+      await opts.store.cacheReadyPromise;
+    }
+
+    // Race Condition Guard: If the track changed while we were waiting for the cache, abort.
+    if (getTrackUri() !== currentUri) {
+      console.warn('[sly] syncSetup aborted: Track URI changed during cache wait.');
+      return;
+    }
+
     if (cache.original.length === 0) snapshotOriginals(cache);
     applyNativeOverride({ cache, pendingNativeLines: opts.store.pendingNativeLines });
 
@@ -259,7 +281,7 @@ export function setupSlyBridge(
       : ((lyricsObj.plainLyrics as string) || '').split('\n');
 
     // Filter to match domEngine's exact logic so arrays align perfectly
-    const plainLines = plainLinesRaw.filter(text => !(!text.trim() && lyricsObj.isSynced));
+    const plainLines = plainLinesRaw;
 
     const lrcLines: LrcLine[] = lyricsObj.isSynced 
       ? (lyricsObj.lines as LrcLine[]).filter(l => l.text.trim()) 
@@ -289,29 +311,10 @@ export function setupSlyBridge(
     // Feed slyCore's lyrics into Pipeline B's data model. This populates
     // cache.original so switchMode can process and apply them.
     store.cache.original = plainLines;
-    // Clear processed cache to prevent zipping old Native translations onto the Custom DOM
-    store.cache.processed.clear();
     store.slyActiveContainer = root;
     // Store padding-free elements so getOuterElements() returns the same set
     // that lrcLines was built from — index 0 is the first lyric, not a padding div.
     store.slyActiveDomElements = domElements ?? [];
-
-    // Move the existing pill into slyCore's lyrics content div so it sits at
-    // the same structural level as in native mode. #lyrics-root-sync is the
-    // outer container — the pill must go inside the inner div that directly
-    // wraps the [data-testid="lyrics-line"] elements (mirrors getLyricsContainer()).
-    // slyBuildLyricsList has already run at this point, so the lines are in the DOM.
-    const firstLine = root.querySelector('[data-testid="lyrics-line"]');
-    const pillTarget = (firstLine?.parentElement ?? root) as HTMLElement;
-
-    const existingPill = document.getElementById(CONTROLS_ID);
-    if (existingPill) {
-      pillTarget.insertBefore(existingPill, pillTarget.firstChild);
-      existingPill.classList.remove('sly-loading');
-      existingPill.style.display = store.showPill ? '' : 'none';
-    } else {
-      injectControls(pillTarget, store.showPill, store.mode, store.preferredMode, switchMode);
-    }
 
     // Disconnect the lyricsObserver — it was aimed at the now-hidden native
     // container and cannot usefully fire while slyCore owns the lyrics DOM.
@@ -319,10 +322,22 @@ export function setupSlyBridge(
     store.lyricsObserver = null;
 
     // Load any previously cached translations before re-applying mode.
-    // cache.original is already set above so loadSongCache's coherence check
-    // (entry.original.length === cache.original.length) passes correctly.
-    // This makes repeat plays instant — no background round-trip needed.
     loadSongCache(store.songKey, store.cache, store.runtimeCache).then(() => {
+      // Re-query the live container just before injection to ensure we aren't
+      // targeting a stale/detached node from a prior React re-render.
+      const liveRoot = document.getElementById('lyrics-root-sync') || root;
+      const firstLine = liveRoot.querySelector('[data-testid="lyrics-line"]');
+      const pillTarget = (firstLine?.parentElement ?? liveRoot) as HTMLElement;
+
+      const existingPill = document.getElementById(CONTROLS_ID);
+      if (existingPill) {
+        pillTarget.insertBefore(existingPill, pillTarget.firstChild);
+        existingPill.classList.remove('sly-loading');
+        existingPill.style.display = store.showPill ? '' : 'none';
+      } else {
+        injectControls(pillTarget, store.showPill, store.mode, store.preferredMode, switchMode);
+      }
+
       // Start Pipeline B's RAF sync loop for synced tracks. Sets the
       // slySyncedRendererActive flag so slyCore's own loop yields immediately.
       if (isSynced && lrcLines.length > 0) {

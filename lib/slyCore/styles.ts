@@ -14,13 +14,15 @@ declare global {
  */
 export function slyGetCoreStyles(): string {
   return `
-        /* 1. SAFETY FLOOR: Prevents seeing the app content when native UI is hidden */
         main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active {
-            background-color: #121212 !important;
+            /* No hardcoded background - allow mirroring to handle it */
         }
 
         #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
             transition: color 0.1s ease-out, opacity 0.1s ease-out !important;
+        }
+        #lyrics-root-sync {
+            transition: background-color 0.4s cubic-bezier(0.3, 0, 0, 1) !important;
         }
         #lyrics-root-sync .${window.SPOTIFY_CLASSES?.paddingLineHelper || 'aLaX8poOH8kdbmGf'} {
             height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important;
