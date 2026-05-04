@@ -55,6 +55,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.panelOpenTime = 0;
   window.slyInternalState.forceFallback = false;
   window.slyInternalState.fetchGeneration++;
+  window.slyInternalState.warmedUri = undefined;
   window.slyInternalState.nativeUpgradedLines = undefined; // Note: original used null, but we type as optional string[]
 
   // Reset playback extrapolator so the first slyGetPlaybackSeconds() call after
@@ -120,6 +121,7 @@ window.slyUpdateButtonState = function (): void {
  * Self-terminating: stops when the button element is removed from the DOM.
  */
 window.slyUpdateSyncButton = function (): void {
+  // console.log('[sly-debug] 🔘 slyUpdateSyncButton tick...');
   const syncBtn = document.getElementById('sly-sync-button');
   if (!syncBtn) return; // button removed (song change / reset) — loop terminates
 

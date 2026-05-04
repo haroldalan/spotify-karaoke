@@ -58,6 +58,23 @@ export default defineBackground(() => {
       // Port of: lyric-test/service-worker.js FETCH_LYRICS block
       // Full 4-layer cache: L1 memory → L2 persistent → L3 in-flight → L4 network
       // ----------------------------------------------------------------
+      if (msg.type === 'SLY_CHECK_CACHE') {
+        const { title, artist, uri } = msg.payload ?? {} as any;
+        const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
+        
+        (async () => {
+          const stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+          if (stored) {
+             console.log(`[sly-sw] Cache check for ${title}: Found. Native=${stored.nativeStatus || 'N/A'}, Custom=${stored.prefetchState || 'N/A'}`);
+             sendResponse({ ok: true, found: true, ...stored });
+          } else {
+             console.log(`[sly-sw] Cache check for ${title}: Not found.`);
+             sendResponse({ ok: true, found: false });
+          }
+        })();
+        return true;
+      }
+
       if (msg.type === 'FETCH_LYRICS' || msg.type === 'PREFETCH_LYRICS') {
         const { title, artist, albumArtUrl, uri } = msg.payload ?? {} as NonNullable<typeof msg.payload>;
 
@@ -153,6 +170,12 @@ export default defineBackground(() => {
                 } else {
                   result.prefetchState = 'MISSING';
                 }
+                // SLY FIX: Smart Merge. Don't let a fresh fetch wipe out our known nativeStatus.
+                const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+                if (existing?.nativeStatus && !result.nativeStatus) {
+                  result.nativeStatus = existing.nativeStatus;
+                }
+
                 // Always persist results (including failures) to avoid redundant searches
                 lyricsCache.set(cacheKey, result);
                 await lyricsPersistence.set(cacheKey, result);
@@ -181,12 +204,17 @@ export default defineBackground(() => {
 
         const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
         (async () => {
-          const stored = await lyricsPersistence.get(cacheKey);
-          if (stored && stored.nativeStatus !== status) {
+          const stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey) || {
+            ok: false,
+            prefetchState: 'MISSING',
+            nativeStatus: status
+          };
+
+          if (stored.nativeStatus !== status) {
             stored.nativeStatus = status;
             lyricsCache.set(cacheKey, stored);
             await lyricsPersistence.set(cacheKey, stored);
-            console.log(`[ServiceWorker] Tagged ${title} as NATIVE_${status} in persistent cache.`);
+            console.log(`[ServiceWorker] 💾 SAVED: Native Status for ${title} -> ${status}`);
           }
         })();
         return true;

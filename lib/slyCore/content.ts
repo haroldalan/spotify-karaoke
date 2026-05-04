@@ -26,41 +26,9 @@ window.addEventListener('sly_state_update', () => {
   window.slyCheckNowPlaying();
 });
 
-// Pipeline B (lifecycleController.ts onSongChange) detects track changes reactively
-// via aria-label mutation and dispatches this event. We listen here so the poll
-// no longer needs to do its own title comparison (Step 2 removed below).
-document.addEventListener('sly:song_change', (e: Event) => {
-  const { uri } = (e as CustomEvent<{ uri?: string }>).detail;
-
-  // Skip if this is a repeated dispatch for the URI we already have active.
-  // Covers backwards skips to a recently played track where lastUri matches.
-  if (uri && uri === window.slyInternalState.lastUri) return;
-
-  // Important: zero the panelOpenTime BEFORE detection so the grace period
-  // for the new song is calculated correctly.
-  window.slyInternalState.panelOpenTime = 0;
-
-  const detection = window.slyDetectNativeState();
-  if (detection.title !== 'Unknown' && detection.title !== 'AD_SILENCED') {
-    window.slyResetPlayerState(detection.title, uri);
-
-    // Fire-and-forget prefetch to warm cache and seed registry early
-    if (detection.title && detection.artist && !detection.isAd) {
-      browser.runtime.sendMessage({
-        type: 'PREFETCH_LYRICS',
-        payload: { title: detection.title, artist: detection.artist, uri }
-      }).then((r: any) => {
-        if (r?.prefetchState && detection.currentTrackId) {
-          window.slyPreFetchRegistry.register(detection.currentTrackId, r.prefetchState, {
-            title: detection.title, artist: detection.artist,
-            nativeStatus: r.nativeStatus,
-            source: 'native'
-          });
-        }
-      }).catch(() => {});
-    }
-  }
-});
+// Note: Pipeline B's lifecycleController.ts onSongChange detects track changes reactively
+// via aria-label mutation and dispatches 'sly:song_change'. We no longer listen to it
+// here to avoid double-reset races; our own 500ms poll (Step 1.5) handles it reliably.
 
 // Pipeline B's syncSetup() dispatches this when native lyrics are in the DOM.
 // Triggers the injection gate immediately for the common case where the fetch
@@ -127,7 +95,6 @@ document.addEventListener('sly:inject', (e: Event) => {
 // sly:takeover only fires when injection fully succeeded (all four DOM steps complete).
 // slyCore clears its own pending state here — no longer Pipeline B's responsibility.
 document.addEventListener('sly:takeover', () => {
-  window.slyInternalState.pendingLyricsData = null;
   window.slyInternalState.fetchingForTitle = '';
 });
 
@@ -136,6 +103,41 @@ window.slyCheckNowPlaying = function (): void {
     const detection = window.slyDetectNativeState();
     const { title, artist, albumArtUrl } = detection;
     const fullUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
+
+    // 0. PROACTIVE CACHE WARMING
+    // Try to seed the registry from the background database as soon as we have a URI.
+    // This runs on every tick until warmedUri matches fullUri, covering cold starts.
+    if (fullUri && fullUri.startsWith('spotify:track:') && window.slyInternalState.warmedUri !== fullUri && window.slyInternalState.warmingUri !== fullUri) {
+      // SLY FIX: Set flag synchronously and use a separate 'warming' flag to prevent race conditions
+      window.slyInternalState.warmingUri = fullUri;
+
+      browser.runtime.sendMessage({ 
+        type: 'SLY_CHECK_CACHE', 
+        payload: { title, uri: fullUri } 
+      }).then((r: any) => {
+        // Guard: Song changed while we were asking the background script
+        if ((window.spotifyState?.track as Record<string, unknown> | null)?.uri !== fullUri) return;
+
+        window.slyInternalState.warmedUri = fullUri; // Mark as settled
+        window.slyInternalState.warmingUri = undefined;
+
+        if (r?.found) {
+           console.log(`[sly] 🧠 Proactive Cache Hit: Native=${r.nativeStatus || 'N/A'}, Custom=${r.prefetchState || 'N/A'}`);
+           const trackId = fullUri.split(':').pop();
+           if (trackId) {
+             window.slyPreFetchRegistry.register(trackId, r.prefetchState || 'MISSING', {
+               title, 
+               nativeStatus: r.nativeStatus,
+               customStatus: r.prefetchState
+             });
+           }
+        } else {
+           console.log(`[sly] 🆕 First Play: No cache record found for ${title}.`);
+        }
+      }).catch(() => {
+        window.slyInternalState.warmingUri = undefined;
+      });
+    }
 
     // 0. UNIVERSAL ORPHAN GUARD
     // Runs before the ad check so it catches the case where the button was
@@ -327,19 +329,18 @@ window.slyCheckNowPlaying = function (): void {
         return;
       }
 
-      console.log(`[sly] Taking over! | Native State: ${lyricsState}`);
+      console.log(`[sly] Taking over! | Takeover Reason: ${detection.lyricsState}`);
       // Safety: Only inject if the data actually has content.
       const hasContent = !!(data.plainLyrics || data.syncedLyrics);
 
       if (hasContent) {
-        // Hand off execution to Pipeline B.
-        // Fix (Issue 1): Clear pending data BEFORE dispatching to prevent double-injection
-        // if another poll tick or event fires before the takeover completes.
-        const dataToInject = window.slyInternalState.pendingLyricsData;
+        // Hand off execution to Pipeline B. Clearing of pendingLyricsData is now
+        // done immediately before dispatch to prevent double-injection races.
+        const data = window.slyInternalState.pendingLyricsData;
         window.slyInternalState.pendingLyricsData = null;
-        
+
         document.dispatchEvent(new CustomEvent('sly:inject', {
-          detail: { lyricsObj: dataToInject },
+          detail: { lyricsObj: data },
         }));
       } else {
         // If data is invalid (no content), clear it anyway to avoid looping
@@ -399,4 +400,5 @@ function startThrottledPoll() {
   window.antigravityInterval = setTimeout(startThrottledPoll, interval) as unknown as number;
 }
 startThrottledPoll();
+
 console.log('[sly] DOM Engine booted. Adaptive polling active.');

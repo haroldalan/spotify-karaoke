@@ -110,8 +110,8 @@ window.slyDetectNativeState = function (): DetectorState {
   // Consult the registry populated by the Background script/Interceptor
   state.preFetch = window.slyPreFetchRegistry.getState(state.currentTrackId ?? '') ?? null;
 
-  if (state.preFetch && (state.preFetch.nativeStatus === 'MISSING' || state.preFetch.nativeStatus === 'ROMANIZED' || state.preFetch.nativeStatus === 'UNSYNCED' || state.preFetch.state === 'MISSING' || state.preFetch.state === 'UNSYNCED' || state.preFetch.state === 'SYNCED')) {
-    const reason = state.preFetch.nativeStatus ? `PERSISTED_NATIVE_${state.preFetch.nativeStatus}` : (state.preFetch.state as string);
+  if (state.preFetch && (state.preFetch.nativeStatus === 'MISSING' || state.preFetch.nativeStatus === 'ROMANIZED' || state.preFetch.nativeStatus === 'UNSYNCED')) {
+    const reason = `PERSISTED_NATIVE_${state.preFetch.nativeStatus}`;
     state.lyricsState = reason; 
 
     if (!window.slyInternalState.forceFallback) {
@@ -142,14 +142,16 @@ window.slyDetectNativeState = function (): DetectorState {
       if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'ROMANIZED') {
         browser.runtime.sendMessage({
           type: 'SLY_REPORT_NATIVE_STATUS',
-          payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'ROMANIZED' }
+          payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'ROMANIZED', source: 'native' }
         }).catch(() => {});
       }
     }
   }
 
   // 5. DECISION MATRIX
-  const isNativeMissing = (state.hasUnavailableMessage ||
+  const isSettled = (Date.now() - window.slyInternalState.songChangeTime) > 500;
+  
+  const isNativeMissing = ((state.hasUnavailableMessage && isSettled) ||
                            state.preFetch?.nativeStatus === 'MISSING' ||
                            state.preFetch?.state === 'MISSING' ||
                            (window.spotifyState.lyricsProvider === null && (Date.now() - window.slyInternalState.songChangeTime) > 2500)) && !state.hasNativeLines;
@@ -163,9 +165,9 @@ window.slyDetectNativeState = function (): DetectorState {
   const isNativeSynced = window.spotifyState.isTimeSynced === true;
 
   // Determine the finalized state
-  // IMMEDIATE HIJACK: If Spotify explicitly says it's missing, bypass all grace periods.
-  if (state.hasUnavailableMessage && !state.hasNativeLines) {
-    state.lyricsState = 'MISSING';
+  // IMMEDIATE HIJACK: If Spotify explicitly says it's missing (and we've settled), bypass all grace periods.
+  if (state.hasUnavailableMessage && isSettled && !state.hasNativeLines) {
+    state.lyricsState = 'MISSING_DOM';
     // Report this track as missing lyrics to the Background persistent cache
     if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'MISSING') {
       browser.runtime.sendMessage({
@@ -175,11 +177,12 @@ window.slyDetectNativeState = function (): DetectorState {
     }
   } else if (!window.slyInternalState.forceFallback) {
     if (isNativeMissing) {
-      state.lyricsState = 'MISSING';
+      state.lyricsState = state.preFetch?.nativeStatus === 'MISSING' ? 'PERSISTED_MISSING' : 'MISSING_TIMEOUT';
     } else if (isNativeUnsynced) {
-      state.lyricsState = 'UNSYNCED';
-      // Report native Unsynced state for persistent 0ms hijack next time
-      if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'UNSYNCED' && window.spotifyState.lyricsProvider !== null) {
+      state.lyricsState = state.preFetch?.nativeStatus === 'UNSYNCED' ? 'PERSISTED_UNSYNCED' : 'NATIVE_UNSYNCED';
+      // SLY FIX: Always report native Unsynced state to Background to ensure persistent 0ms hijack next time,
+      // even if our LOCAL preFetch registry already knows it (e.g. from Interceptor report).
+      if (state.currentTrackId && !state.isAd && window.spotifyState.lyricsProvider !== null) {
         browser.runtime.sendMessage({
           type: 'SLY_REPORT_NATIVE_STATUS',
           payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'UNSYNCED', source: 'native' }

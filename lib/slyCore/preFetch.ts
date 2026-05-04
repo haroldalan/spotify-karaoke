@@ -39,23 +39,26 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
     
     // Logic: If the new state is 'SYNCED' or 'UNSYNCED' coming from our fetch, 
     // we map it to customStatus. If it comes from the native report, it's nativeStatus.
-    const isNativeReport = metadata.source === 'native' || !!metadata.nativeStatus;
+    const isNativeReport = metadata.source === 'native';
     
     const updated: PreFetchEntry = {
       ...existing,
-      state: isNativeReport ? (state || existing.state) : state,
+      state: state || existing.state,
       timestamp: Date.now(),
     };
 
     // Merging Metadata: Only overwrite if the new values are actually defined
     if (metadata.title) updated.title = metadata.title as string;
     if (metadata.artist) updated.artist = metadata.artist as string;
+    
+    // Prioritize explicit status fields if provided in metadata
     if (metadata.nativeStatus) updated.nativeStatus = metadata.nativeStatus as any;
     if (metadata.customStatus) updated.customStatus = metadata.customStatus as any;
 
-    if (isNativeReport) {
+    // Fallback: If no explicit status was provided, use the 'state' argument
+    if (isNativeReport && !metadata.nativeStatus) {
       updated.nativeStatus = state as any;
-    } else if (state === 'SYNCED' || state === 'UNSYNCED') {
+    } else if (!isNativeReport && !metadata.customStatus && (state === 'SYNCED' || state === 'UNSYNCED')) {
       updated.customStatus = state as any;
     }
 
@@ -69,7 +72,7 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
 
   clearOldEntries(): void {
     const now = Date.now();
-    const MAX_AGE = 10 * 60 * 1000; // 10 minutes
+    const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
     for (const [id, data] of this.states.entries()) {
       if (now - data.timestamp > MAX_AGE) {
         this.states.delete(id);

@@ -100,7 +100,14 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
 
   // 1. CAPTURE & APPLY: If we have a native reference, steal its truth and learn it.
   if (nativeReference && (nativeReference as HTMLElement).style.cssText) {
-    root.style.cssText = (nativeReference as HTMLElement).style.cssText;
+    // Only mirror CSS Variables (colors). NEVER mirror layout styles like
+    // 'display' or 'position' as they will reset the scrollbar if the native
+    // container is hidden.
+    const vars = (nativeReference as HTMLElement).style.cssText
+      .split(';')
+      .filter(s => s.trim().startsWith('--'))
+      .join(';');
+    root.style.cssText = vars;
     
     // Save the "Official" colors to the registry for the next time we skip back to this song
     if (registryEntry) {

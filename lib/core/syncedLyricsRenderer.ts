@@ -113,16 +113,16 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
 
   return {
     /**
-     * Starts the RAF sync loop for the given LRC lines.
+     * Starts the sync loop for the given lines. 
      * Stops any previously running loop first.
      */
-    start(lrcLines: LrcLine[], resumeFromIndex = -1): void {
+    start(lrcLines: LrcLine[], resumeIndex = -1): void {
       if (animFrame !== null) {
         cancelAnimationFrame(animFrame);
         animFrame = null;
       }
       lines = lrcLines;
-      lastActiveIndex = resumeFromIndex;
+      lastActiveIndex = resumeIndex;
       animFrame = requestAnimationFrame(tick);
     },
 
