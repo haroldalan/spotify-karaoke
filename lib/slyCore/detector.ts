@@ -110,7 +110,12 @@ window.slyDetectNativeState = function (): DetectorState {
   // Consult the registry populated by the Background script/Interceptor
   state.preFetch = window.slyPreFetchRegistry.getState(state.currentTrackId ?? '') ?? null;
 
-  if (state.preFetch && (state.preFetch.state === 'MISSING' || state.preFetch.state === 'ROMANIZED' || state.preFetch.state === 'UNSYNCED' || state.preFetch.nativeStatus)) {
+  if (state.preFetch && (
+    state.preFetch.state === 'MISSING' ||
+    state.preFetch.state === 'ROMANIZED' ||
+    state.preFetch.state === 'UNSYNCED' ||
+    (state.preFetch.nativeStatus && state.preFetch.state !== 'SYNCED')
+  )) {
     if (!window.slyInternalState.forceFallback) {
       const reason = state.preFetch.nativeStatus ? `PERSISTED_NATIVE_${state.preFetch.nativeStatus}` : state.preFetch.state;
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);

@@ -35,6 +35,13 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
     if (!trackId) return;
     if (!metadata) metadata = {};
 
+    // Never downgrade a successful fetch result.
+    // 'SYNCED' means the extension fetched synced lyrics — this is the ground truth.
+    // Reports from the interceptor about Spotify's native quality (UNSYNCED/MISSING)
+    // must not erase the fact that we already have synced lyrics for this track.
+    const existing = this.states.get(trackId);
+    if (existing?.state === 'SYNCED' && (state === 'UNSYNCED' || state === 'MISSING')) return;
+
     console.log(`[sly-prefetch] Registered ${state} for track ${trackId}`);
     this.states.set(trackId, {
       state,
