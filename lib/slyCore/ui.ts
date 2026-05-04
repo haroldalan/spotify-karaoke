@@ -157,13 +157,8 @@ window.slyUpdateSyncButton = function (): void {
     syncBtn.style.left = `${viewportRect.left + viewportRect.width / 2}px`;
     syncBtn.style.bottom = `${screenBottom - visibleBottom + 16}px`;
 
-    if (window.slyInternalState.isUserScrolling) {
-      if (isInView) {
-        window.slyInternalState.isUserScrolling = false;
-        syncBtn.classList.remove('visible');
-      } else {
-        syncBtn.classList.add('visible');
-      }
+    if (window.slyInternalState.isUserScrolling && !isInView) {
+      syncBtn.classList.add('visible');
     } else {
       syncBtn.classList.remove('visible');
     }
