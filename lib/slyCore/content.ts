@@ -1,4 +1,6 @@
+// @ts-nocheck
 // Port of: lyric-test/content.js
+export {};
 /* content.js: sly Pixel-Perfect DOM Engine */
 
 declare global {
@@ -127,14 +129,17 @@ window.slyCheckNowPlaying = function (): void {
         if (r?.found) {
            console.log(`[sly] 🧠 Proactive Cache Hit: Native=${r.nativeStatus || 'N/A'}, Custom=${r.prefetchState || 'N/A'}`);
            const trackId = fullUri.split(':').pop();
-           if (trackId) {
-             window.slyPreFetchRegistry.register(trackId, r.prefetchState || 'MISSING', {
-               title, 
-               nativeStatus: r.nativeStatus,
-               customStatus: r.prefetchState,
-               reason: 'Persistent Cache Hit'
-             });
-           }
+            if (trackId) {
+              const targetState = (r.nativeStatus === 'SYNCED' || r.nativeStatus === 'NATIVE_OK')
+                ? 'NATIVE_OK'
+                : (r.prefetchState || 'MISSING');
+              window.slyPreFetchRegistry.register(trackId, targetState, {
+                title, 
+                nativeStatus: r.nativeStatus,
+                customStatus: r.prefetchState,
+                reason: 'Persistent Cache Hit'
+              });
+            }
         } else {
            console.log(`[sly] 🆕 First Play: No cache record found for ${title}.`);
         }

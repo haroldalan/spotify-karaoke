@@ -9,6 +9,11 @@ export const getLyricsContainer = (): Element | null => {
   return first?.parentElement ?? null;
 };
 
+export const getLyricsViewRoot = (): Element | null => {
+  // Try to find the main scrollable container where lyrics are rendered
+  return document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
+};
+
 export const getNowPlayingKey = (): string =>
   document.querySelector('[data-testid="now-playing-widget"]')
     ?.getAttribute('aria-label') ?? '';

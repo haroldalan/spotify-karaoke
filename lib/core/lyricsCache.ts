@@ -30,9 +30,11 @@ export async function loadSongCache(
 
     if (!entry) return;
 
-    const currentHash = djb2(cache.original.join('|'));
-    if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
-      return;
+    if (cache.original.length > 0) {
+      const currentHash = djb2(cache.original.join('|'));
+      if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
+        return;
+      }
     }
 
     entry.lastAccessed = Date.now();

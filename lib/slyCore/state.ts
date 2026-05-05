@@ -1,4 +1,3 @@
-import { slyInternalState } from './state';
 // Port of: lyric-test/modules/core/state.js
 
 export interface SpotifyBridgeState {
@@ -49,8 +48,8 @@ export interface SlyInternalState {
 
 declare global {
   interface Window {
-    spotifyState: SpotifyBridgeState;
-    slyInternalState: SlyInternalState;
+    spotifyState?: Record<string, unknown>;
+    slyInternalState?: any;
     antigravityInterval?: NodeJS.Timeout | number;
     antigravitySyncAnimFrame?: number;
   }
@@ -71,7 +70,7 @@ export const spotifyState: SpotifyBridgeState = {
   lastBridgeChangeTime: 0,
 };
 
-window.spotifyState = spotifyState;
+window.spotifyState = spotifyState as unknown as Record<string, unknown>;
 
 /**
  * Extension's own operational state — tracks what the extension is currently
@@ -99,7 +98,7 @@ export const slyInternalState: SlyInternalState = {
   isAdHUDActive: false,
 };
 
-slyInternalState = slyInternalState;
+window.slyInternalState = slyInternalState;
 
 /**
  * Registers the SLY_BRIDGE window message listener.
@@ -115,6 +114,7 @@ export function initSlyState(): void {
       const { track, lyricsProvider, isTimeSynced, syncType, isPanelActive, accessToken, queue } =
         (event.data as { source: string; data: Record<string, unknown> }).data;
 
+      if (!window.spotifyState) window.spotifyState = {};
       window.spotifyState.track = track as Record<string, unknown> | null;
       window.spotifyState.lyricsProvider = lyricsProvider as string | null;
       window.spotifyState.isTimeSynced = isTimeSynced as boolean;

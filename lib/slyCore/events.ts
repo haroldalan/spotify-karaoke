@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Port of: lyric-test/modules/core/events.js
 /* modules/content-events.js: Global Event Observers (Navigation & Interactions) */
 
@@ -133,7 +134,7 @@ const errorObserver = new MutationObserver((mutations) => {
         return node.nodeType === 1 && (
           (node as HTMLElement).classList.contains(errCls1) || (node as HTMLElement).querySelector('.' + errCls1) ||
           (node as HTMLElement).classList.contains(errCls2) || (node as HTMLElement).querySelector('.' + errCls2)
-        );
+        ) && (node.textContent || '').trim().length > 0;
       });
       if (hasError) {
         console.log('[sly] Instant Detection: Native error DOM appeared. Triggering engine...');

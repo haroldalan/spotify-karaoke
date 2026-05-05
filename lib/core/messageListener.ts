@@ -5,7 +5,7 @@ import { StateStore } from './store';
 
 export function setupMessageListener(
   store: StateStore,
-  switchMode: (mode: LyricsMode, lang?: string) => void
+  switchMode: (mode: LyricsMode, lang?: string) => Promise<void>
 ): void {
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
@@ -24,8 +24,8 @@ export function setupMessageListener(
         currentActiveLang: store.currentActiveLang,
         runtimeCache: store.runtimeCache
       } satisfies NativeLyricsState,
-      () => { store.processGenRef.value++; },
-      (m, lang) => switchMode(m, lang)
+      () => { store.romanizedGenRef.value++; store.translatedGenRef.value++; },
+      async (m, lang) => { await switchMode(m, lang); }
     );
   });
 }

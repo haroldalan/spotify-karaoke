@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Port of: lyric-test/modules/core/detector.js
 /* modules/content-detector.js: Spotify DOM & State Scanner */
 

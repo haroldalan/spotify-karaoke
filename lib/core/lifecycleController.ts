@@ -1,5 +1,5 @@
 import { safeBrowserCall } from '../utils/browserUtils';
-import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot } from '../dom/domQueries';
+import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
 import { loadSongCache, saveSongCache } from './lyricsCache';
@@ -8,7 +8,7 @@ import { createLyricsObserver } from '../dom/lyricsObserver';
 import { createSyncedLyricsRenderer, type LrcLine } from './syncedLyricsRenderer';
 import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
 import { StateStore } from './store';
-import { slyInternalState } from '../slyCore/state';
+import { slyInternalState, spotifyState } from '../slyCore/state';
 
 let setupLock = false;
 
@@ -27,7 +27,7 @@ let godState: 'IDLE' | 'LOADING' | 'NATIVE_OK' | 'RELEASING' | 'PIPELINE_A' | 'F
  */
 let lyricsObserver: MutationObserver | null = null;
 
-const getTrackUri = () => (window as any).spotifyState?.track?.uri;
+const getTrackUri = () => (spotifyState?.track as { uri?: string } | null)?.uri;
 
 export interface LifecycleControllerOpts {
   store: StateStore;
@@ -56,7 +56,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
    * injectControls() therefore never needs to re-parent.
    */
   function syncPill(stateCtx?: 'NATIVE_OK' | 'PIPELINE_A' | boolean) {
-    const listCls = (window as any).SPOTIFY_CLASSES?.lyricsList || 'GmI3DMxKYRsaA5DM';
+    const listCls = window.SPOTIFY_CLASSES?.lyricsList || 'GmI3DMxKYRsaA5DM';
     const customRoot = document.getElementById('lyrics-root-sync');
 
     let injectionTarget: HTMLElement | null;
@@ -68,7 +68,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       shouldShow = opts.store.showPill;
     } else if (stateCtx === 'NATIVE_OK') {
       // Deterministic: pill belongs in the native lyrics container.
-      injectionTarget = (getLyricsContainer() ?? getLyricsViewRoot()) as HTMLElement | null;
+      injectionTarget = getLyricsContainer() as HTMLElement | null;
       shouldShow = opts.store.showPill;
     } else {
       // Heuristic path — used when state is not yet explicitly known.
@@ -76,8 +76,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const root = getLyricsViewRoot();
       const container = getLyricsContainer();
       const customInner = customRoot?.querySelector(`.${listCls}`);
-      injectionTarget = (customInner ?? container ?? root) as HTMLElement | null;
-      const detection = (window as any).slyDetectNativeState?.() ?? {};
+      injectionTarget = (customInner ?? container) as HTMLElement | null;
+      const detection = window.slyDetectNativeState?.() ?? {};
       const hasContent = detection.hasNativeLines || opts.store.slyActiveContainer?.isConnected;
       shouldShow = typeof stateCtx === 'boolean' ? stateCtx : (opts.store.showPill && !!hasContent);
     }
@@ -114,12 +114,15 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (setupLock) return;
     setupLock = true;
     try {
-      if (!opts.store.songKey) {
-        const key = getNowPlayingKey();
-        if (key) opts.store.songKey = key;
-      }
+    const activeKey = getNowPlayingKey();
+    if (activeKey && opts.store.songKey !== activeKey) {
+      console.log(`[sly-lifecycle] 🔄 trySetup detected out-of-sync songKey. Forcing onSongChange to ${activeKey}.`);
+      onSongChange(activeKey);
+    } else if (!opts.store.songKey && activeKey) {
+      opts.store.songKey = activeKey;
+    }
     
-    const { container } = syncPill();
+    const { container } = syncPill(true); // Force visibility instantly. Do not let Ghost Guard or async tasks hide it.
 
     if (!container) return; // Wait for actual lines before proceeding with content sync
 
@@ -133,7 +136,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     }
 
     // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
-    if (document.querySelector('main.' + ((window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS') + '.sly-active')) {
+    if (document.querySelector('main.' + (window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS') + '.sly-active')) {
       console.log('[sly-lifecycle] 🚫 Bridge trySetup aborted: slyCore is active.');
       return;
     }
@@ -177,11 +180,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (setupLock) return;
     setupLock = true;
     try {
-      if (!opts.store.songKey) {
-        const key = getNowPlayingKey();
-        if (key) opts.store.songKey = key;
+      const activeKey = getNowPlayingKey();
+      if (activeKey && opts.store.songKey !== activeKey) {
+        console.log(`[sly-lifecycle] 🔄 syncSetup detected out-of-sync songKey. Forcing onSongChange to ${activeKey}.`);
+        onSongChange(activeKey);
+      } else if (!opts.store.songKey && activeKey) {
+        opts.store.songKey = activeKey;
       }
-      syncPill();
+      syncPill(true); // Force visibility instantly. Do not let Ghost Guard or async tasks hide it.
       const container = getLyricsContainer();
       if (!container) return;
 
@@ -194,7 +200,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
       // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
       // This prevents the Native pipeline from "stealing" the pill back from the Takeover container.
-      const mainCls = (window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS';
+      const mainCls = window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS';
       if (opts.store.slyActiveContainer || document.querySelector(`main.${mainCls}.sly-active`) || document.getElementById('lyrics-root-sync')) {
         console.log('[sly-lifecycle] 🚫 Bridge syncSetup aborted: slyCore is active.');
         return;
@@ -203,7 +209,56 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const currentUri = getTrackUri();
       const cache = opts.store.cache;
 
-      // Safety: Wait for storage.local read to finish before checking cache
+      // Synchronously pre-warm from in-memory runtime cache to eliminate the async yield frame-flash (port of v3.0.6).
+      const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
+      if (runtimeEntry) {
+        if (cache.original.length === 0) cache.original = [...runtimeEntry.original];
+        for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
+          if (!cache.processed.has(lang)) cache.processed.set(lang, res);
+        }
+      }
+
+      const syncPreferredMode = opts.store.preferredMode;
+      if (syncPreferredMode !== 'original') {
+        const currentActiveLang = opts.store.currentActiveLang;
+        let processed = cache.processed.get(currentActiveLang);
+        if (!processed && syncPreferredMode === 'romanized' && cache.processed.size > 0) {
+          const entries = Array.from(cache.processed.values());
+          processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
+        }
+
+        if (processed) {
+          if (cache.original.length === 0) snapshotOriginals(cache);
+          applyNativeOverride({ cache, pendingNativeLines: opts.store.pendingNativeLines });
+
+          lyricsObserver?.disconnect();
+          lyricsObserver = createLyricsObserver({
+            getIsApplying: () => opts.store.isApplying,
+            getMode: () => opts.store.mode,
+            getCache: () => opts.store.cache,
+            getCurrentActiveLang: () => opts.store.currentActiveLang,
+            getDualLyricsEnabled: () => opts.store.dualLyricsEnabled,
+            setApplying: (v) => { opts.store.isApplying = v; },
+            onInvalidate: () => { lyricsObserver = null; },
+          });
+
+          opts.store.mode = syncPreferredMode;
+          const lines = syncPreferredMode === 'romanized' ? processed.romanized : processed.translated;
+          const dualLyricsEnabled = opts.store.dualLyricsEnabled;
+          applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+          syncButtonStates(syncPreferredMode);
+          setLoadingState(false);
+          syncPill('NATIVE_OK');
+
+          const currentPollId = pollId;
+          if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+          
+          document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
+          return; // Instant, fully synchronous return! ZERO frames flashed!
+        }
+      }
+
+      // Safety fallback: Wait for storage.local read to finish if cache wasn't in memory
       if (cacheReadyPromise) {
         await cacheReadyPromise;
       }
@@ -258,6 +313,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           const dualLyricsEnabled = opts.store.dualLyricsEnabled;
           applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(preferredMode);
+          setLoadingState(false);
           const currentPollId = pollId;
           if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
           return;
@@ -327,6 +383,18 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   function onSongChange(newKey: string): void {
     const songKey = opts.store.songKey;
     if (newKey === songKey) return;
+
+    // Revert the dual lyrics DOM to their single original native text
+    // to ensure both lines disappear cleanly and simultaneously during track change.
+    // This also keeps React's reconciler completely happy on unmount.
+    getLyricsLines().forEach((el) => {
+      const original = el.getAttribute('data-sly-original');
+      if (original !== null) {
+        el.textContent = original;
+        el.removeAttribute('data-sly-original');
+      }
+    });
+
     godState = 'LOADING'; // Track is changing — no stable pill target until next state event.
     opts.store.songKey = newKey;
     opts.store.mode = 'original';
@@ -364,15 +432,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const controls = document.getElementById(CONTROLS_ID);
     if (controls) {
       controls.classList.add('sly-loading');
-      controls.style.display = 'none'; // Force hide during transition
+      // No longer hiding the pill here to prevent the "pop-in" effect.
+      // We rely on React's DOM diffing to leave our pill alone (like in v3.0.6).
     }
 
     const currentPollId = pollId;
     if (currentPollId) cancelAnimationFrame(currentPollId);
-    
-    // Proactively "park" the pill in the root, but use the unified syncPill logic
-    // to ensure we don't trap it in a stale native container if a takeover is imminent.
-    syncPill(false);
 
     pollForLyricsContainer();
 
@@ -425,10 +490,10 @@ export function setupSlyBridge(
     // N+3 elements while lrcLines only has N entries — causing a 2-line index
     // offset that makes synced lyrics appear out-of-sync when skipping mid-song.
     getOuterElements: () => store.slyActiveDomElements,
-    lineBaseClass: () => (window as any).SPOTIFY_CLASSES?.lineBase ?? '',
-    activeClass: () => (window as any).SPOTIFY_CLASSES?.activeLine ?? '',
-    passedClass: () => (window as any).SPOTIFY_CLASSES?.passedLine ?? '',
-    futureClass: () => (window as any).SPOTIFY_CLASSES?.futureLine ?? '',
+    lineBaseClass: () => window.SPOTIFY_CLASSES?.lineBase ?? '',
+    activeClass: () => window.SPOTIFY_CLASSES?.activeLine ?? '',
+    passedClass: () => window.SPOTIFY_CLASSES?.passedLine ?? '',
+    futureClass: () => window.SPOTIFY_CLASSES?.futureLine ?? '',
     isUserScrolling: () => slyInternalState.isUserScrolling,
     onActiveIndexChange: (index) => { slyInternalState.lastActiveIndex = index; },
   });
@@ -574,7 +639,7 @@ export function setupSlyBridge(
 
     // Unblock trySetup() immediately by removing the active flag from main.
     // Prevents the "sly-active found, aborting" guard from skipping Song B's setup.
-    const main = document.querySelector(`main.${(window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
+    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
     if (main) main.classList.remove('sly-active');
 
     const e = performance.now();

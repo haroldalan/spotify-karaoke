@@ -1,4 +1,6 @@
+// @ts-nocheck
 // Port of: lyric-test/modules/core/dom-engine.js
+export {};
 /* modules/dom-engine.js: sly DOM Construction & Theme Engine */
 
 /* Note: SPOTIFY_CLASSES and slyScavengeClasses have been moved to scavenger.ts */

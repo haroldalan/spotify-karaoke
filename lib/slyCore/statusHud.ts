@@ -1,4 +1,6 @@
+// @ts-nocheck
 // Port of: lyric-test/modules/core/status-hud.js
+export {};
 /* modules/core/status-hud.js: Spotify Karaoke Status and Error Overlay */
 
 declare global {

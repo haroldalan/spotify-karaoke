@@ -142,6 +142,7 @@ export function createModeController(opts: ModeControllerOpts) {
       console.warn('[SKaraoke:Content] Alignment mismatch detected in reapplyMode. DOM:', targets.length, 'Cache:', cache.original.length);
     }
     applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+    setLoadingState(false);
   }
 
   function autoSwitchIfNeeded(forceRefresh = false): void {

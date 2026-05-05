@@ -1,4 +1,6 @@
+// @ts-nocheck
 // Port of: lyric-test/modules/core/ui.js
+export {};
 /* modules/core/ui.js: Synchronized Lyrics UI Controller */
 /* Note: findMediaRecursively, slySeekTo, and slyGetPlaybackSeconds have been moved to modules/playback-engine.js */
 

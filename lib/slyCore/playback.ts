@@ -1,4 +1,5 @@
 // Port of: lyric-test/modules/core/playback.js
+export {};
 /* modules/playback-engine.js: Spotify Time Tracking & Media Interaction */
 
 declare global {

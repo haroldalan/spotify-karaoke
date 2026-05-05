@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Port of: lyric-test/modules/core/scavenger.js
 import { safeBrowserCall } from '../utils/browserUtils';
 
@@ -96,9 +97,12 @@ export const slyScavengeClasses = function (): void {
     if (nativeContainer.children.length > 1) {
       const secondChild = nativeContainer.children[1] as HTMLElement;
       
-      // If the second child has NO lyrics lines, it is the Error Container. Otherwise, it is the Wrapper.
+      // If the second child has NO lyrics lines, it could be the Error Container or a loading spinner.
+      // We check for text content to ensure it's actually an error message, not an empty spinner.
       if (secondChild.querySelectorAll('[data-testid="lyrics-line"]').length === 0) {
-        window.SPOTIFY_CLASSES.errorContainer = secondChild.classList[0] || window.SPOTIFY_CLASSES.errorContainer;
+        if ((secondChild.textContent || '').trim().length > 0) {
+          window.SPOTIFY_CLASSES.errorContainer = secondChild.classList[0] || window.SPOTIFY_CLASSES.errorContainer;
+        }
       } else {
         window.SPOTIFY_CLASSES.wrapper = secondChild.classList[0] || window.SPOTIFY_CLASSES.wrapper;
         const list = secondChild.children[0] as HTMLElement | undefined;

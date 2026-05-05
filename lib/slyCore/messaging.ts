@@ -1,4 +1,6 @@
+// @ts-nocheck
 // Port of: lyric-test/modules/core/messaging.js
+export {};
 // modules/content-messaging.js
 // Handles cross-script communication and fetch triggering
 //

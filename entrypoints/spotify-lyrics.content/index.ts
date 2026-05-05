@@ -51,11 +51,11 @@ async function main(): Promise<void> {
     reapplyMode,
     autoSwitchIfNeeded,
   });
-  const { trySetup, syncSetup, onSongChange, trySetupOrPoll } = lifecycleController;
+  const { trySetup, syncSetup, onSongChange, trySetupOrPoll, syncPill } = lifecycleController;
 
   setupMessageListener(store, switchMode);
   setupKeyboardShortcuts(switchMode);
-  setupSlyBridge(store, switchMode, autoSwitchIfNeeded);
+  setupSlyBridge(store, switchMode, autoSwitchIfNeeded, syncPill);
 
   if (!store.domObserver) {
     store.domObserver = createDomObserver({

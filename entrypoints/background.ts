@@ -88,14 +88,17 @@ export default defineBackground(() => {
         (async () => {
           // 1. L1: Instant Memory Cache Hit
           if (lyricsCache.has(cacheKey)) {
-            console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
-            sendResponse(lyricsCache.get(cacheKey));
-            return;
+            const cached = lyricsCache.get(cacheKey);
+            if (cached && !(cached as any).isPlaceholder) {
+              console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
+              sendResponse(cached);
+              return;
+            }
           }
 
           // 2. L2: Persistent Storage Hit
           const stored = await lyricsPersistence.get(cacheKey);
-          if (stored) {
+          if (stored && !(stored as any).isPlaceholder) {
             console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
             
             // Reconstruct prefetchState if missing (legacy cache support)
@@ -210,17 +213,23 @@ export default defineBackground(() => {
 
         const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
         (async () => {
-          const stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey) || {
-            ok: false,
-            prefetchState: 'MISSING',
-            nativeStatus: status
-          };
-
-          if (stored.nativeStatus !== status) {
-            stored.nativeStatus = status;
-            lyricsCache.set(cacheKey, stored);
-            await lyricsPersistence.set(cacheKey, stored);
-            console.log(`[ServiceWorker] 💾 SAVED: Native Status for ${title} -> ${status}`);
+          const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+          
+          if (!existing) {
+            const fresh = {
+              ok: false,
+              prefetchState: 'MISSING' as const,
+              nativeStatus: status,
+              isPlaceholder: true
+            };
+            lyricsCache.set(cacheKey, fresh);
+            await lyricsPersistence.set(cacheKey, fresh);
+            console.log(`[ServiceWorker] 💾 SAVED (Fresh): Native Status for ${title} -> ${status}`);
+          } else if (existing.nativeStatus !== status) {
+            existing.nativeStatus = status;
+            lyricsCache.set(cacheKey, existing);
+            await lyricsPersistence.set(cacheKey, existing);
+            console.log(`[ServiceWorker] 💾 SAVED (Update): Native Status for ${title} -> ${status}`);
           }
           sendResponse({ ok: true });
         })();
