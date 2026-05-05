@@ -58,8 +58,11 @@ document.addEventListener('sly:panel_close', () => {
   window.slyInternalState.forceFallback = false;
 
   const root = document.getElementById('lyrics-root-sync');
-  if (!root) return; // slyCore wasn't active, nothing to clean
-  console.log('[sly] Clean-up: Panel closed reactively, removing custom root.');
+  if (!root) {
+    console.log('[sly-lifecycle] 🚪 Panel closed, but no injected DOM was active. Standing down.');
+    return;
+  }
+  console.log('[sly-lifecycle] 🧹 Panel closed reactively. Removing injected #lyrics-root-sync and restoring native UI.');
   if (window.slyClearStatus) window.slyClearStatus();
   root.remove();
   // Preserve fetching state: if a fetch is in-flight, re-mark isFetchingHUD = true
@@ -113,7 +116,7 @@ window.slyCheckNowPlaying = function (): void {
 
       browser.runtime.sendMessage({ 
         type: 'SLY_CHECK_CACHE', 
-        payload: { title, uri: fullUri } 
+        payload: { title, artist, uri: fullUri } 
       }).then((r: any) => {
         // Guard: Song changed while we were asking the background script
         if ((window.spotifyState?.track as Record<string, unknown> | null)?.uri !== fullUri) return;
@@ -145,7 +148,7 @@ window.slyCheckNowPlaying = function (): void {
     // removed entirely (e.g. during an ad) rather than deactivated — the
     // MutationObserver in events.ts only fires on attribute changes, not removal.
     if (!detection.isOnLyricsPage && document.getElementById('lyrics-root-sync')) {
-      console.log('[sly] Orphan guard: panel closed but #lyrics-root-sync still present — triggering cleanup.');
+      console.log('[sly-lifecycle] 🛡️ Orphan guard: Detection confirms panel closed, but #lyrics-root-sync is still in DOM. Triggering cleanup.');
       document.dispatchEvent(new CustomEvent('sly:panel_close'));
       return;
     }
@@ -298,7 +301,16 @@ window.slyCheckNowPlaying = function (): void {
         if (window.slyInternalState.lastDecision !== decision) {
           console.log(`[sly-dom] ✅ DECISION: Native lyrics are synced for "${title}" [${fullUri?.split(':').pop() || 'N/A'}]. Engine standing down.`);
           window.slyInternalState.lastDecision = decision;
+          // Notify the bridge immediately to ensure the pill appears without MutationObserver latency
+          document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
         }
+        // Emit NATIVE_OK on every standing-down tick (not just on transition).
+        // lifecycleController's syncPill('NATIVE_OK') is idempotent — if the pill is
+        // already correctly placed, this is a no-op. If React re-rendered the lyrics
+        // container and removed the pill without removing the lyrics-line nodes
+        // (meaning onLyricsInjected won't fire), this provides a periodic recovery
+        // path with a maximum delay of one poll interval (5s in standing-down mode).
+        document.dispatchEvent(new CustomEvent('sly:state', { detail: { state: 'NATIVE_OK' } }));
         if (window.slyInternalState.nativeRecoveryPending && detection.hasNativeLines) {
           window.slyInternalState.nativeRecoveryPending = false;
         }
@@ -314,9 +326,15 @@ window.slyCheckNowPlaying = function (): void {
         return;
       }
 
-      // Stand down if native lyrics suddenly became synced or we are unsynced vs unsynced
-      if (lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback) {
-        window.slyPreFetchRegistry.register(fullUri || '', 'SYNCED', { title: title, artist: artist, customStatus: 'SYNCED' });
+      // Stand down if native lyrics suddenly became synced/recovered or we are unsynced vs unsynced
+      const isNativeFunctional = lyricsState === 'SYNCED' || lyricsState === 'NATIVE_OK';
+      if (isNativeFunctional && !window.slyInternalState.forceFallback) {
+        window.slyPreFetchRegistry.register(fullUri || '', 'NATIVE_OK', { 
+          title: title, 
+          artist: artist, 
+          nativeStatus: 'NATIVE_OK',
+          reason: 'De-Romanization Success' 
+        });
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri = '';
@@ -394,9 +412,13 @@ function startThrottledPoll() {
   
   window.slyCheckNowPlaying();
   
-  // Throttle to 5000ms if native lyrics are perfectly synced and we aren't fetching/forcing
-  const isStandingDown = window.slyDetectNativeState().lyricsState === 'SYNCED' && 
-                         !window.slyInternalState.forceFallback && 
+  // Determine standing-down interval using slyInternalState fields set by the
+  // slyCheckNowPlaying() call above — no second slyDetectNativeState() DOM call needed.
+  // lastDecision is set to 'synced:<title>' by the SYNCED branch and reset to ''
+  // by slyResetPlayerState() on every track change, so this correctly reads false
+  // after any song transition.
+  const isStandingDown = (window.slyInternalState.lastDecision?.startsWith('synced:') ?? false) &&
+                         !window.slyInternalState.forceFallback &&
                          !window.slyInternalState.fetchingForTitle &&
                          !window.slyInternalState.nativeRecoveryPending;
                          

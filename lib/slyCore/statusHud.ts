@@ -111,6 +111,11 @@ declare global {
     window.slyInternalState.statusHUDActive = true;
     window.slyInternalState.isFetchingHUD = !isError && !isAd;
     window.slyInternalState.isAdHUDActive = isAd;
+
+    // Announce HUD state to Pipeline B via the sly:state event bus.
+    // lifecycleController subscribes and hides the mode pill immediately.
+    const hudState = isError ? 'FAILED' : (isAd ? 'AD' : 'FETCHING');
+    document.dispatchEvent(new CustomEvent('sly:state', { detail: { state: hudState } }));
   };
 
   window.slyClearStatus = function (): void {

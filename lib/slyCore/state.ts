@@ -1,3 +1,4 @@
+import { slyInternalState } from './state';
 // Port of: lyric-test/modules/core/state.js
 
 export interface SpotifyBridgeState {
@@ -98,7 +99,7 @@ export const slyInternalState: SlyInternalState = {
   isAdHUDActive: false,
 };
 
-window.slyInternalState = slyInternalState;
+slyInternalState = slyInternalState;
 
 /**
  * Registers the SLY_BRIDGE window message listener.
