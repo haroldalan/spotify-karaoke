@@ -1,5 +1,5 @@
 import { safeBrowserCall } from '../utils/browserUtils';
-import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines } from '../dom/domQueries';
+import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
 import { loadSongCache, saveSongCache } from './lyricsCache';
@@ -26,8 +26,35 @@ let godState: 'IDLE' | 'LOADING' | 'NATIVE_OK' | 'RELEASING' | 'PIPELINE_A' | 'F
  * can manage it without threading it through StateStore. Moved from StateStore in Step 5.
  */
 let lyricsObserver: MutationObserver | null = null;
+let lastAuditedSongKey = '';
+
+export function auditOriginalLyrics(songKey: string, cache: SongCache, preferredMode: string): void {
+  if (songKey && songKey !== lastAuditedSongKey && cache.original.length > 0) {
+    lastAuditedSongKey = songKey;
+    console.log(`[sly-audit] 🎵 Active Track: "${songKey}"`);
+    console.log(`[sly-audit] 📄 Original Lyrics (First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
+    console.log(`[sly-audit] ⚙️ Active Preferred Mode: "${preferredMode}"`);
+  }
+}
 
 const getTrackUri = () => (spotifyState?.track as { uri?: string } | null)?.uri;
+
+function getVerbalLines(lines: string[]): string[] {
+  return lines
+    .map(line => line.trim())
+    .filter(line => {
+      if (!line) return false;
+      const lower = line.toLowerCase();
+      return (
+        line !== '♪' &&
+        line !== '🎵' &&
+        line !== '🎶' &&
+        line !== 'instrumental' &&
+        lower !== '[instrumental]' &&
+        lower !== '(instrumental)'
+      );
+    });
+}
 
 export interface LifecycleControllerOpts {
   store: StateStore;
@@ -110,6 +137,61 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     };
   }
 
+  function verifyAndHealCache(cache: SongCache): void {
+    if (slyInternalState?.currentLyrics) return;
+    if (opts.store.slyActiveContainer || document.getElementById('lyrics-root-sync') || godState === 'PIPELINE_A') return;
+
+    const registryState = (window as any).slyPreFetchRegistry?.getState(opts.store.songKey);
+    const nativeStatus = registryState?.nativeStatus;
+    if (nativeStatus === 'UNSYNCED' || nativeStatus === 'MISSING') return;
+    if (spotifyState?.isTimeSynced === false || spotifyState?.nativeHasLyrics === false) return;
+
+    const nativeLines = getLyricsLines().map(el => {
+      const dualSub = el.querySelector('.sly-dual-line');
+      if (dualSub) return dualSub.textContent ?? '';
+      const mainSpan = el.querySelector('.sly-main-line');
+      if (mainSpan) return mainSpan.textContent ?? '';
+      return el.getAttribute('data-sly-original') ?? el.textContent ?? '';
+    }).filter(text => text.trim().length > 0);
+
+    if (nativeLines.length > 0) {
+      if (cache.original.length === 0) {
+        snapshotOriginals(cache);
+      } else {
+        const verbalCache = getVerbalLines(cache.original);
+        const verbalNative = getVerbalLines(nativeLines);
+
+        // GHOST GUARD: If React is rendering incrementally, the DOM lines will be a prefix
+        // of our cache. Do not trigger a false-positive mismatch during this settling phase.
+        const isPrefix = verbalNative.length < verbalCache.length && 
+                         verbalNative.every((l, i) => l === verbalCache[i]);
+        if (isPrefix) return;
+
+        // INCREMENTAL GROW GUARD: If the new DOM snapshot is longer than our cached original,
+        // but matches it perfectly up to the cached length, then React is rendering incrementally.
+        // Update our cache with the fuller snapshot instead of triggering a false-positive mismatch.
+        const isGrow = verbalNative.length > verbalCache.length &&
+                       verbalCache.every((l, i) => l === verbalNative[i]);
+        if (isGrow) {
+          cache.original = [...nativeLines];
+          saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
+          return;
+        }
+
+        const isMismatch = verbalCache.length !== verbalNative.length || 
+                           !verbalCache.every((l, i) => l === verbalNative[i]);
+        if (isMismatch) {
+          const origSnippet = cache.original.slice(0, 3).join(' | ');
+          const nativeSnippet = nativeLines.slice(0, 3).join(' | ');
+          console.warn(`[sly] ⚠️ Cache Mismatch / Poisoning detected! Self-healing cache active. Live DOM (${nativeLines.length} lines: "${nativeSnippet}") differs from Cache original (${cache.original.length} lines: "${origSnippet}"). Overwriting cache with fresh DOM snapshot.`);
+          cache.processed.clear();
+          snapshotOriginals(cache);
+          saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
+        }
+      }
+    }
+  }
+
   async function trySetup(): Promise<void> {
     if (setupLock) return;
     setupLock = true;
@@ -153,7 +235,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     }
 
     const cache = opts.store.cache;
-    if (cache.original.length === 0) snapshotOriginals(cache);
+    verifyAndHealCache(cache);
+    auditOriginalLyrics(opts.store.songKey, cache, opts.store.preferredMode);
 
     lyricsObserver?.disconnect();
     lyricsObserver = createLyricsObserver({
@@ -228,7 +311,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         }
 
         if (processed) {
-          if (cache.original.length === 0) snapshotOriginals(cache);
+          verifyAndHealCache(cache);
+          auditOriginalLyrics(opts.store.songKey, cache, syncPreferredMode);
           applyNativeOverride({ cache, pendingNativeLines: opts.store.pendingNativeLines });
 
           lyricsObserver?.disconnect();
@@ -269,7 +353,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         return;
       }
 
-      if (cache.original.length === 0) snapshotOriginals(cache);
+      verifyAndHealCache(cache);
+      auditOriginalLyrics(opts.store.songKey, cache, opts.store.preferredMode);
       applyNativeOverride({ cache, pendingNativeLines: opts.store.pendingNativeLines });
 
       // Ensure the cache is warm (check runtime then storage) before proceeding.
@@ -320,7 +405,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         }
       }
 
-      if (opts.store.songKey === getNowPlayingKey() && document.getElementById(CONTROLS_ID)?.parentElement === getLyricsContainer()) {
+      if (opts.store.mode === opts.store.preferredMode && opts.store.songKey === getNowPlayingKey() && document.getElementById(CONTROLS_ID)?.parentElement === getLyricsContainer()) {
         return;
       }
 
@@ -384,6 +469,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const songKey = opts.store.songKey;
     if (newKey === songKey) return;
 
+    // Synchronously destroy the custom takeover container instantly on track skip
+    // to eliminate the staggered unmount/delay for Takeover tracks.
+    document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
+
     // Revert the dual lyrics DOM to their single original native text
     // to ensure both lines disappear cleanly and simultaneously during track change.
     // This also keeps React's reconciler completely happy on unmount.
@@ -395,6 +484,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       }
     });
 
+    lastAuditedSongKey = '';
     godState = 'LOADING'; // Track is changing — no stable pill target until next state event.
     opts.store.songKey = newKey;
     opts.store.mode = 'original';
@@ -409,10 +499,19 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     opts.store.pendingNativeLines.clear();
     setupLock = false;
 
-    // Proactively load processed cache for this song so it's ready for trySetup/syncSetup.
-    // We don't await here as we want to start the poll immediately, but the promise
-    // ensures coherence for any subsequent snapshotOriginals calls.
-    cacheReadyPromise = loadSongCache(newKey, opts.store.cache, opts.store.runtimeCache);
+    const hasHotCache = opts.store.runtimeCache.has(newKey);
+    if (hasHotCache) {
+      const runtimeEntry = opts.store.runtimeCache.get(newKey);
+      if (runtimeEntry) {
+        opts.store.cache.original = [...runtimeEntry.original];
+        for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
+          opts.store.cache.processed.set(lang, res);
+        }
+      }
+      cacheReadyPromise = Promise.resolve();
+    } else {
+      cacheReadyPromise = loadSongCache(newKey, opts.store.cache, opts.store.runtimeCache);
+    }
 
     // Clear stale container references immediately so autoSwitchIfNeeded
     // doesn't write into detached DOM nodes before the slyCore poll fires.
@@ -425,13 +524,17 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       orphan.remove();
     }
 
-    if (opts.store.preferredMode !== 'original') {
+    if (!hasHotCache && opts.store.preferredMode !== 'original') {
       setLoadingState(true);
     }
 
     const controls = document.getElementById(CONTROLS_ID);
     if (controls) {
-      controls.classList.add('sly-loading');
+      if (!hasHotCache) {
+        controls.classList.add('sly-loading');
+      } else {
+        controls.classList.remove('sly-loading');
+      }
       // No longer hiding the pill here to prevent the "pop-in" effect.
       // We rely on React's DOM diffing to leave our pill alone (like in v3.0.6).
     }
@@ -510,7 +613,27 @@ export function setupSlyBridge(
     setupLock = true;
     try {
       const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
-      if (!lyricsObj || lyricsObj.failed) return;
+      if (!lyricsObj || lyricsObj.failed) {
+        setupLock = false;
+        return;
+      }
+
+      // Strict desync checks: verify that injected lyrics actually match the active track
+      const currentUri = (window as any).spotifyState?.track?.uri;
+      if (lyricsObj._slyUri && currentUri && lyricsObj._slyUri !== currentUri) {
+        console.warn(`[sly] Bridge sly:inject aborted: lyrics URI (${lyricsObj._slyUri}) does not match current track URI (${currentUri})`);
+        setupLock = false;
+        return;
+      }
+
+      const domTrackId = getNowPlayingTrackId();
+      if (domTrackId && lyricsObj._slyUri && !(lyricsObj._slyUri as string).includes(domTrackId)) {
+        console.warn(`[sly] Bridge sly:inject aborted: lyrics URI (${lyricsObj._slyUri}) does not match DOM now playing track ID (${domTrackId})`);
+        setupLock = false;
+        return;
+      }
+
+      const injectionSongKey = store.songKey;
 
       // Wait for a frame to ensure React has finished any immediate DOM shuffling
       // from the track transition before we start our own injection.
@@ -551,8 +674,9 @@ export function setupSlyBridge(
     // Pass domElements (padding-free) so sly:takeover can give them directly to
     // the renderer — avoids the querySelectorAll index-offset bug.
     const domElements = (lyricsObj.domElements as HTMLElement[]) ?? [];
+    const trackId = injectionSongKey;
     document.dispatchEvent(new CustomEvent('sly:takeover', {
-      detail: { container: root, plainLines, isSynced: !!lyricsObj.isSynced, lrcLines, domElements },
+      detail: { container: root, plainLines, isSynced: !!lyricsObj.isSynced, lrcLines, domElements, trackId },
     }));
 
       // 6. Setup the floating Sync button.
@@ -565,13 +689,20 @@ export function setupSlyBridge(
   });
 
   document.addEventListener('sly:takeover', (e: Event) => {
-    const { container: root, plainLines, isSynced, lrcLines, domElements } = (e as CustomEvent<{
+    const { container: root, plainLines, isSynced, lrcLines, domElements, trackId } = (e as CustomEvent<{
       container: HTMLElement;
       plainLines: string[];
       isSynced: boolean;
       lrcLines: LrcLine[];
       domElements: HTMLElement[];
+      trackId?: string;
     }>).detail;
+
+    const targetKey = trackId || store.songKey;
+    if (store.songKey !== targetKey) {
+      console.warn(`[sly] sly:takeover discarded: Event is for track ${targetKey} but active track is ${store.songKey}`);
+      return;
+    }
 
     // Feed slyCore's lyrics into Pipeline B's data model. This populates
     // cache.original so switchMode can process and apply them.
@@ -579,9 +710,13 @@ export function setupSlyBridge(
     // Invalidate processed cache if the source of truth has changed.
     // This prevents "Cache Poisoning" where a proactive Native snapshot captured 
     // padding lines before the Takeover arrived.
-    if (store.cache.original.length !== plainLines.length) {
+    const verbalCache = getVerbalLines(store.cache.original);
+    const verbalPlain = getVerbalLines(plainLines);
+    if (verbalCache.length > 0 && verbalCache.length !== verbalPlain.length) {
+      const origSnippet = store.cache.original.slice(0, 3).join(' | ');
+      const plainSnippet = plainLines.slice(0, 3).join(' | ');
+      console.log(`[sly-lifecycle] 🔄 Cache Invalidation: Takeover data verbal length (${verbalPlain.length} lines: "${plainSnippet}") differs from Native snapshot (${verbalCache.length} lines: "${origSnippet}"). Clearing processed map.`);
       store.cache.processed.clear();
-      console.log('[sly-lifecycle] 🔄 Cache Invalidation: Takeover data length differs from Native snapshot. Clearing processed map.');
     }
 
     store.cache.original = plainLines;
@@ -596,7 +731,14 @@ export function setupSlyBridge(
     lyricsObserver = null;
 
     // Load any previously cached translations before re-applying mode.
-    loadSongCache(store.songKey, store.cache, store.runtimeCache).then(() => {
+    const takeoverKey = store.songKey;
+    loadSongCache(takeoverKey, store.cache, store.runtimeCache).then(() => {
+      // Race Condition Guard: If the track changed while we were waiting for the cache, abort.
+      if (store.songKey !== takeoverKey) {
+        console.warn('[sly] sly:takeover aborted: Track changed during cache wait.');
+        return;
+      }
+
       // State-driven pill injection: pill belongs in the Pipeline A container.
       // syncPill() resolves the target deterministically from #lyrics-root-sync.
       syncPill('PIPELINE_A');
@@ -608,6 +750,7 @@ export function setupSlyBridge(
         slyInternalState.slySyncedRendererActive = true;
         renderer.start(lrcLines, slyInternalState.lastActiveIndex);
       }
+      auditOriginalLyrics(store.songKey, store.cache, store.preferredMode);
       autoSwitchIfNeeded(true);
     });
   });

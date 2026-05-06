@@ -8,7 +8,7 @@ export {};
 
 declare global {
   interface Window {
-    slyTriggerLyricsFetch: (title: string, artist: string, albumArtUrl: string, uri: string) => void;
+    slyTriggerLyricsFetch: (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh?: boolean) => void;
     // Forward ref from content.js (not yet ported) — guarded in source via setTimeout
     slyCheckNowPlaying?: () => void;
   }
@@ -160,7 +160,7 @@ function safeSendMessage(msg: Record<string, unknown>, callback?: (r: Record<str
 }
 
 // --- FETCH TRIGGER ---
-window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string): void {
+window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false): void {
   if (window.slyInternalState.fetchingForUri === uri) return;
   window.slyInternalState.fetchingForTitle = title;
   window.slyInternalState.fetchingForUri = uri;
@@ -207,7 +207,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   const trackId = (uri || myUri)?.split(':').pop();
   const knownNativeStatus = trackId ? window.slyPreFetchRegistry.getState(trackId)?.nativeStatus : null;
 
-  safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri, nativeStatus: knownNativeStatus } }, (r) => {
+  safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri, nativeStatus: knownNativeStatus, forceRefresh } }, (r) => {
     // STALE CHECK 1: Generation mismatch — native recovered or track changed mid-flight
     if (myGeneration !== window.slyInternalState.fetchGeneration) {
       // If the generation was bumped but the URI still matches, this is likely a

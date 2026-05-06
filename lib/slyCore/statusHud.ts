@@ -95,12 +95,17 @@ declare global {
 
       // Full Native Encore Button Anatomy:
       content += `
-                <div class="sly-hud-cta-wrapper">
+                <div class="sly-hud-cta-wrapper" style="display: flex; gap: 12px; margin-top: 16px; justify-content: flex-start; flex-wrap: wrap;">
                     <a href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnPrimary || 'e-10451-legacy-button e-10451-legacy-button-primary'}">
                         <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnPrimaryInner || 'e-10451-button-primary__inner'} encore-inverted-light-set e-10451-legacy-button--medium">
                             Add lyrics to LRCLIB
                         </span>
                     </a>
+                    <button id="sly-hud-retry-btn" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnSecondary || 'e-10451-legacy-button e-10451-legacy-button-secondary'}" style="cursor: pointer; transition: transform 0.2s ease;">
+                        <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnSecondaryInner || 'e-10451-button-secondary__inner'} e-10451-legacy-button--medium">
+                            Retry Fetch
+                        </span>
+                    </button>
                 </div>
             `;
     } else {
@@ -109,6 +114,33 @@ declare global {
 
     content += `</div>`;
     hud.innerHTML = content;
+
+    if (isError) {
+      const retryBtn = hud.querySelector('#sly-hud-retry-btn');
+      if (retryBtn) {
+        retryBtn.addEventListener('mouseenter', () => {
+          (retryBtn as HTMLElement).style.transform = 'scale(1.04)';
+        });
+        retryBtn.addEventListener('mouseleave', () => {
+          (retryBtn as HTMLElement).style.transform = '';
+        });
+        retryBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log('[sly-hud] 🔄 Retry Fetch triggered with cache bypass...');
+          
+          window.slyInternalState.currentLyrics = null;
+          window.slyInternalState.fetchingForUri = '';
+          window.slyInternalState.warmedUri = undefined;
+          
+          const fullUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined || '';
+          
+          if (typeof window.slyTriggerLyricsFetch === 'function') {
+            window.slyTriggerLyricsFetch(title, artist, artUrl, fullUri, true);
+          }
+        });
+      }
+    }
 
     window.slyInternalState.statusHUDActive = true;
     window.slyInternalState.isFetchingHUD = !isError && !isAd;

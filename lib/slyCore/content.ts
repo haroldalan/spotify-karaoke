@@ -361,6 +361,16 @@ window.slyCheckNowPlaying = function (): void {
       const hasContent = !!(data.plainLyrics || data.syncedLyrics);
 
       if (hasContent) {
+        const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
+        const fetchingUri = window.slyInternalState.fetchingForUri;
+        if (fetchingUri && currentUri && fetchingUri !== currentUri) {
+          console.warn(`[sly] Taking over aborted: pendingLyricsData URI (${fetchingUri}) does not match current track URI (${currentUri})`);
+          window.slyInternalState.pendingLyricsData = null;
+          window.slyInternalState.fetchingForTitle = '';
+          window.slyInternalState.fetchingForUri = '';
+          return;
+        }
+
         // Hand off execution to Pipeline B. Clearing of pendingLyricsData is now
         // done immediately before dispatch to prevent double-injection races.
         const data = window.slyInternalState.pendingLyricsData;
@@ -385,12 +395,16 @@ window.slyCheckNowPlaying = function (): void {
 
       // If the panel was re-opened and our DOM was wiped by React, re-inject
       if (!root || !root.isConnected || root.innerHTML === '') {
-        console.log('[sly] Restore: Panel re-opened. Re-injecting lyrics DOM...');
-        // Route through Pipeline B's unified injection path (sly:inject → setupSlyBridge).
-        // slyInjectLyrics is no longer the executor — sly:inject is the contract.
-        document.dispatchEvent(new CustomEvent('sly:inject', {
-          detail: { lyricsObj: window.slyInternalState.currentLyrics as Record<string, unknown> },
-        }));
+        const cl = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
+        const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
+        if (detection.lyricsState !== 'LOADING' && cl && currentUri && cl._slyUri === currentUri) {
+          console.log('[sly] Restore: Panel re-opened. Re-injecting lyrics DOM...');
+          // Route through Pipeline B's unified injection path (sly:inject → setupSlyBridge).
+          // slyInjectLyrics is no longer the executor — sly:inject is the contract.
+          document.dispatchEvent(new CustomEvent('sly:inject', {
+            detail: { lyricsObj: cl },
+          }));
+        }
       } else {
         // Ensure visibility and hijack classes are active
         root.style.display = '';

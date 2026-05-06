@@ -12,7 +12,7 @@ export default defineBackground(() => {
         lines?: string[];
         targetLang?: string;
         // FETCH_LYRICS / PREFETCH_LYRICS fields
-        payload?: { title: string; artist: string; albumArtUrl?: string; uri?: string };
+        payload?: { title: string; artist: string; albumArtUrl?: string; uri?: string; forceRefresh?: boolean };
       },
       sender,
       sendResponse,
@@ -76,7 +76,7 @@ export default defineBackground(() => {
       }
 
       if (msg.type === 'FETCH_LYRICS' || msg.type === 'PREFETCH_LYRICS') {
-        const { title, artist, albumArtUrl, uri } = msg.payload ?? {} as NonNullable<typeof msg.payload>;
+        const { title, artist, albumArtUrl, uri, forceRefresh } = msg.payload ?? {} as NonNullable<typeof msg.payload>;
 
         if (!title || !artist) {
           sendResponse({ ok: false, error: 'Missing metadata' });
@@ -87,7 +87,7 @@ export default defineBackground(() => {
 
         (async () => {
           // 1. L1: Instant Memory Cache Hit
-          if (lyricsCache.has(cacheKey)) {
+          if (lyricsCache.has(cacheKey) && !forceRefresh) {
             const cached = lyricsCache.get(cacheKey);
             if (cached && !(cached as any).isPlaceholder) {
               console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
@@ -97,7 +97,7 @@ export default defineBackground(() => {
           }
 
           // 2. L2: Persistent Storage Hit
-          const stored = await lyricsPersistence.get(cacheKey);
+          const stored = forceRefresh ? null : await lyricsPersistence.get(cacheKey);
           if (stored && !(stored as any).isPlaceholder) {
             console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
             

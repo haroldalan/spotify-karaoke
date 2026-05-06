@@ -64,6 +64,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.pendingLyricsData = null;
   window.slyInternalState.isFetchingHUD = false;
   window.slyInternalState.statusHUDActive = false;
+  window.slyInternalState.isAdHUDActive = false;
 
   // Reset playback extrapolator so the first slyGetPlaybackSeconds() call after
   // a skip reads the live progress bar DOM instead of extrapolating from the
@@ -114,6 +115,34 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
       window.slyScavengeClasses();
     }
     lastScavengeTime = now;
+  }
+
+  // 5. PROACTIVE FETCH: If we already have confirmed MISSING/UNSYNCED/ROMANIZED evidence in the pre-fetch registry,
+  // and the user is actively on the lyrics page, initiate the external fetch instantly at 0ms.
+  // This bypasses the 500ms desync guard and the 600ms DOM settling delays!
+  const trackId = uri?.split(':').pop();
+  if (trackId && trackId !== 'ad' && trackId !== 'N/A') {
+    const preFetch = window.slyPreFetchRegistry?.getState(trackId);
+    const isMissingOrUnsynced = preFetch && (
+      preFetch.nativeStatus === 'MISSING' ||
+      preFetch.nativeStatus === 'UNSYNCED' ||
+      preFetch.nativeStatus === 'ROMANIZED' ||
+      preFetch.state === 'MISSING' ||
+      preFetch.state === 'UNSYNCED' ||
+      preFetch.state === 'ROMANIZED'
+    );
+    const isOnLyricsPage = window.location.pathname === '/lyrics' ||
+                           document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
+
+    if (isMissingOrUnsynced && isOnLyricsPage) {
+      const detection = typeof window.slyDetectNativeState === 'function' ? window.slyDetectNativeState() : {};
+      const artist = detection.artist || window.spotifyState?.track?.artistName || '';
+      const albumArtUrl = detection.albumArtUrl || window.spotifyState?.track?.image || '';
+      console.log(`[sly-ui] 🚀 PROACTIVE FETCH: Track ${newTitle} [${trackId}] is confirmed ${preFetch.nativeStatus || preFetch.state} in pre-fetch registry. Initiating instant fetch at 0ms...`);
+      if (typeof window.slyTriggerLyricsFetch === 'function') {
+        window.slyTriggerLyricsFetch(newTitle, artist, albumArtUrl, uri);
+      }
+    }
   }
 };
 

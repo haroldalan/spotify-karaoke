@@ -20,6 +20,7 @@ export async function fetchProcessed(
 
   const gen = ++processGenRef.value;
 
+  console.log(`[sly-audit] ⏳ Requesting background processing for "${songKey}" (targetLang: ${lang})...`);
   const result = await safeBrowserCall(() => browser.runtime.sendMessage({
     type: 'PROCESS',
     lines,
@@ -33,6 +34,7 @@ export async function fetchProcessed(
     showToast('Some long lines were truncated to maintain sync.', 4000);
   }
 
+  console.log(`[sly-audit] ✅ Background processing complete!`);
   cache.processed.set(lang, result);
   saveSongCache(songKey, cache, runtimeCache);
   return result;

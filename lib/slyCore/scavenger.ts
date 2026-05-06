@@ -28,6 +28,8 @@ export interface SpotifyClasses {
   errorContainer: string;
   btnPrimary: string;
   btnPrimaryInner: string;
+  btnSecondary: string;
+  btnSecondaryInner: string;
   topSpacer: string;
   footerInner1: string;
   footerInner2: string;
@@ -59,6 +61,8 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
   errorContainer:    'hfTlyhd7WCIk9xmP',
   btnPrimary:        'e-10451-legacy-button e-10451-legacy-button-primary',
   btnPrimaryInner:   'e-10451-button-primary__inner',
+  btnSecondary:      'e-10451-legacy-button e-10451-legacy-button-secondary',
+  btnSecondaryInner: 'e-10451-button-secondary__inner',
   topSpacer:         'nIWoY9ePLgi1am10',
   footerInner1:      'KBRwz1uoWl0AAEsT',
   footerInner2:      'g5l1TSALoQMUlKhS',
@@ -146,6 +150,16 @@ export const slyScavengeClasses = function (): void {
     window.SPOTIFY_CLASSES.btnPrimary = btn.className;
     const inner = btn.querySelector('span');
     if (inner) window.SPOTIFY_CLASSES.btnPrimaryInner = inner.className;
+  }
+
+  const btnSec = Array.from(document.querySelectorAll('[data-encore-id="buttonSecondary"]'))
+    .find(el => el.className.includes('legacy-button-secondary') && !(el as HTMLElement).dataset.testid) ||
+    Array.from(document.querySelectorAll('[data-encore-id="buttonSecondary"]'))
+    .find(el => !(el as HTMLElement).dataset.testid);
+  if (btnSec) {
+    window.SPOTIFY_CLASSES.btnSecondary = btnSec.className;
+    const inner = btnSec.querySelector('span');
+    if (inner) window.SPOTIFY_CLASSES.btnSecondaryInner = inner.className;
   }
   
   // 6. Deep CSS Scavenge (Background fetch to bypass CORS)

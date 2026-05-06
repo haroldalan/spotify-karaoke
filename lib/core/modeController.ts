@@ -35,6 +35,7 @@ export function createModeController(opts: ModeControllerOpts) {
 
     if (next === mode && forceLang === undefined && !forceRefresh) return;
     const previousMode = mode;
+    console.log(`[sly-audit] 🔄 Mode Change Requested: "${previousMode}" ➡️ "${next}"`);
     if (cache.original.length === 0) snapshotOriginals(cache);
 
     if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original)) {
@@ -47,6 +48,7 @@ export function createModeController(opts: ModeControllerOpts) {
       if (targets && targets.length !== cache.original.length) {
         console.warn('[SKaraoke:Content] Alignment mismatch detected (Latin). DOM:', targets.length, 'Cache:', cache.original.length);
       }
+      console.log(`[sly-audit] 📄 Applying Original Lyrics (Latin script fallback, First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
       applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
       syncButtonStates(next);
       return;
@@ -70,6 +72,7 @@ export function createModeController(opts: ModeControllerOpts) {
           opts.store.preferredMode = next;
           safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
         }
+        console.log(`[sly-audit] 📄 Applying Original Lyrics (First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
         applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
         setLoadingState(false);
       } else {
@@ -103,6 +106,7 @@ export function createModeController(opts: ModeControllerOpts) {
         if (targets && targets.length !== cache.original.length) {
           console.warn('[SKaraoke:Content] Alignment mismatch detected (Processed). DOM:', targets.length, 'Cache:', cache.original.length);
         }
+        console.log(`[sly-audit] 🔮 Processed Lyrics ("${next}" mode, First 5 lines):\n`, lines.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
         applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
         setLoadingState(false);
       }
@@ -141,6 +145,7 @@ export function createModeController(opts: ModeControllerOpts) {
     if (targets && targets.length !== cache.original.length) {
       console.warn('[SKaraoke:Content] Alignment mismatch detected in reapplyMode. DOM:', targets.length, 'Cache:', cache.original.length);
     }
+    console.log(`[sly-audit] 🔮 Processed Lyrics (Re-applying "${mode}" mode, First 5 lines):\n`, lines.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
     applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
     setLoadingState(false);
   }

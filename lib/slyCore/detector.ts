@@ -59,18 +59,18 @@ window.slyDetectNativeState = function (): DetectorState {
   // 0.1 PAGE DETECTION (Dynamic)
   const containerClass = window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x';
 
-  // We check URL, Button states (Main and Sidebar), and Native Container presence.
+  // We check URL, Button states (Main), and Native Container presence.
+  // NOTE: There is no functional "now-playing-view-lyrics-button" (side button) in the Spotify UI DOM.
   // CRITICAL: We do NOT check for !!document.getElementById('lyrics-root-sync') here
   // to avoid a circular dependency that prevents the extension from switching off.
   const onLyricsPath = window.location.pathname === '/lyrics';
   const mainBtnPressed = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
-  const sideBtnPressed = document.querySelector('[data-testid="now-playing-view-lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
   const nativeFound = !!document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`);
 
-  state.isOnLyricsPage = onLyricsPath || mainBtnPressed || sideBtnPressed || nativeFound;
+  state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound;
 
   if (state.isOnLyricsPage !== (window.slyInternalState as any).isOnLyricsPage) {
-    console.log(`[sly-detector] 🗺️ Page Detection Change: ${state.isOnLyricsPage ? 'OPEN' : 'CLOSED'} | Path: ${onLyricsPath} | MainBtn: ${mainBtnPressed} | SideBtn: ${sideBtnPressed} | Native: ${nativeFound}`);
+    console.log(`[sly-detector] 🗺️ Page Detection Change: ${state.isOnLyricsPage ? 'OPEN' : 'CLOSED'} | Path: ${onLyricsPath} | MainBtn: ${mainBtnPressed} | Native: ${nativeFound}`);
     (window.slyInternalState as any).isOnLyricsPage = state.isOnLyricsPage;
   }
 
@@ -105,14 +105,16 @@ window.slyDetectNativeState = function (): DetectorState {
   // 2. DOM SCANNING
   // Scavenge or fallback to known error containers. We check for actual visibility 
   // (not display: none) to avoid catching stale errors during track transitions.
+  // GHOST GUARD: Ignore lines and error messages for 150ms after a song change to allow React to settle.
+  const isSettling = window.slyInternalState.songSettlingUntil && Date.now() < window.slyInternalState.songSettlingUntil;
+
   const errorEl = document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP')) as HTMLElement | null;
   const errorElAlt = document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM')) as HTMLElement | null;
-  state.hasUnavailableMessage = (!!errorEl && getComputedStyle(errorEl).display !== 'none') || 
-                                (!!errorElAlt && getComputedStyle(errorElAlt).display !== 'none');
+  state.hasUnavailableMessage = !isSettling && (
+                                 (!!errorEl && (errorEl.offsetParent !== null || (errorEl.textContent || '').trim().length > 0)) || 
+                                 (!!errorElAlt && (errorElAlt.offsetParent !== null || (errorElAlt.textContent || '').trim().length > 0))
+                               );
 
-  // Check for native lines while ignoring our own injected lines.
-  // GHOST GUARD: Ignore lines for 150ms after a song change to allow React to settle.
-  const isSettling = window.slyInternalState.songSettlingUntil && Date.now() < window.slyInternalState.songSettlingUntil;
   state.hasNativeLines = !isSettling && !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
                                  .find(el => !el.closest('#lyrics-root-sync'));
 
@@ -186,10 +188,10 @@ window.slyDetectNativeState = function (): DetectorState {
                       state.preFetch?.state === 'NATIVE_OK' ||
                       state.preFetch?.state === 'SYNCED';
 
+  // SLY TEST: Disabling the React Context Provider Timeout (timeSinceOpen > 2500) to test for false positive prevention.
   const isNativeMissing = ((state.hasUnavailableMessage && isSettled && !isProtected) ||
                            state.preFetch?.nativeStatus === 'MISSING' ||
-                           state.preFetch?.state === 'MISSING' ||
-                           (state.isOnLyricsPage && window.spotifyState.lyricsProvider === null && timeSinceOpen > 2500)) && !state.hasNativeLines;
+                           state.preFetch?.state === 'MISSING') && !state.hasNativeLines;
 
   const isNativeUnsynced = (window.spotifyState.isTimeSynced === false || 
                             state.preFetch?.nativeStatus === 'UNSYNCED' ||
