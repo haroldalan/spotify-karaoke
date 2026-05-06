@@ -59,6 +59,11 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.fetchGeneration++;
   window.slyInternalState.warmedUri = undefined;
   window.slyInternalState.nativeUpgradedLines = undefined; // Note: original used null, but we type as optional string[]
+  window.slyInternalState.isSpotifyFetching = false;
+  window.slyInternalState.interceptorActive = false;
+  window.slyInternalState.pendingLyricsData = null;
+  window.slyInternalState.isFetchingHUD = false;
+  window.slyInternalState.statusHUDActive = false;
 
   // Reset playback extrapolator so the first slyGetPlaybackSeconds() call after
   // a skip reads the live progress bar DOM instead of extrapolating from the
