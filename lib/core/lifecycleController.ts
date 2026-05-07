@@ -345,8 +345,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           setLoadingState(false);
           syncPill('NATIVE_OK');
 
-          const currentPollId = pollId;
-          if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+          const currentPollId = opts.store.pollId;
+          if (currentPollId) {
+            cancelAnimationFrame(currentPollId);
+            clearTimeout(currentPollId);
+            opts.store.pollId = null;
+          }
           
           document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
           return; // Instant, fully synchronous return! ZERO frames flashed!
@@ -389,8 +393,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       });
 
       if (opts.store.isSwitchingMode) {
-        const currentPollId = pollId;
-        if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+        const currentPollId = opts.store.pollId;
+        if (currentPollId) {
+          cancelAnimationFrame(currentPollId);
+          clearTimeout(currentPollId);
+          opts.store.pollId = null;
+        }
         return;
       }
 
@@ -410,8 +418,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(preferredMode);
           setLoadingState(false);
-          const currentPollId = pollId;
-          if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+          const currentPollId = opts.store.pollId;
+          if (currentPollId) {
+            cancelAnimationFrame(currentPollId);
+            clearTimeout(currentPollId);
+            opts.store.pollId = null;
+          }
           return;
         }
       }

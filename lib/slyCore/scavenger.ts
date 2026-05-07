@@ -80,6 +80,16 @@ function findHash(classList: DOMTokenList): string {
 }
 
 /**
+ * Resets the deep scavenge guard. Call this on track change to ensure
+ * CSS-based hashes are re-verified if DOM-based shallow scavenging was polluted.
+ */
+export function resetDeepScavenge(): void {
+  hasDeepScavenged = false;
+  isDeepScavenging = false;
+}
+window.resetDeepScavenge = resetDeepScavenge;
+
+/**
  * DYNAMIC CLASS SCAVENGER
  * Inspects live Spotify elements to discover updated hashed classes.
  * This allows the extension to survive Spotify updates without a manual patch.
@@ -142,15 +152,27 @@ export const slyScavengeClasses = function (): void {
     // 4. Line Base & Padding Helper
     const lines = nativeContainer.querySelectorAll('[data-testid="lyrics-line"]');
     if (lines.length > 0) {
-      window.SPOTIFY_CLASSES.lineBase = findHash(lines[0].classList) || window.SPOTIFY_CLASSES.lineBase;
+      // SLY FIX: Identify lineBase by frequency analysis (must appear on ALL lines)
+      // to avoid clobbering it with subset-only state classes like activeLine.
+      const allLineHashes = Array.from(lines).flatMap(l =>
+        Array.from(l.classList).filter(c => /^[a-zA-Z0-9_-]{12,24}$/.test(c) && !c.startsWith('sly-'))
+      );
+      const freq = new Map<string, number>();
+      allLineHashes.forEach(c => freq.set(c, (freq.get(c) || 0) + 1));
+      const detectedBase = [...freq.entries()].find(([, count]) => count === lines.length)?.[0];
+      
+      if (detectedBase) {
+        window.SPOTIFY_CLASSES.lineBase = detectedBase;
+      } else {
+        window.SPOTIFY_CLASSES.lineBase = findHash(lines[0].classList) || window.SPOTIFY_CLASSES.lineBase;
+      }
+
       const inner = lines[0].querySelector('div');
       if (inner) window.SPOTIFY_CLASSES.textInner = findHash(inner.classList) || window.SPOTIFY_CLASSES.textInner;
 
       // HACK: Find the padding helper class by looking for lines with no text (spacers)
       const paddingLine = Array.from(lines).find(l => !l.textContent?.trim());
       if (paddingLine) {
-        // SLY FIX (Bug 9): Instead of just taking the last class (which might be a state class),
-        // find the class that isn't the base line class.
         const lineBase = window.SPOTIFY_CLASSES.lineBase;
         const helperClass = Array.from(paddingLine.classList).find(c => c !== lineBase);
         if (helperClass) {

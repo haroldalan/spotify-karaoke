@@ -79,6 +79,10 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // previous track's position (fixes sync mismatch on mid-song skip).
   if (window.slyResetPlaybackExtrapolator) window.slyResetPlaybackExtrapolator();
 
+  // Reset the deep scavenge guard so that the next scavenge cycle can
+  // re-verify CSS-based hashes if the shallow scan was polluted.
+  if (window.resetDeepScavenge) window.resetDeepScavenge();
+
   // 2. DOM Cleanup
   if (window.slyClearStatus) window.slyClearStatus();
 
