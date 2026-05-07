@@ -162,6 +162,12 @@ window.slyCheckNowPlaying = function (): void {
   try {
     const detection = window.slyDetectNativeState();
     const { title, artist, albumArtUrl } = detection;
+
+    // SLY FIX (Problem 4): If detection confirms the panel is open, reset userClosedPanel.
+    // This handles the case where the user re-opens via keyboard or other non-pointerdown path.
+    if (detection.isOnLyricsPage && window.slyInternalState.userClosedPanel) {
+      window.slyInternalState.userClosedPanel = false;
+    }
     const fullUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
 
     // 0. PROACTIVE CACHE WARMING
