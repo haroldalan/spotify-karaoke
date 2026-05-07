@@ -61,6 +61,18 @@ window.addEventListener('message', (event) => {
        console.log(`[sly] 🆕 First Play: No cache record found for ${data.title}.`);
     }
   }
+
+  // BUG-I FIX: Proxy scavenger storage/fetch calls to Background Script (Chrome MAIN world compat)
+  if (data?.source === 'SLY_SCAVENGER') {
+    const { type, url, payload } = data;
+    if (type === 'SLY_GET_SCAVENGE_TIME' || type === 'SLY_FETCH_CSS' || type === 'SLY_SET_SCAVENGE_TIME') {
+      browser.runtime.sendMessage({ type, url, payload }).then(response => {
+        window.postMessage({ source: 'SLY_CONTENT', type: type + '_RESPONSE', payload: response }, '*');
+      }).catch(err => {
+        window.postMessage({ source: 'SLY_CONTENT', type: type + '_RESPONSE', error: err.message }, '*');
+      });
+    }
+  }
 });
 
 // Note: Pipeline B's lifecycleController.ts onSongChange detects track changes reactively
@@ -92,7 +104,11 @@ document.addEventListener('sly:panel_close', () => {
       window.slyInternalState.currentLyrics = null;
     }
   }
-  window.slyInternalState.forceFallback = false;
+  
+  // BUG-J FIX: Do not clear forceFallback if a fetch is still in flight
+  if (!window.slyInternalState.pendingLyricsData) {
+    window.slyInternalState.forceFallback = false;
+  }
 
   const root = document.getElementById('lyrics-root-sync');
   if (!root) {
@@ -148,11 +164,17 @@ window.slyCheckNowPlaying = function (): void {
     // Try to seed the registry from the background database as soon as we have a URI.
     // This runs on every tick until warmedUri matches fullUri, covering cold starts.
     if (fullUri && fullUri.startsWith('spotify:track:') && window.slyInternalState.warmedUri !== fullUri && window.slyInternalState.warmingUri !== fullUri) {
-      // SLY FIX: Set flag synchronously and use a separate 'warming' flag to prevent race conditions
       window.slyInternalState.warmingUri = fullUri;
 
-      // BUG-31 Fix: browser.runtime is undefined in MAIN world in Chrome.
-      // Route via window.postMessage to slyBridge.ts (Extension world).
+      // BUG-O FIX: Safety timeout for warmingUri
+      const timeoutUri = fullUri;
+      setTimeout(() => {
+        if (window.slyInternalState.warmingUri === timeoutUri) {
+          console.warn(`[sly] Bridge warming timed out for ${timeoutUri}. Clearing lock.`);
+          window.slyInternalState.warmingUri = undefined;
+        }
+      }, 5000);
+
       window.postMessage({ 
         type: 'SLY_CHECK_CACHE', 
         payload: { title, artist, uri: fullUri } 

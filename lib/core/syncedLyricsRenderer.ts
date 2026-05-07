@@ -69,6 +69,8 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
     return active;
   }
 
+  let isFirstTick = false;
+
   function tick(): void {
     const outerEls = opts.getOuterElements();
 
@@ -81,11 +83,13 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
     const t = opts.getPlaybackSeconds();
     const activeIndex = findActiveIndex(t);
 
-    if (activeIndex !== lastActiveIndex) {
+    if (activeIndex !== lastActiveIndex || isFirstTick) {
       const base = opts.lineBaseClass();
       const active = opts.activeClass();
       const passed = opts.passedClass();
       const future = opts.futureClass();
+
+      if (!base && !active && !passed && !future) return;
 
       outerEls.forEach((el, i) => {
         if (activeIndex === -1)    el.className = `${base} ${future}`;
@@ -95,7 +99,8 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
       });
 
       // Snap on the very first active line (matches slyCore's 'instant' vs 'smooth' logic).
-      const isFirstActivation = lastActiveIndex === -1;
+      const isFirstActivation = lastActiveIndex === -1 || isFirstTick;
+      isFirstTick = false;
       lastActiveIndex = activeIndex;
 
       opts.onActiveIndexChange?.(activeIndex);
@@ -123,6 +128,7 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
       }
       lines = lrcLines;
       lastActiveIndex = resumeIndex;
+      isFirstTick = true;
       animFrame = requestAnimationFrame(tick);
     },
 

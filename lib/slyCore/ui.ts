@@ -21,8 +21,8 @@ window.slyParseLRC = function (lrc: string): { time: number; text: string }[] {
   if (!lrc) return [];
   const result: { time: number; text: string }[] = [];
   const lines = lrc.split('\n');
-  const timeRegex = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
   for (const line of lines) {
+    const timeRegex = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
     let match;
     const timestamps: number[] = [];
     
@@ -84,7 +84,8 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
 
   // Notify Pipeline B that the custom container is about to be gone. 
   // It will "rescue" the mode pill to document.body before we destroy the root.
-  document.dispatchEvent(new CustomEvent('sly:release'));
+  // BUG-HH FIX: Wrap in setTimeout to ensure async constructor gaps are flushed.
+  setTimeout(() => document.dispatchEvent(new CustomEvent('sly:release')), 0);
 
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
   document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
@@ -251,7 +252,6 @@ window.slyUpdateSync = function (): void {
   const lines = currentLyrics.lines as { time: number; text: string }[];
   for (let i = 0; i < lines.length; i++) {
     if (t >= lines[i].time) activeIndex = i;
-    else break;
   }
 
   const previousIndex = window.slyInternalState.lastActiveIndex;
@@ -287,3 +287,8 @@ window.slyUpdateSync = function (): void {
   window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
   window.antigravitySyncAnimFrame = window.slyInternalState.syncAnimFrame;
 };
+
+document.addEventListener('sly:release', () => {
+  const syncBtn = document.getElementById('sly-sync-button');
+  if (syncBtn) syncBtn.remove();
+});

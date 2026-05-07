@@ -57,8 +57,12 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
             setTimeout(() => {
                 window.removeEventListener('message', handler);
                 _isHydrating = false;
+                _hydrationPromise = null; // BUG-MM FIX: Reset so next call can re-hydrate
                 resolve();
             }, 1000);
+        });
+        _hydrationPromise.finally(() => {
+            if (!_isHydrating) _hydrationPromise = null;
         });
         return _hydrationPromise;
     }
@@ -242,7 +246,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
             return null;
         }
         const commontrackId = list[0].track.commontrack_id;
-        return await fetchSubtitle(commontrackId) || await fetchUnsyncedLyrics(commontrackId);
+        return await fetchSubtitle(commontrackId);
     }
 
     async function fetchUnsyncedLyrics(commontrackId: string | null): Promise<SubtitleLine[] | null> {
@@ -279,9 +283,16 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
     function verifyNativeScript(lines: SubtitleLine[]): boolean {
         const NATIVE_REGEX =
             /[\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F]/g;
-        const sample = lines.slice(0, 15).map(l => l.words).join(' ');
+        const sampleLines = lines.slice(0, 15);
+        const sample = sampleLines.map(l => l.words).join(' ');
         const matches = sample.match(NATIVE_REGEX);
         const nativeCount = matches ? matches.length : 0;
+        
+        // BUG-LL FIX: For short tracks (interludes), use density ratio.
+        // A 10-char threshold in 15 lines is ~0.1 chars/word assuming average length.
+        if (sampleLines.length < 10) {
+            return nativeCount > 2; // Low absolute floor for very short snippets
+        }
         return nativeCount > 10;
     }
 

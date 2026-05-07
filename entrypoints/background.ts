@@ -3,6 +3,69 @@ import { lyricsCache } from '../lib/lyricsProviders/lyricsCache';
 import { lyricsPersistence } from '../lib/lyricsProviders/lyricsPersistence';
 import { getLyricsForTrack, getColorOnly } from '../lib/lyricsProviders/lyricsEngine';
 
+/**
+ * Silent Background Upgrade Logic (Refactored for JJ-SS)
+ */
+async function triggerUpgradeCheck(stored: any, cacheKey: string, title: string, artist: string, albumArtUrl: string, uri: string) {
+  // BUG-QQ FIX: Treat undefined/null isSynced as unsynced
+  const needsUpgrade = !stored.ok || (stored.data && stored.data.isSynced !== true);
+  const lastCheck = stored.lastCheckedAt || 0;
+  const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+
+  if (!needsUpgrade || lastCheck >= weekAgo) return;
+
+  console.log(`[ServiceWorker] 💡 Upgrade Check triggered for ${stored.ok ? 'unsynced' : 'missing'} track: ${title}`);
+  
+  try {
+    const fresh = await getLyricsForTrack(title, artist, albumArtUrl, uri);
+    if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
+      console.log(`[ServiceWorker] ✨ UPGRADE SUCCESS: Found ${fresh.data?.isSynced ? 'synced' : 'new'} lyrics for ${title}`);
+      
+      // SLY FIX: Smart Merge (BUG-GG, SS). Preserve nativeStatus and extractedColor.
+      if (stored.nativeStatus && !fresh.nativeStatus) {
+        fresh.nativeStatus = stored.nativeStatus;
+      }
+      if (stored.data?.extractedColor && !fresh.data?.extractedColor) {
+        if (!fresh.data) fresh.data = {} as any;
+        fresh.data.extractedColor = stored.data.extractedColor;
+      }
+
+      fresh.lastCheckedAt = Date.now();
+      await lyricsPersistence.set(cacheKey, fresh);
+      lyricsCache.set(cacheKey, fresh);
+
+      // BUG-GGG FIX: Only broadcast if lyrics actually improved (Missing -> Any OR Unsynced -> Synced)
+      const improved = (!stored.ok && fresh.ok) || (stored.data?.isSynced === false && fresh.data?.isSynced === true);
+      
+      if (improved) {
+        // SLY FIX (Bug 10 / PP / MMM): Broadcast to ALL Spotify tabs with explicit URI
+        browser.tabs.query({ url: '*://open.spotify.com/*' }).then(tabs => {
+          tabs.forEach(tab => {
+            if (tab.id) {
+              browser.tabs.sendMessage(tab.id, {
+                type: 'LYRICS_UPGRADED',
+                payload: { cacheKey, uri, data: fresh },
+              }).catch(() => {});
+            }
+          });
+        });
+      }
+    } else {
+      console.log(`[ServiceWorker] 😴 Upgrade Check: No synced version found for ${title}. Sleeping for 7 days.`);
+      stored.lastCheckedAt = Date.now();
+      await lyricsPersistence.set(cacheKey, stored);
+      lyricsCache.set(cacheKey, stored);
+    }
+  } catch (err) {
+    console.error('[ServiceWorker] Upgrade check failed:', err);
+    stored.lastCheckedAt = Date.now();
+    try {
+      await lyricsPersistence.set(cacheKey, stored);
+      lyricsCache.set(cacheKey, stored);
+    } catch (e) {}
+  }
+}
+
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
     (
@@ -54,13 +117,22 @@ export default defineBackground(() => {
             const color = await getColorOnly(albumArtUrl);
             sendResponse({ color });
 
-            // SLY FIX (Bug 24): Persist the extracted color back to storage if track exists
-            if (color && existing) {
-              if (!existing.data) existing.data = {} as any;
-              existing.data.extractedColor = color;
+            // BUG-XX FIX: Even if 'existing' is null (first play), create a placeholder 
+            // so the color is persisted and we don't re-extract every session.
+            const target = existing || { ok: true, data: {} as any, isPlaceholder: true };
+            if (color && target) {
+              if (!target.data) target.data = {} as any;
+              
+              // BUG-YY FIX: Smart merge to avoid clobbering in-flight sync data
+              const freshFromDisk = await lyricsPersistence.get(cacheKey);
+              const mergeBase = freshFromDisk || target;
+              
+              if (!mergeBase.data) mergeBase.data = {} as any;
+              mergeBase.data.extractedColor = color;
+              
               try {
-                await lyricsPersistence.set(cacheKey, existing);
-                lyricsCache.set(cacheKey, existing);
+                await lyricsPersistence.set(cacheKey, mergeBase);
+                lyricsCache.set(cacheKey, mergeBase);
               } catch (e) {
                 console.error('[SKaraoke:BG] Failed to persist color:', e);
               }
@@ -69,6 +141,20 @@ export default defineBackground(() => {
             console.error('[SKaraoke:BG] GET_COLOR error:', err);
             sendResponse({ color: null });
           }
+        })();
+        return true;
+      }
+
+      // BUG-ZZ FIX: Persistence for native Spotify colors
+      if (msg.type === 'SLY_SAVE_THEME') {
+        const { title, artist, uri, theme } = msg.payload ?? {};
+        const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
+        (async () => {
+          const existing = await lyricsPersistence.get(cacheKey) || { ok: true, data: {} as any, isPlaceholder: true };
+          existing.savedTheme = theme;
+          await lyricsPersistence.set(cacheKey, existing);
+          lyricsCache.set(cacheKey, existing);
+          console.log(`[SKaraoke:BG] 🎨 Saved native theme for ${title}`);
         })();
         return true;
       }
@@ -165,68 +251,7 @@ export default defineBackground(() => {
 
               lyricsCache.set(cacheKey, stored); // Promote to L1
               sendResponse(stored);
-
-              // --- UPGRADE LOGIC ---
-              // If we have unsynced or missing lyrics cached, silently check once per week
-              // whether a better version has become available.
-              const needsUpgrade = !stored.ok || (stored.data && stored.data.isSynced === false);
-              const lastCheck = stored.lastCheckedAt || 0;
-              const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-   
-              if (needsUpgrade && lastCheck < weekAgo) {
-                console.log(`[ServiceWorker] 💡 Upgrade Check triggered for ${stored.ok ? 'unsynced' : 'missing'} track: ${title}`);
-                // Perform silent background fetch without blocking the sendResponse above
-                getLyricsForTrack(title, artist, albumArtUrl, uri).then(async (fresh) => {
-                  if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
-                    console.log(`[ServiceWorker] ✨ UPGRADE SUCCESS: Found ${fresh.data?.isSynced ? 'synced' : 'new'} lyrics for ${title}`);
-                    
-                    // SLY FIX: Smart Merge. Don't let an upgrade wipe out our known nativeStatus.
-                    if (stored.nativeStatus && !fresh.nativeStatus) {
-                      fresh.nativeStatus = stored.nativeStatus;
-                    }
-
-                    // SLY FIX (Bug 5): Update lastCheckedAt on success to avoid re-checking on every play
-                    fresh.lastCheckedAt = Date.now();
-
-                    try {
-                      await lyricsPersistence.set(cacheKey, fresh);
-                      lyricsCache.set(cacheKey, fresh);
-                    } catch (e) {
-                      console.error('[ServiceWorker] Persistence error in upgrade:', e);
-                    }
-
-                    // SLY FIX (Bug 10): Broadcast to ALL Spotify tabs, not just the originating one
-                    browser.tabs.query({ url: '*://open.spotify.com/*' }).then(tabs => {
-                      tabs.forEach(tab => {
-                        if (tab.id) {
-                          browser.tabs.sendMessage(tab.id, {
-                            type: 'LYRICS_UPGRADED',
-                            payload: { cacheKey, data: fresh },
-                          }).catch(() => {});
-                        }
-                      });
-                    });
-                  } else {
-                    // Still unsynced or failed — update timestamp to avoid checking for another week
-                    console.log(`[ServiceWorker] 😴 Upgrade Check: No synced version found for ${title}. Sleeping for 7 days.`);
-                    // SLY FIX (Bug 5): Update lastCheckedAt even on failure
-                    stored.lastCheckedAt = Date.now();
-                    try {
-                      await lyricsPersistence.set(cacheKey, stored);
-                    } catch (e) {
-                      console.error('[ServiceWorker] Persistence error in failure:', e);
-                    }
-                  }
-                }).catch(async (err) => {
-                  console.error('[ServiceWorker] Upgrade check failed:', err);
-                  stored.lastCheckedAt = Date.now();
-                  try {
-                    await lyricsPersistence.set(cacheKey, stored);
-                  } catch (e) {
-                    console.error('[ServiceWorker] Persistence error in catch:', e);
-                  }
-                });
-              }
+              if (msg.type === 'FETCH_LYRICS') triggerUpgradeCheck(stored, cacheKey, title, artist, albumArtUrl, uri);
               return;
             }
 
@@ -270,8 +295,13 @@ export default defineBackground(() => {
             })();
 
             lyricsCache.setInFlight(cacheKey, fetchTask);
-            const finalResult = await fetchTask;
-            sendResponse(finalResult);
+            try {
+              const finalResult = await fetchTask;
+              sendResponse(finalResult);
+              if (finalResult && msg.type === 'FETCH_LYRICS') triggerUpgradeCheck(finalResult, cacheKey, title, artist, albumArtUrl, uri);
+            } finally {
+              lyricsCache.deleteInFlight(cacheKey);
+            }
           } catch (err) {
             console.error('[ServiceWorker] FETCH_LYRICS error:', err);
             sendResponse({ ok: false, error: 'Internal fetch error' });
@@ -308,6 +338,7 @@ export default defineBackground(() => {
               console.log(`[ServiceWorker] 💾 SAVED (Fresh): Native Status for ${title} -> ${status}`);
             } else if (existing.nativeStatus !== status) {
               existing.nativeStatus = status;
+              delete (existing as any).isPlaceholder;
               lyricsCache.set(cacheKey, existing);
               await lyricsPersistence.set(cacheKey, existing);
               console.log(`[ServiceWorker] 💾 SAVED (Update): Native Status for ${title} -> ${status}`);

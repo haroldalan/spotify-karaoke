@@ -20,6 +20,7 @@ export interface SlyPreFetchRegistry {
 declare global {
   interface Window {
     slyPreFetchRegistry: SlyPreFetchRegistry;
+    slyPreFetchInterval?: any;
   }
 }
 
@@ -85,4 +86,5 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
 window.slyPreFetchRegistry = slyPreFetchRegistry;
 
 // Periodic cleanup
-setInterval(() => window.slyPreFetchRegistry.clearOldEntries(), 60000);
+if (window.slyPreFetchInterval) clearInterval(window.slyPreFetchInterval);
+window.slyPreFetchInterval = setInterval(() => window.slyPreFetchRegistry.clearOldEntries(), 60000);

@@ -38,9 +38,7 @@ async function performFetch(title: string, artist: string, uri = 'N/A'): Promise
   }
 
   console.warn(`[sw-engine] ❌ FAILURE: No lyrics found across all external sources.`);
-  // Note: the original source had `return { ok: false, data: finalData.data }` here,
-  // but `finalData` is not in scope — that is a bug in the original. Correct intent is { ok: false }.
-  return { ok: false };
+  return { ok: false, data: { isSynced: false } };
 }
 
 const colorCache = new Map<string, string>();
@@ -53,7 +51,13 @@ export async function getColorOnly(albumArtUrl: string | undefined): Promise<str
   if (colorCache.has(albumArtUrl)) return colorCache.get(albumArtUrl)!;
   try {
     const color = await extractImageColor(albumArtUrl);
-    if (color) colorCache.set(albumArtUrl, color);
+    if (color) {
+      if (colorCache.size > 50) {
+        const firstKey = colorCache.keys().next().value;
+        if (firstKey) colorCache.delete(firstKey);
+      }
+      colorCache.set(albumArtUrl, color);
+    }
     return color;
   } catch (e) {
     return null;
@@ -81,6 +85,10 @@ export async function getLyricsForTrack(
       } else {
         const color = await extractImageColor(albumArtUrl);
         if (color) {
+          if (colorCache.size > 50) {
+            const firstKey = colorCache.keys().next().value;
+            if (firstKey) colorCache.delete(firstKey);
+          }
           colorCache.set(albumArtUrl, color);
           finalData.data.extractedColor = color;
         }
@@ -89,6 +97,10 @@ export async function getLyricsForTrack(
       console.error('[sw-engine] Color extraction failed, proceeding without it.', e);
     }
   }
+
+  // BUG-HHH FIX: Initialize lastCheckedAt on the very first fetch.
+  // This prevents triggerUpgradeCheck from immediately re-fetching on the second play.
+  finalData.lastCheckedAt = Date.now();
 
   return finalData;
 }

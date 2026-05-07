@@ -82,47 +82,74 @@ window.slyPrepareContainer = function (): HTMLElement | null {
  * Calculates the perceived luminance of a CSS color string.
  */
 function perceivedLuminance(cssColor: string): number {
-  const tmp = document.createElement('div');
-  tmp.style.color = cssColor;
-  document.body.appendChild(tmp);
-  try {
-    const rgb = getComputedStyle(tmp).color;
-    const match = rgb.match(/\d+/g);
-    if (!match) return 0;
-    const [r, g, b] = match.map(Number);
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  } finally {
-    // BUG-29 Fix: Always remove the temporary element even if getComputedStyle throws.
-    document.body.removeChild(tmp);
-  }
+    const cacheKey = `luma:${cssColor}`;
+    if ((window as any).slyLumaCache?.[cacheKey] !== undefined) return (window as any).slyLumaCache[cacheKey];
+
+    const tmp = document.createElement('div');
+    tmp.style.color = cssColor;
+    const target = document.body || document.documentElement;
+    if (!target) return 0;
+    target.appendChild(tmp);
+    try {
+      const rgb = getComputedStyle(tmp).color;
+      const match = rgb.match(/\d+/g);
+      if (!match) return 0;
+      const [r, g, b] = match.map(Number);
+      const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      
+      // BUG-BBB FIX: Cache the result to prevent layout thrashing in the poll loop.
+      if (!(window as any).slyLumaCache) (window as any).slyLumaCache = {};
+      (window as any).slyLumaCache[cacheKey] = luma;
+      
+      return luma;
+    } finally {
+      target.removeChild(tmp);
+    }
 }
 
 /**
  * Mirrors the native Spotify theme and applies fallback upgrades.
  */
 window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<string, unknown>, nativeReference: HTMLElement | null): void {
-  const trackId = (window as any).spotifyState?.track?.uri?.split(':').pop();
+  // BUG-BBB FIX: Clear the luma cache at the start of each render call to allow fresh checks
+  // while still preventing redundant reflows within the same 3-check sequence.
+  (window as any).slyLumaCache = {};
+
+  const trackId = (window as any).spotifyState?.track?.uri?.split(':').pop() || (lyricsObj.uri as string)?.split(':').pop();
   const registryEntry = trackId ? window.slyPreFetchRegistry.getState(trackId) : null;
 
   // 1. CAPTURE & APPLY: If we have a native reference, steal its truth and learn it.
   if (nativeReference && (nativeReference as HTMLElement).style.cssText) {
-    // Only mirror CSS Variables (colors). NEVER mirror layout styles like
-    // 'display' or 'position' as they will reset the scrollbar if the native
-    // container is hidden.
-    const vars = (nativeReference as HTMLElement).style.cssText
-      .split(';')
-      .filter(s => s.trim().startsWith('--'))
-      .join(';');
-    root.style.cssText = vars;
+    // BUG-AAA FIX: NEVER use style.cssText = vars. It nukes layout styles (flex, min-height).
+    // Instead, loop through variables and set them individually.
+    const cssText = (nativeReference as HTMLElement).style.cssText;
+    const varMatches = cssText.match(/--lyrics-color-[a-z]+:[^;]+/g);
     
-    // Save the "Official" colors to the registry for the next time we skip back to this song
-    if (registryEntry) {
-      registryEntry.savedTheme = {
+    if (varMatches) {
+      varMatches.forEach(m => {
+        const [name, val] = m.split(':').map(s => s.trim());
+        root.style.setProperty(name, val);
+      });
+    }
+    
+    // BUG-ZZ FIX: Bridge the "Official" colors back to background L2 storage.
+    // registryEntry.savedTheme is session-only; we need background persistence.
+    if (registryEntry && !registryEntry.savedTheme) {
+      const theme = {
         background: nativeReference.style.getPropertyValue('--lyrics-color-background'),
         inactive: nativeReference.style.getPropertyValue('--lyrics-color-inactive'),
         active: nativeReference.style.getPropertyValue('--lyrics-color-active'),
         passed: nativeReference.style.getPropertyValue('--lyrics-color-passed')
       };
+      registryEntry.savedTheme = theme;
+      
+      const track = (window as any).spotifyState?.track;
+      if (track?.uri) {
+        window.postMessage({
+          type: 'SLY_SAVE_THEME',
+          payload: { title: track.metadata?.title, artist: track.metadata?.artist_name, uri: track.uri, theme }
+        }, '*');
+      }
     }
   } 
   // 2. RECALL: If native is missing but we've played this song before, use the learned theme.
@@ -136,7 +163,8 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
 
   // 3. FALLBACK: Standard upgrade logic for missing or invalid colors
   const inactive = root.style.getPropertyValue('--lyrics-color-inactive')?.trim();
-  if (!inactive || inactive === '#000000' || inactive.includes('rgba(0,0,0,1)') || inactive === 'rgb(0, 0, 0)') {
+  // BUG-CCC FIX: Use luminance check for near-black instead of fragile string comparisons.
+  if (!inactive || perceivedLuminance(inactive) < 0.05) {
     root.style.setProperty('--lyrics-color-inactive', 'rgba(255, 255, 255, 0.7)');
     root.style.setProperty('--lyrics-color-passed', 'rgba(255, 255, 255, 1)');
     root.style.setProperty('--lyrics-color-active', '#ffffff');
@@ -144,12 +172,11 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
 
   const bg = root.style.getPropertyValue('--lyrics-color-background')?.trim();
   const isBgTooBright = bg && perceivedLuminance(bg) > 0.25;
-  // BUG-30 Fix: Replace fragile string checks for '#333333' with a luminance threshold.
-  // This correctly identifies "dark but not pitch black" backgrounds across browsers.
-  const isBgTooDark = bg && perceivedLuminance(bg) < 0.05;
+  const isBgTooDark = bg && perceivedLuminance(bg) < 0.01;
   
   if (!bg || isBgTooBright || isBgTooDark) {
     const rawExtracted = (lyricsObj.extractedColor as string) || '#121212';
+    // BUG-EEE FIX: perceivedLuminance is already safe because color.ts now clamps to luma.
     const safeBg = perceivedLuminance(rawExtracted) > 0.25 ? '#121212' : rawExtracted;
     root.style.setProperty('--lyrics-color-background', safeBg);
   }
@@ -162,6 +189,12 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
  * Constructs the internal lyrics list structure (spacers, padding, lines, and attribution).
  */
 window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<string, unknown>): void {
+  // BUG-X FIX: Stop the active renderer loop and clear state BEFORE unmounting DOM nodes.
+  // This prevents the renderer from trying to access detached elements.
+  document.dispatchEvent(new CustomEvent('sly:release'));
+  window.slyInternalState.lastActiveIndex = -1;
+  window.slyInternalState.isUserScrolling = false;
+
   root.innerHTML = '';
   const isSynced = lyricsObj.isSynced as boolean;
   // window.slyParseLRC comes from ui.js (not yet ported) — guarded with || []

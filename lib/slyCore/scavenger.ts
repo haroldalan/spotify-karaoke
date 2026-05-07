@@ -73,6 +73,13 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
 window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
 
 /**
+ * Helper to find the hashed Spotify class in a list, ignoring extension classes.
+ */
+function findHash(classList: DOMTokenList): string {
+  return Array.from(classList).find(c => /^[a-zA-Z0-9_-]{12,24}$/.test(c) && !c.startsWith('sly-')) || classList[0] || '';
+}
+
+/**
  * DYNAMIC CLASS SCAVENGER
  * Inspects live Spotify elements to discover updated hashed classes.
  * This allows the extension to survive Spotify updates without a manual patch.
@@ -86,18 +93,18 @@ export const slyScavengeClasses = function (): void {
   // 1. Main View Wrapper
   const main = document.querySelector('main');
   if (main && main.classList.length > 0) {
-    window.SPOTIFY_CLASSES.mainContainer = main.classList[0];
+    window.SPOTIFY_CLASSES.mainContainer = findHash(main.classList);
   }
 
   // 2. Lyrics Container (Anchor: Inline CSS Variables)
   const nativeContainer = document.querySelector('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)') as HTMLElement | null;
   
   if (nativeContainer) {
-    window.SPOTIFY_CLASSES.container = nativeContainer.classList[0] || window.SPOTIFY_CLASSES.container;
+    window.SPOTIFY_CLASSES.container = findHash(nativeContainer.classList) || window.SPOTIFY_CLASSES.container;
 
     // 3. Structural Children
     if (nativeContainer.children.length > 0) {
-      window.SPOTIFY_CLASSES.topSpacer = nativeContainer.children[0].classList[0] || window.SPOTIFY_CLASSES.topSpacer;
+      window.SPOTIFY_CLASSES.topSpacer = findHash(nativeContainer.children[0].classList) || window.SPOTIFY_CLASSES.topSpacer;
     }
 
     if (nativeContainer.children.length > 1) {
@@ -109,15 +116,15 @@ export const slyScavengeClasses = function (): void {
         const txt = (secondChild.textContent || '').trim().toLowerCase();
         if (txt.length > 0 && !txt.includes('loading')) {
           const oldError = window.SPOTIFY_CLASSES.errorContainer;
-          window.SPOTIFY_CLASSES.errorContainer = secondChild.classList[0] || window.SPOTIFY_CLASSES.errorContainer;
+          window.SPOTIFY_CLASSES.errorContainer = findHash(secondChild.classList) || window.SPOTIFY_CLASSES.errorContainer;
           console.log(`[sly-audit] Scavenged errorContainer: "${window.SPOTIFY_CLASSES.errorContainer}" (was: "${oldError}"). Node <${secondChild.tagName}>, Classes: "${secondChild.className}", Text: "${(secondChild.textContent || '').trim().slice(0, 60)}"`);
         }
       } else {
-        window.SPOTIFY_CLASSES.wrapper = secondChild.classList[0] || window.SPOTIFY_CLASSES.wrapper;
+        window.SPOTIFY_CLASSES.wrapper = findHash(secondChild.classList) || window.SPOTIFY_CLASSES.wrapper;
         // SLY FIX (Bug 23): Robustly find the list container by searching for a line's parent
         const line = secondChild.querySelector('[data-testid="lyrics-line"]');
         const list = line?.parentElement;
-        if (list) window.SPOTIFY_CLASSES.lyricsList = list.classList[0] || window.SPOTIFY_CLASSES.lyricsList;
+        if (list) window.SPOTIFY_CLASSES.lyricsList = findHash(list.classList) || window.SPOTIFY_CLASSES.lyricsList;
       }
     }
 
@@ -125,19 +132,19 @@ export const slyScavengeClasses = function (): void {
     // SLY FIX (Bug 14): Ensure the footer isn't the top spacer (children[0]). 
     // It's allowed to be children[1] if the container only has 2 children.
     if (footer && footer !== nativeContainer.children[0]) {
-      window.SPOTIFY_CLASSES.footerGrid = footer.classList[0] || window.SPOTIFY_CLASSES.footerGrid;
+      window.SPOTIFY_CLASSES.footerGrid = findHash(footer.classList) || window.SPOTIFY_CLASSES.footerGrid;
       if (footer.children.length > 1) {
-        window.SPOTIFY_CLASSES.footerInner1 = footer.children[0].classList[0] || window.SPOTIFY_CLASSES.footerInner1;
-        window.SPOTIFY_CLASSES.footerInner2 = footer.children[1].classList[0] || window.SPOTIFY_CLASSES.footerInner2;
+        window.SPOTIFY_CLASSES.footerInner1 = findHash(footer.children[0].classList) || window.SPOTIFY_CLASSES.footerInner1;
+        window.SPOTIFY_CLASSES.footerInner2 = findHash(footer.children[1].classList) || window.SPOTIFY_CLASSES.footerInner2;
       }
     }
 
     // 4. Line Base & Padding Helper
     const lines = nativeContainer.querySelectorAll('[data-testid="lyrics-line"]');
     if (lines.length > 0) {
-      window.SPOTIFY_CLASSES.lineBase = lines[0].classList[0] || window.SPOTIFY_CLASSES.lineBase;
+      window.SPOTIFY_CLASSES.lineBase = findHash(lines[0].classList) || window.SPOTIFY_CLASSES.lineBase;
       const inner = lines[0].querySelector('div');
-      if (inner) window.SPOTIFY_CLASSES.textInner = inner.classList[0] || window.SPOTIFY_CLASSES.textInner;
+      if (inner) window.SPOTIFY_CLASSES.textInner = findHash(inner.classList) || window.SPOTIFY_CLASSES.textInner;
 
       // HACK: Find the padding helper class by looking for lines with no text (spacers)
       const paddingLine = Array.from(lines).find(l => !l.textContent?.trim());
@@ -188,15 +195,8 @@ export const slyScavengeClasses = function (): void {
   const now = Date.now();
   
   if (lastDeepScavengeTime === 0) {
-    // First run in this session: check persistence
-    browser.runtime.sendMessage({ type: 'SLY_GET_SCAVENGE_TIME' }).then(res => {
-      lastDeepScavengeTime = res?.time || 1; // 1 = "checked but old", 0 = "never checked"
-      if (now - lastDeepScavengeTime > 24 * 60 * 60 * 1000) {
-        slyDeepScavengeStyles();
-      }
-    }).catch(() => {
-      lastDeepScavengeTime = 1;
-    });
+    // First run in this session: check persistence via content script proxy
+    window.postMessage({ source: 'SLY_SCAVENGER', type: 'SLY_GET_SCAVENGE_TIME' }, '*');
     return;
   }
 
@@ -227,10 +227,25 @@ export function slyDeepScavengeStyles(): void {
   const url = (link as HTMLLinkElement).href;
   
   isDeepScavenging = true;
-  safeBrowserCall(() => browser.runtime.sendMessage({ type: 'SLY_FETCH_CSS', url })).then((response: any) => {
+  window.postMessage({ source: 'SLY_SCAVENGER', type: 'SLY_FETCH_CSS', url }, '*');
+}
+
+// BUG-I FIX: Response listener for the content script proxy
+window.addEventListener('message', (e) => {
+  if (e.data?.source !== 'SLY_CONTENT') return;
+  const { type, payload, error } = e.data;
+
+  if (type === 'SLY_GET_SCAVENGE_TIME_RESPONSE') {
+    lastDeepScavengeTime = payload?.time || 1;
+    if (Date.now() - lastDeepScavengeTime > 24 * 60 * 60 * 1000) {
+      slyDeepScavengeStyles();
+    }
+  }
+
+  if (type === 'SLY_FETCH_CSS_RESPONSE') {
     isDeepScavenging = false;
-    if (!response || !response.success || !response.cssText) {
-        // SLY FIX (Bug 45): Always cleanup on failure
+    const response = payload;
+    if (error || !response || !response.success || !response.cssText) {
         document.body.classList.remove('sly-fallback');
         return;
     }
@@ -250,7 +265,6 @@ export function slyDeepScavengeStyles(): void {
 
     const futureMatches = Array.from(css.matchAll(new RegExp(`\\.${lineBase}\\.([a-zA-Z0-9_-]+)\\{color:var\\(--lyrics-color-inactive\\)(?:;[^}]*)?\\}`, 'g')));
     for (const match of futureMatches) {
-        // SLY FIX (Bug 4): Handle both 'opacity:.5' and 'opacity:0.5' (minifier variants)
         if (match[0].includes('opacity:.5') || match[0].includes('opacity:0.5')) {
             window.SPOTIFY_CLASSES.passedLine = match[1];
         } else {
@@ -276,13 +290,9 @@ export function slyDeepScavengeStyles(): void {
     console.log('[sly-scavenger] Deep CSS Scavenge complete:', { ...window.SPOTIFY_CLASSES });
     hasDeepScavenged = true;
     lastDeepScavengeTime = Date.now();
-    browser.runtime.sendMessage({ type: 'SLY_SET_SCAVENGE_TIME', payload: { time: lastDeepScavengeTime } }).catch(() => {});
-  }).catch((err: any) => {
-    isDeepScavenging = false;
-    document.body.classList.remove('sly-fallback');
-    console.error('[sly-scavenger] Deep CSS Scavenge failed:', err);
-  });
-}
+    window.postMessage({ source: 'SLY_SCAVENGER', type: 'SLY_SET_SCAVENGE_TIME', payload: { time: lastDeepScavengeTime } }, '*');
+  }
+});
 
 window.slyScavengeClasses = slyScavengeClasses;
 window.slyDeepScavengeStyles = slyDeepScavengeStyles;

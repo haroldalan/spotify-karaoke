@@ -22,10 +22,14 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
   }
 
   if (message.type === 'LYRICS_UPGRADED') {
-    const fresh = (message.payload as Record<string, unknown>)?.data;
-    if (!fresh) return;
-    window.slyInternalState.pendingLyricsData = fresh;
-    console.log('[sly-dom] Background fetch succeeded. Pending lyrics data updated for automatic injection.');
+    const payload = message.payload as Record<string, unknown>;
+    const fresh = payload?.data;
+    const uri = payload?.uri as string;
+    if (!fresh || !uri) return;
+    
+    // BUG-OOO FIX: Structure the pending data with its URI so we can verify it before injection.
+    window.slyInternalState.pendingLyricsData = { uri, data: fresh };
+    console.log(`[sly-dom] Background fetch succeeded for ${uri}. Pending lyrics data updated.`);
   }
 });
 
@@ -145,6 +149,14 @@ window.addEventListener('message', (event) => {
       window.slyInternalState.fetchingForUri = '';
       if (window.slyClearStatus) window.slyClearStatus();
     }
+  } else if (data?.type === 'SLY_SAVE_THEME') {
+    // BUG-ZZ FIX: Bridge theme save from MAIN world to Background via ISOLATED world
+    if (typeof safeSendMessage === 'function') {
+      safeSendMessage({
+        type: 'SLY_SAVE_THEME',
+        payload: data.payload
+      });
+    }
   }
 });
 
@@ -161,7 +173,7 @@ function safeSendMessage(msg: Record<string, unknown>, callback?: (r: Record<str
 
 // --- FETCH TRIGGER ---
 window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false): void {
-  if (window.slyInternalState.fetchingForUri === uri) return;
+  if (uri && window.slyInternalState.fetchingForUri === uri) return;
   window.slyInternalState.fetchingForTitle = title;
   window.slyInternalState.fetchingForUri = uri;
 

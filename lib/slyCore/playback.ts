@@ -12,6 +12,8 @@ declare global {
 
 let lastExtrapolatedTime = 0;
 let lastRecordWallTime = 0;
+let cachedMedia: HTMLMediaElement | null = null;
+let lastMediaCheck = 0;
 
 /**
  * Recursively searches for media elements within Shadow DOMs.
@@ -47,9 +49,15 @@ window.slySeekTo = function (time: number): void {
     try {
       const valMs = Math.round(time * 1000);
       
-      // SLY FIX (Bug 13): Detect if Spotify is using seconds or milliseconds for this range input
+      // SLY FIX (BUG-W): Robustly detect if Spotify is using seconds or milliseconds.
+      // We compare the input's 'max' with the parsed song duration.
+      const durationEl = document.querySelector('[data-testid="playback-duration"]');
+      const p = (durationEl?.textContent || '0:00').replace(/[^0-9:]/g, '').split(':').map(Number);
+      const durSec = p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : 0;
+      
       const maxAttr = parseFloat(nativeInput.max || '0');
-      const isSeconds = maxAttr > 0 && maxAttr < (valMs / 10); // Heuristic: if max is < 10% of ms, it's seconds
+      // If max is closer to durSec than durSec*1000, it's seconds.
+      const isSeconds = durSec > 0 && Math.abs(maxAttr - durSec) < Math.abs(maxAttr - (durSec * 1000));
       
       nativeInput.value = isSeconds ? String(Math.round(time)) : String(valMs);
       nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -67,7 +75,12 @@ window.slySeekTo = function (time: number): void {
   }
 
   // LAYER 2: Direct Media Access (Shadow DOM Aware)
-  const media = findMediaRecursively(document);
+  const now = performance.now();
+  if (!cachedMedia || (now - lastMediaCheck > 5000)) {
+    cachedMedia = findMediaRecursively(document);
+    lastMediaCheck = now;
+  }
+  const media = cachedMedia;
   if (media) {
     try {
       media.currentTime = time;
@@ -142,9 +155,14 @@ window.slyGetPlaybackSeconds = function (): number {
   const isPlaying = !!document.querySelector('[data-testid="control-button-pause"]');
   const now = performance.now();
 
+  // BUG-T FIX: Reset baseline immediately on resume to prevent wall-clock jump
+  const wasPaused = (window as any).slyLastIsPlaying === false;
+  (window as any).slyLastIsPlaying = isPlaying;
+
   // 3. Extrapolate if playing
-  // We only reset the baseline if Spotify's UI has moved significantly (>50ms)
-  if (Math.abs(baselineUiTime - lastExtrapolatedTime) > 0.05 || !isPlaying) {
+  // We only reset the baseline if Spotify's UI has moved significantly (>50ms),
+  // OR if we just resumed from a pause, OR if we are currently paused.
+  if (Math.abs(baselineUiTime - lastExtrapolatedTime) > 0.05 || !isPlaying || (isPlaying && wasPaused)) {
     lastExtrapolatedTime = baselineUiTime;
     lastRecordWallTime = now;
   }

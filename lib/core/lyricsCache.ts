@@ -9,7 +9,7 @@ const PERSISTED_CACHE_MAX = 200;
  * Improved version of DJB2 with better entropy for longer strings.
  * BUG-22 fix.
  */
-function hashString(str: string): number {
+export function hashString(str: string): number {
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for (let i = 0, ch; i < str.length; i++) {
     ch = str.charCodeAt(i);
@@ -100,9 +100,21 @@ export async function saveSongCache(
 
   // Manage runtime cache size
   runtimeCache.set(key, entry);
+  // BUG-L FIX: True LRU Eviction
   if (runtimeCache.size > RUNTIME_CACHE_MAX) {
-    const oldestKey = Array.from(runtimeCache.keys())[0];
-    if (oldestKey) runtimeCache.delete(oldestKey);
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+
+    for (const [k, v] of runtimeCache.entries()) {
+      if (v.lastAccessed < oldestTime) {
+        oldestTime = v.lastAccessed;
+        oldestKey = k;
+      }
+    }
+    if (oldestKey) {
+      console.log(`[sly-cache] LRU Evicting: ${oldestKey} (last accessed: ${new Date(oldestTime).toISOString()})`);
+      runtimeCache.delete(oldestKey);
+    }
   }
 
   const storageKey = `lc:${key}`;

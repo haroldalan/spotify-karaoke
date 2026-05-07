@@ -2,7 +2,7 @@ import { safeBrowserCall } from '../utils/browserUtils';
 import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
-import { loadSongCache, saveSongCache } from './lyricsCache';
+import { loadSongCache, saveSongCache, hashString } from './lyricsCache';
 import { injectControls, syncButtonStates, setLoadingState, CONTROLS_ID } from '../dom/lyricsControls';
 import { createLyricsObserver } from '../dom/lyricsObserver';
 import { createSyncedLyricsRenderer, type LrcLine } from './syncedLyricsRenderer';
@@ -10,7 +10,6 @@ import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
 import { StateStore } from './store';
 import { slyInternalState, spotifyState } from '../slyCore/state';
 
-let setupLock = false;
 
 /**
  * lifecycleController's owned extension state.
@@ -67,7 +66,6 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   // Internal implementation state moved from StateStore (Step 5).
   // Only used within this function's closure — not shared with setupSlyBridge.
   let cacheReadyPromise: Promise<void> | null = null;
-  let pollId: number | null = null;
 
   /**
    * Single owner of the mode pill.
@@ -179,6 +177,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
                        verbalCache.every((l, i) => l === verbalNative[i]);
         if (isGrow) {
           cache.original = [...nativeLines];
+          const entry = opts.store.runtimeCache.get(opts.store.songKey);
+          if (entry) {
+            entry.original = [...cache.original];
+            entry.originalHash = hashString(cache.original.join('|'));
+          }
           saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
           return;
         }
@@ -198,14 +201,15 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   }
 
   async function trySetup(): Promise<void> {
-    if (setupLock) return;
-    setupLock = true;
+    if (opts.store.setupLock) return;
+    opts.store.setupLock = true;
     try {
     const activeKey = getNowPlayingKey();
     console.log(`[sly-lifecycle] ⚙️ trySetup executing. activeKey: "${activeKey}", store.songKey: "${opts.store.songKey}"`);
     if (activeKey && opts.store.songKey !== activeKey) {
       console.log(`[sly-lifecycle] 🔄 trySetup detected out-of-sync songKey. Forcing onSongChange to ${activeKey}.`);
       onSongChange(activeKey);
+      return;
     } else if (!opts.store.songKey && activeKey) {
       opts.store.songKey = activeKey;
     }
@@ -261,18 +265,19 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const e = performance.now();
       console.log(`[sly-lifecycle] ✅ Bridge trySetup complete. Pill injected/updated (${(e - s).toFixed(2)}ms).`);
     } finally {
-      setupLock = false;
+      opts.store.setupLock = false;
     }
   }
 
   async function syncSetup(): Promise<void> {
-    if (setupLock) return;
-    setupLock = true;
+    if (opts.store.setupLock) return;
+    opts.store.setupLock = true;
     try {
       const activeKey = getNowPlayingKey();
       if (activeKey && opts.store.songKey !== activeKey) {
         console.log(`[sly-lifecycle] 🔄 syncSetup detected out-of-sync songKey. Forcing onSongChange to ${activeKey}.`);
         onSongChange(activeKey);
+        return;
       } else if (!opts.store.songKey && activeKey) {
         opts.store.songKey = activeKey;
       }
@@ -411,12 +416,19 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         }
       }
 
-      if (opts.store.mode === opts.store.preferredMode && opts.store.songKey === getNowPlayingKey() && document.getElementById(CONTROLS_ID)?.parentElement === getLyricsContainer()) {
+      if (opts.store.mode === opts.store.preferredMode && 
+          opts.store.songKey === getNowPlayingKey() && 
+          document.getElementById(CONTROLS_ID) && 
+          document.getElementById(CONTROLS_ID)?.parentElement === getLyricsContainer()) {
         return;
       }
 
-      const currentPollId = pollId;
-      if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+          const currentPollId = opts.store.pollId;
+          if (currentPollId) {
+            cancelAnimationFrame(currentPollId);
+            clearTimeout(currentPollId);
+            opts.store.pollId = null;
+          }
       opts.autoSwitchIfNeeded();
 
       const s = performance.now();
@@ -427,7 +439,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const e = performance.now();
       console.log(`[sly-lifecycle] ✅ Bridge syncSetup complete. Native lyrics identified (${(e - s).toFixed(2)}ms).`);
     } finally {
-      setupLock = false;
+      opts.store.setupLock = false;
     }
   }
 
@@ -447,7 +459,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       if (attempts === 121) {
         console.log('[SKaraoke:Content] Lyrics panel still hidden, switching to infinite slow poll fallback...');
       }
-      pollId = window.setTimeout(() => pollForLyricsContainer(attempts + 1), 2000) as unknown as number;
+      opts.store.pollId = window.setTimeout(() => pollForLyricsContainer(attempts + 1), 2000) as unknown as number;
       return;
     }
 
@@ -464,9 +476,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       console.log(`[sly-lifecycle] 🔍 Lyrics view root detected after ${(foundTime - discoveryTime).toFixed(2)}ms. Waiting for lines...`);
       trySetup(); // Call once to inject the pill into the shell
       // View root found but lines missing — poll again with a slight delay
-      pollId = window.setTimeout(() => pollForLyricsContainer(attempts + 1), 300) as unknown as number;
+      opts.store.pollId = window.setTimeout(() => pollForLyricsContainer(attempts + 1), 300) as unknown as number;
     } else {
-      pollId = requestAnimationFrame(() => pollForLyricsContainer(attempts + 1));
+      opts.store.pollId = requestAnimationFrame(() => pollForLyricsContainer(attempts + 1));
     }
   }
 
@@ -483,6 +495,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       (window as any).slyInternalState.lastDecision = '';
       (window as any).slyInternalState.fetchingForUri = '';
       (window as any).slyInternalState.forceFallback = false;
+      // BUG-NNN FIX: Clear any pending upgrades from the previous track
+      (window as any).slyInternalState.pendingLyricsData = null;
     }
 
     // Synchronously destroy the custom takeover container instantly on track skip
@@ -513,7 +527,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     lyricsObserver = null;
     opts.store.cache = { original: [], processed: new Map() };
     opts.store.pendingNativeLines.clear();
-    setupLock = false;
+    opts.store.setupLock = false;
 
     const hasHotCache = opts.store.runtimeCache.has(newKey);
     if (hasHotCache) {
@@ -555,8 +569,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // We rely on React's DOM diffing to leave our pill alone (like in v3.0.6).
     }
 
-    const currentPollId = pollId;
-    if (currentPollId) cancelAnimationFrame(currentPollId);
+    const currentPollId = opts.store.pollId;
+    if (currentPollId) {
+      cancelAnimationFrame(currentPollId);
+      clearTimeout(currentPollId);
+      opts.store.pollId = null;
+    }
 
     pollForLyricsContainer();
 
@@ -622,15 +640,14 @@ export function setupSlyBridge(
   // creation functions as individual tools and dispatches sly:takeover itself.
   // slyInjectLyrics is no longer in the call chain after this expansion.
   document.addEventListener('sly:inject', async (e: Event) => {
-    if (setupLock) {
+    if (store.setupLock) {
       console.log('[sly-lifecycle] 🚫 Bridge sly:inject aborted: setupLock is active.');
       return;
     }
-    setupLock = true;
+    store.setupLock = true;
     try {
       const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
       if (!lyricsObj || lyricsObj.failed) {
-        setupLock = false;
         return;
       }
 
@@ -638,14 +655,12 @@ export function setupSlyBridge(
       const currentUri = (window as any).spotifyState?.track?.uri;
       if (lyricsObj._slyUri && currentUri && lyricsObj._slyUri !== currentUri) {
         console.warn(`[sly] Bridge sly:inject aborted: lyrics URI (${lyricsObj._slyUri}) does not match current track URI (${currentUri})`);
-        setupLock = false;
         return;
       }
 
       const domTrackId = getNowPlayingTrackId();
       if (domTrackId && lyricsObj._slyUri && !(lyricsObj._slyUri as string).includes(domTrackId)) {
         console.warn(`[sly] Bridge sly:inject aborted: lyrics URI (${lyricsObj._slyUri}) does not match DOM now playing track ID (${domTrackId})`);
-        setupLock = false;
         return;
       }
 
@@ -700,7 +715,7 @@ export function setupSlyBridge(
       sly.slySetupSyncButton?.(lyricsObj);
       // slyUpdateSync is intentionally omitted — Pipeline B's syncedLyricsRenderer owns sync.
     } finally {
-      setupLock = false;
+      store.setupLock = false;
     }
   });
 
@@ -779,7 +794,7 @@ export function setupSlyBridge(
     // again if needed, then clean up the observer reference.
     slyInternalState.slySyncedRendererActive = false;
     renderer.stop();
-    setupLock = false;
+    store.setupLock = false;
 
     // Rescue the pill before #lyrics-root-sync is torn down so it doesn't flash.
     // Parking it on document.body ensures it survives the transition.

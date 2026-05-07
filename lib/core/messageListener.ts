@@ -41,4 +41,24 @@ export function setupMessageListener(
       browser.runtime.sendMessage({ type: 'SLY_SET_MXM_TOKEN', payload: msg.payload });
     }
   });
+
+  // BUG-PP FIX: Handle background-initiated lyric upgrades
+  browser.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'LYRICS_UPGRADED') {
+      const { cacheKey, data } = msg.payload;
+      console.log('[SKaraoke] ⚡ Live Upgrade received for:', cacheKey);
+      
+      // Update the L1 cache in the StateStore
+      store.cache.set(cacheKey, data);
+      
+      // If this is the currently playing track, trigger a re-render
+      if (store.songKey === cacheKey) {
+        console.log('[SKaraoke] 🔄 Refreshing UI for upgraded track.');
+        store.romanizedGenRef.value++;
+        store.translatedGenRef.value++;
+        // We don't force a mode switch here, just let the next poll cycle
+        // pick up the 'SYNCED' prefetchState and re-inject.
+      }
+    }
+  });
 }

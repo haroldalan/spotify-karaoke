@@ -11,6 +11,7 @@ export interface DomObserverOpts {
 }
 
 export function createDomObserver(opts: DomObserverOpts): MutationObserver {
+  let lastSongChangeNotify = 0;
   const observer = new MutationObserver((mutations) => {
     if (!isContextValid()) {
       observer.disconnect();
@@ -18,22 +19,26 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
       return;
     }
     for (const mut of mutations) {
-      if (
-        mut.type === 'attributes' &&
-        mut.attributeName === 'aria-label' &&
-        (mut.target as Element).closest('[data-testid="now-playing-widget"]')
-      ) {
-        opts.onSongChange(getNowPlayingKey());
-      }
+      if (mut.type === 'attributes') {
+        const target = mut.target as Element;
+        
+        // BUG-N: Throttle song change detection
+        if (mut.attributeName === 'aria-label' && target.closest('[data-testid="now-playing-widget"]')) {
+          const now = Date.now();
+          if (now - lastSongChangeNotify > 300) {
+            lastSongChangeNotify = now;
+            opts.onSongChange(getNowPlayingKey());
+          }
+        }
 
-      if (
-        mut.type === 'attributes' &&
-        (mut.attributeName === 'data-active' || mut.attributeName === 'aria-pressed') &&
-        (mut.target as Element).matches('[data-testid="lyrics-button"]') &&
-        (mut.target as Element).getAttribute('data-active') !== 'true' &&
-        (mut.target as Element).getAttribute('aria-pressed') !== 'true'
-      ) {
-        opts.onLyricsPanelClosed?.();
+        if (
+          (mut.attributeName === 'data-active' || mut.attributeName === 'aria-pressed') &&
+          target.matches('[data-testid="lyrics-button"]') &&
+          target.getAttribute('data-active') !== 'true' &&
+          target.getAttribute('aria-pressed') !== 'true'
+        ) {
+          opts.onLyricsPanelClosed?.();
+        }
       }
     }
 

@@ -32,6 +32,8 @@ export function snapshotOriginals(cache: SongCache): void {
   cache.original = snapped;
 }
 
+let applyResetTimeout: any = null;
+
 export function applyLinesToDOM(
   lines: string[] | null | undefined,
   originals: string[] | undefined,
@@ -75,5 +77,9 @@ export function applyLinesToDOM(
   // setTimeout defers the flag reset to a macrotask, ensuring the MutationObserver
   // microtask (which fires during the same synchronous task as the DOM writes above)
   // still sees isApplying=true and skips its re-apply check.
-  setTimeout(() => { setApplying(false); }, 50);
+  if (applyResetTimeout) clearTimeout(applyResetTimeout);
+  applyResetTimeout = setTimeout(() => { 
+    setApplying(false); 
+    applyResetTimeout = null;
+  }, 50);
 }

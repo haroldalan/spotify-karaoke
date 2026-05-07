@@ -49,6 +49,11 @@ export async function extractImageColor(imageUrl: string): Promise<string | null
     const blob = await response.blob();
     const imageBitmap = await createImageBitmap(blob);
 
+    if (typeof OffscreenCanvas === 'undefined') {
+      console.warn('[SKaraoke:Color] OffscreenCanvas not supported in this context (Firefox?). Falling back.');
+      return null;
+    }
+
     const canvas = new OffscreenCanvas(64, 64);
     const ctx = canvas.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
     ctx.drawImage(imageBitmap, 0, 0, 64, 64);
@@ -63,15 +68,17 @@ export async function extractImageColor(imageUrl: string): Promise<string | null
     for (let i = 0; i < data.length; i += 16) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
 
-      if (r > 200 && g > 200 && b > 200) continue;
-      if (r < 30 && g < 30 && b < 30) continue;
-      if (Math.abs(r - g) < 15 && Math.abs(g - b) < 15) continue;
-
+      // BUG-TT FIX: Quantise first, then filter, to avoid boundary smearing.
       const br = Math.floor(r / 32) * 32;
       const bg = Math.floor(g / 32) * 32;
       const bb = Math.floor(b / 32) * 32;
-      const key = `${br},${bg},${bb}`;
 
+      if (br > 200 && bg > 200 && bb > 200) continue;
+      if (br < 30 && bg < 30 && bb < 30) continue;
+      // BUG-TT FIX: Use <= for stricter gray exclusion
+      if (Math.abs(br - bg) <= 15 && Math.abs(bg - bb) <= 15) continue;
+
+      const key = `${br},${bg},${bb}`;
       buckets[key] = (buckets[key] || 0) + 1;
       if (buckets[key] > maxCount) {
         maxCount = buckets[key];
@@ -82,21 +89,37 @@ export async function extractImageColor(imageUrl: string): Promise<string | null
     let fr: number, fg: number, fb: number;
     if (!dominantBucket) {
       fr = 0; fg = 0; fb = 0; let total = 0;
+      // BUG-UU FIX: Apply same filters to fallback average
       for (let i = 0; i < data.length; i += 32) {
-        fr += data[i]; fg += data[i + 1]; fb += data[i + 2]; total++;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        if (r > 230 && g > 230 && b > 230) continue; // white filter
+        if (r < 20 && g < 20 && b < 20) continue; // black filter
+        fr += r; fg += g; fb += b; total++;
       }
+      if (total === 0) return '#121212';
       fr = Math.floor(fr / total); fg = Math.floor(fg / total); fb = Math.floor(fb / total);
     } else {
       fr = dominantBucket.r; fg = dominantBucket.g; fb = dominantBucket.b;
     }
 
-    let [h, s, l] = rgbToHsl(fr, fg, fb);
+    // BUG-EEE FIX: Use perceived luminance (luma) for clamping instead of HSL L.
+    // This provides a much more consistent dark background for all hues.
+    const getLuma = (r: number, g: number, b: number) => (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    let luma = getLuma(fr, fg, fb);
+    
+    // Target luma: 0.08 - 0.15 (dark but readable)
+    if (luma > 0.15) {
+      const scale = 0.15 / luma;
+      fr = Math.floor(fr * scale);
+      fg = Math.floor(fg * scale);
+      fb = Math.floor(fb * scale);
+    } else if (luma < 0.08) {
+      const boost = 0.08 / Math.max(luma, 0.01);
+      fr = Math.min(255, Math.floor(fr * boost));
+      fg = Math.min(255, Math.floor(fg * boost));
+      fb = Math.min(255, Math.floor(fb * boost));
+    }
 
-    if (l > 0.18) l = 0.18;
-    if (l < 0.10) l = 0.10;
-    if (s > 0.60) s = 0.60;
-
-    [fr, fg, fb] = hslToRgb(h, s, l);
     return `rgb(${fr}, ${fg}, ${fb})`;
   } catch (e) {
     console.error('[sly] Color Extraction Failed:', e);

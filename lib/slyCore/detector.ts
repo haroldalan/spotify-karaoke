@@ -67,9 +67,8 @@ window.slyDetectNativeState = function (): DetectorState {
   const mainBtnPressed = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
   const nativeFound = !!document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`);
 
-  state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound;
-
-  state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound;
+  const hudOpen = !!document.querySelector(`.${window.SPOTIFY_CLASSES?.lyricsList || 'GmI3DMxKYRsaA5DM'}`);
+  state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound || hudOpen;
 
   if (!trackRecord || !trackRecord.name) {
     if (state.isAd) return state; // Ad without metadata is still an ad
@@ -112,7 +111,7 @@ window.slyDetectNativeState = function (): DetectorState {
     if (!el) return false;
     const txt = (el.textContent || '').trim().toLowerCase();
     if (!txt || txt.includes('loading')) return false;
-    return el.offsetParent !== null || txt.length > 0;
+    return el.offsetParent !== null;
   };
 
   state.hasUnavailableMessage = !isSettling && (isRealError(errorEl) || isRealError(errorElAlt));
