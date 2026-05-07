@@ -132,8 +132,14 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                     
                     return token;
                 } else {
-                    console.error('[SKaraoke:Interceptor] Token rejected. API response:', data);
-                    _tokenFailCount++;
+                    const hint = (data as any)?.message?.header?.hint;
+                    if (hint === 'captcha') {
+                        console.error('[SKaraoke:Interceptor] Musixmatch IP Flagged (Captcha required). Please visit musixmatch.com in a new tab, then refresh Spotify.');
+                        _tokenFailCount = 10; // Trigger maximum cooldown
+                    } else {
+                        console.error('[SKaraoke:Interceptor] Token rejected. API response:', data);
+                        _tokenFailCount++;
+                    }
                     _lastTokenFailTime = Date.now();
                 }
             } catch (e) { 

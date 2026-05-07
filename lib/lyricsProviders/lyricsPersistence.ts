@@ -53,8 +53,8 @@ export class LyricsPersistence {
         let index = (l2_index as string[]).filter(k => k !== key);
         index.push(key);
 
-        if (index.length > 200) {
-          const toRemove = index.splice(0, 50);
+        if (index.length > 100) {
+          const toRemove = index.splice(0, 30);
           await browser.storage.local.remove(toRemove);
         }
         await browser.storage.local.set({ l2_index: index });

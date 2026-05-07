@@ -93,6 +93,11 @@ function findTypedVideoId(obj: unknown, type: string | null, depth = 0, visited 
     return findTypedVideoId(o.musicCardShelfRenderer, null, depth + 1, visited);
   }
 
+  // SLY FIX (Bug 26): Add support for musicVideoRenderer to improve discovery of official music videos.
+  if (o.musicVideoRenderer) {
+    return findTypedVideoId(o.musicVideoRenderer, null, depth + 1, visited);
+  }
+
   if (typeof o.videoId === 'string') return o.videoId;
   if (o.watchEndpoint && typeof (o.watchEndpoint as any).videoId === 'string') {
     return (o.watchEndpoint as any).videoId;
@@ -132,15 +137,26 @@ function convertToLRC(lyricsData: unknown): { lrc: string | null; plain: string 
   if (!lines.length) return { lrc: null, plain: null };
 
   let validTimestamps = false;
-  const formattedLines = lines.map((line) => {
-    let ms = parseInt(String(line.startTimeMs ?? line.cueRange?.startTimeMilliseconds ?? ''));
-    if (!isNaN(ms) && ms > 0) validTimestamps = true;
-    if (isNaN(ms)) ms = 0;
+  const formattedLines: string[] = [];
+
+  lines.forEach((line) => {
+    const rawMs = line.startTimeMs ?? line.cueRange?.startTimeMilliseconds;
+    if (rawMs === undefined || rawMs === null || rawMs === '') return; // Skip lines with no timing info
+
+    let ms = parseInt(String(rawMs));
+    if (isNaN(ms)) return; // Skip if invalid number
 
     const min = Math.floor(ms / 60000);
     const sec = ((ms % 60000) / 1000).toFixed(2);
     const text = line.text || line.lyricLine || '';
-    return `[${min.toString().padStart(2, '0')}:${sec.padStart(5, '0')}]${text}`;
+
+    // SLY FIX (Bug 40): Treat "Instrumental" lines as valid synced content even if they start at 0ms.
+    // This allows the special Instrumental HUD to be triggered instead of "No lyrics found".
+    const lowerText = text.toLowerCase();
+    const isInstrumental = lowerText.includes('instrumental') || lowerText === '♪';
+    if (ms > 0 || isInstrumental) validTimestamps = true;
+
+    formattedLines.push(`[${min.toString().padStart(2, '0')}:${sec.padStart(5, '0')}]${text}`);
   });
 
   const plain = lines

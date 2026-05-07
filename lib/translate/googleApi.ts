@@ -59,6 +59,9 @@ export async function googleTranslate(
   }
 
   const translated = segments.map((s) => (s[0] ?? '') as string).join('');
+  if (!translated.trim()) {
+    throw new Error('Google Translate returned empty response');
+  }
 
   return { translated, romanized };
 }

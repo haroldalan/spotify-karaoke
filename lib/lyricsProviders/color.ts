@@ -43,6 +43,7 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
 
 export async function extractImageColor(imageUrl: string): Promise<string | null> {
   if (!imageUrl) return null;
+  console.log('[SKaraoke:Color] Extracting color from:', imageUrl);
   try {
     const response = await fetch(imageUrl, { mode: 'cors' });
     const blob = await response.blob();

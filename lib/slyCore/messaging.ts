@@ -176,7 +176,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
 
   // Fast-track color extraction to upgrade the HUD asynchronously
   if (albumArtUrl) {
-    safeSendMessage({ type: 'GET_COLOR', payload: { albumArtUrl } }, (r) => {
+    safeSendMessage({ type: 'GET_COLOR', payload: { albumArtUrl, title, artist, uri } }, (r) => {
       // 1. STALE TRACK CHECK
       if (myGeneration !== window.slyInternalState.fetchGeneration) return;
 

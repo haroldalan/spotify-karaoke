@@ -101,6 +101,17 @@ window.slyOmniscientSearch = function (
     }
   }
 
+  // SLY FIX (Bug 27): Search memoizedState (Linked list for hooks)
+  let state = f.memoizedState as any;
+  while (state && typeof state === 'object') {
+    if (state.memoizedValue && typeof state.memoizedValue[targetKey] === 'function') {
+      return state.memoizedValue[targetKey];
+    }
+    // If targetKey is on the state object itself
+    if (typeof state[targetKey] === 'function') return state[targetKey];
+    state = state.next;
+  }
+
   let child = f.child as unknown;
   while (child) {
     const found = window.slyOmniscientSearch(child, targetKey, visited);
@@ -117,9 +128,14 @@ window.slyOmniscientSearch = function (
   (function () {
     console.log('>>> [sly] Bridge: Scanner Module Booting...');
 
-    // BUG-21 Fix: Initialize the track change timestamp on load so the first song 
-    // played in the session has a valid grace period for DOM discovery.
-    window.__sly_track_change_time = Date.now();
+    // SLY FIX (Bug 20): Provide default classes for initial scan before sync occurs
+    window.SPOTIFY_CLASSES = {
+      errorContainer: 'hfTlyhd7WCIk9xmP',
+      errorContainerAlt: 'bRNotDNzO2suN6vM',
+    } as any;
+
+    // SLY FIX (Bug 21): Initialize to 0 so the first track change is correctly identified.
+    window.__sly_track_change_time = 0;
 
   let lastUri: string | null = null;
 
@@ -140,9 +156,14 @@ window.slyOmniscientSearch = function (
   }
 
   window.slyScanSpotifyState = function () {
-    const lineNode = document.querySelector('[data-testid="lyrics-line"]');
-    // We cannot use SPOTIFY_CLASSES here since this runs in the MAIN world. Use structural queries.
-    const failNode = document.querySelector('.hfTlyhd7WCIk9xmP') || document.querySelector('.bRNotDNzO2suN6vM') || Array.from(document.querySelectorAll('main div[style*="--lyrics-color-active"] > div')).find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
+    const classes = window.SPOTIFY_CLASSES;
+    const lineNode = document.querySelector('[data-testid="lyrics-line"]:not(#lyrics-root-sync *)');
+    
+    // SLY FIX (Bug 20): Use dynamically scavenged classes instead of hardcoded hashes
+    const failNode = document.querySelector('.' + classes.errorContainer) || 
+                     document.querySelector('.' + classes.errorContainerAlt) || 
+                     Array.from(document.querySelectorAll(`main div[style*="--lyrics-color-active"] > div`)).find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
+    
     const trackNode = document.querySelector('[data-testid="context-item-info-title"]');
     const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
 
@@ -383,7 +404,11 @@ window.slyOmniscientSearch = function (
               const signatures = ['toggleLyrics', 'onToggle', 'onClick'];
               for (const sig of signatures) {
                 if (typeof p[sig] === 'function') {
-                  window.cachedToggleLyrics = p[sig] as (...args: unknown[]) => unknown;
+                  // SLY FIX (Bug 22): Skip redundant assignment in loop
+                  const handler = p[sig] as (...args: unknown[]) => unknown;
+                  if (window.cachedToggleLyrics !== handler) {
+                    window.cachedToggleLyrics = handler;
+                  }
                   foundInWalk = true;
                   if (sig !== lastLogSig || depth !== lastLogDepth) {
                     console.log(`>>> [sly] Trapped Toggle Signature: ${sig} at Depth ${depth}`);
@@ -461,6 +486,12 @@ window.slyOmniscientSearch = function (
   // --- NATIVE TRIGGER HANDLER ---
   window.addEventListener('message', (event) => {
     const data = event.data as Record<string, any>;
+    
+    // SLY FIX (Bug 20): Sync scavenged classes from content script
+    if (data?.source === 'SLY_SCAVENGER' && data?.type === 'SLY_CLASSES_UPDATE') {
+      window.SPOTIFY_CLASSES = { ...window.SPOTIFY_CLASSES, ...data.classes };
+    }
+
     if (data?.source === 'SLY_TRIGGER_NATIVE_OPEN') {
       console.log('>>> [sly] Bridge: Requesting Native Panel Open');
 

@@ -46,9 +46,19 @@ window.slySeekTo = function (time: number): void {
   if (nativeInput) {
     try {
       const valMs = Math.round(time * 1000);
-      nativeInput.value = String(valMs);
+      
+      // SLY FIX (Bug 13): Detect if Spotify is using seconds or milliseconds for this range input
+      const maxAttr = parseFloat(nativeInput.max || '0');
+      const isSeconds = maxAttr > 0 && maxAttr < (valMs / 10); // Heuristic: if max is < 10% of ms, it's seconds
+      
+      nativeInput.value = isSeconds ? String(Math.round(time)) : String(valMs);
       nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
       nativeInput.dispatchEvent(new Event('change', { bubbles: true }));
+      
+      // SLY FIX (Bug 1): Force extrapolator to target time immediately
+      lastExtrapolatedTime = time;
+      lastRecordWallTime = performance.now();
+
       console.log(`[sly-playback] Seek OK via Layer 1 (hidden range input)`);
       return;
     } catch (e) {
@@ -61,6 +71,11 @@ window.slySeekTo = function (time: number): void {
   if (media) {
     try {
       media.currentTime = time;
+
+      // SLY FIX (Bug 1): Force extrapolator to target time immediately
+      lastExtrapolatedTime = time;
+      lastRecordWallTime = performance.now();
+
       console.log(`[sly-playback] Seek OK via Layer 2 (direct media access)`);
       return;
     } catch (e) {
@@ -89,6 +104,11 @@ window.slySeekTo = function (time: number): void {
       progressBar.dispatchEvent(new PointerEvent('pointerdown', common));
       progressBar.dispatchEvent(new PointerEvent('pointerup', common));
       progressBar.dispatchEvent(new MouseEvent('click', common));
+
+      // SLY FIX (Bug 1): Force extrapolator to target time immediately
+      lastExtrapolatedTime = time;
+      lastRecordWallTime = performance.now();
+
       console.log(`[sly-playback] Seek OK via Layer 3 (pointer simulation)`);
     }
   }
@@ -110,7 +130,8 @@ window.slyGetPlaybackSeconds = function (): number {
   // 2. Extract duration from UI text
   const durationEl = document.querySelector('[data-testid="playback-duration"]');
   const durationStr = durationEl?.textContent || '0:00';
-  const p = durationStr.split(':').map(Number);
+  // SLY FIX (Bug 8): Sanitize duration string to remove LTR/RTL/hidden marks
+  const p = durationStr.replace(/[^0-9:]/g, '').split(':').map(Number);
   const durSec = p.length === 3
     ? p[0] * 3600 + p[1] * 60 + p[2]
     : p.length === 2
@@ -129,7 +150,7 @@ window.slyGetPlaybackSeconds = function (): number {
   }
 
   const timeDiff = isPlaying ? (now - lastRecordWallTime) / 1000 : 0;
-  return lastExtrapolatedTime + timeDiff;
+  return Math.max(0, lastExtrapolatedTime + timeDiff);
 };
 
 /**

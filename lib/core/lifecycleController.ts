@@ -105,6 +105,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const customInner = customRoot?.querySelector(`.${listCls}`);
       injectionTarget = (customInner ?? container) as HTMLElement | null;
       const detection = window.slyDetectNativeState?.() ?? {};
+      if (detection.isOnLyricsPage !== (window as any).slyInternalState?.isOnLyricsPage) {
+        console.log(`[sly-detector] 🗺️ Page Detection Change: ${detection.isOnLyricsPage ? 'OPEN' : 'CLOSED'}`);
+        (window as any).slyInternalState.isOnLyricsPage = detection.isOnLyricsPage;
+      }
       const hasContent = detection.hasNativeLines || opts.store.slyActiveContainer?.isConnected;
       shouldShow = typeof stateCtx === 'boolean' ? stateCtx : (opts.store.showPill && !!hasContent);
     }

@@ -69,11 +69,7 @@ window.slyDetectNativeState = function (): DetectorState {
 
   state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound;
 
-  if (state.isOnLyricsPage !== (window.slyInternalState as any).isOnLyricsPage) {
-    console.log(`[sly-detector] 🗺️ Page Detection Change: ${state.isOnLyricsPage ? 'OPEN' : 'CLOSED'} | Path: ${onLyricsPath} | MainBtn: ${mainBtnPressed} | Native: ${nativeFound}`);
-    (window.slyInternalState as any).isOnLyricsPage = state.isOnLyricsPage;
-  }
-
+  state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound;
 
   if (!trackRecord || !trackRecord.name) {
     if (state.isAd) return state; // Ad without metadata is still an ad
@@ -92,8 +88,9 @@ window.slyDetectNativeState = function (): DetectorState {
     return state;
   }
 
-  const domTitle = document.querySelector('[data-testid="now-playing-widget-track-link"]')?.textContent ||
-                   document.querySelector('[data-testid="context-item-info-title"]')?.textContent;
+  // SLY FIX (Bug 11): Use innerText to ignore hidden labels like "Now playing:"
+  const domTitle = (document.querySelector('[data-testid="now-playing-widget-track-link"]') as HTMLElement)?.innerText ||
+                   (document.querySelector('[data-testid="context-item-info-title"]') as HTMLElement)?.innerText;
 
   if (!state.isAd && domTitle && trackRecord.name && domTitle !== trackRecord.name) {
     state.lyricsState = 'LOADING';
@@ -129,8 +126,10 @@ window.slyDetectNativeState = function (): DetectorState {
     }
   }
 
-  state.hasNativeLines = !isSettling && !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-                                 .find(el => !el.closest('#lyrics-root-sync'));
+  const nativeLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+                           .filter(el => !el.closest('#lyrics-root-sync')) as HTMLElement[];
+  const firstVisibleLine = nativeLines.find(el => el.offsetParent !== null || getComputedStyle(el).opacity !== '0');
+  state.hasNativeLines = !isSettling && !!firstVisibleLine;
 
   // 3. GRACE PERIOD HANDLING
 

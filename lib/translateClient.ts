@@ -68,8 +68,20 @@ export async function googleProcess(
     }
   };
 
-  // Run first 2 chunks in parallel, others sequentially
-  const results = await Promise.all(chunks.map((c, i) => processChunk(c, i)));
+  // SLY FIX (Bug 18): Run first 2 chunks in parallel, others sequentially
+  // Promise.all with .map would start all delays simultaneously, blasting the server after 120ms.
+  const results: any[] = [];
+  
+  // 1. Process first 2 chunks in parallel
+  const parallelChunks = chunks.slice(0, 2);
+  const parallelResults = await Promise.all(parallelChunks.map((c, i) => processChunk(c, i)));
+  results.push(...parallelResults);
+
+  // 2. Process subsequent chunks sequentially
+  for (let i = 2; i < chunks.length; i++) {
+    const res = await processChunk(chunks[i], i);
+    results.push(res);
+  }
   
   results.forEach(res => {
     translatedFlat.push(...res.transLines);

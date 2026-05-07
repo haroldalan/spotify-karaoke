@@ -26,6 +26,7 @@ export interface SpotifyClasses {
   footerGrid: string;
   // Resilience Additions (Chunk 1)
   errorContainer: string;
+  errorContainerAlt: string;
   btnPrimary: string;
   btnPrimaryInner: string;
   btnSecondary: string;
@@ -59,6 +60,7 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
   paddingLineHelper: 'aLaX8poOH8kdbmGf',
   footerGrid:        'T0IQrE6mvz4Fs7rc',
   errorContainer:    'hfTlyhd7WCIk9xmP',
+  errorContainerAlt: 'bRNotDNzO2suN6vM',
   btnPrimary:        'e-10451-legacy-button e-10451-legacy-button-primary',
   btnPrimaryInner:   'e-10451-button-primary__inner',
   btnSecondary:      'e-10451-legacy-button e-10451-legacy-button-secondary',
@@ -112,14 +114,17 @@ export const slyScavengeClasses = function (): void {
         }
       } else {
         window.SPOTIFY_CLASSES.wrapper = secondChild.classList[0] || window.SPOTIFY_CLASSES.wrapper;
-        const list = secondChild.children[0] as HTMLElement | undefined;
+        // SLY FIX (Bug 23): Robustly find the list container by searching for a line's parent
+        const line = secondChild.querySelector('[data-testid="lyrics-line"]');
+        const list = line?.parentElement;
         if (list) window.SPOTIFY_CLASSES.lyricsList = list.classList[0] || window.SPOTIFY_CLASSES.lyricsList;
       }
     }
 
     const footer = nativeContainer.lastElementChild as HTMLElement | null;
-    // Ensure the footer isn't accidentally the top spacer or error container
-    if (footer && footer !== nativeContainer.children[0] && footer !== nativeContainer.children[1]) {
+    // SLY FIX (Bug 14): Ensure the footer isn't the top spacer (children[0]). 
+    // It's allowed to be children[1] if the container only has 2 children.
+    if (footer && footer !== nativeContainer.children[0]) {
       window.SPOTIFY_CLASSES.footerGrid = footer.classList[0] || window.SPOTIFY_CLASSES.footerGrid;
       if (footer.children.length > 1) {
         window.SPOTIFY_CLASSES.footerInner1 = footer.children[0].classList[0] || window.SPOTIFY_CLASSES.footerInner1;
@@ -136,9 +141,14 @@ export const slyScavengeClasses = function (): void {
 
       // HACK: Find the padding helper class by looking for lines with no text (spacers)
       const paddingLine = Array.from(lines).find(l => !l.textContent?.trim());
-      if (paddingLine && paddingLine.classList.length > 1) {
-        // The padding helper is usually the second or last class on the spacer element
-        window.SPOTIFY_CLASSES.paddingLineHelper = paddingLine.classList[paddingLine.classList.length - 1];
+      if (paddingLine) {
+        // SLY FIX (Bug 9): Instead of just taking the last class (which might be a state class),
+        // find the class that isn't the base line class.
+        const lineBase = window.SPOTIFY_CLASSES.lineBase;
+        const helperClass = Array.from(paddingLine.classList).find(c => c !== lineBase);
+        if (helperClass) {
+          window.SPOTIFY_CLASSES.paddingLineHelper = helperClass;
+        }
       }
     }
     console.log('[sly-scavenger] Fingerprinting complete — container dictionary updated.');
@@ -170,14 +180,28 @@ export const slyScavengeClasses = function (): void {
     if (inner) window.SPOTIFY_CLASSES.btnSecondaryInner = inner.className;
   }
   
+  // SLY FIX (Bug 20): Broadcast updated classes to the MAIN world (Bridge)
+  window.postMessage({ source: 'SLY_SCAVENGER', type: 'SLY_CLASSES_UPDATE', classes: window.SPOTIFY_CLASSES }, '*');
+  
   // 6. Deep CSS Scavenge (Background fetch to bypass CORS)
+  // SLY FIX (Bug 35): Initialized from background at boot
   const now = Date.now();
-  if (hasDeepScavenged && now - lastDeepScavengeTime > 24 * 60 * 60 * 1000) {
-    hasDeepScavenged = false;
+  
+  if (lastDeepScavengeTime === 0) {
+    // First run in this session: check persistence
+    browser.runtime.sendMessage({ type: 'SLY_GET_SCAVENGE_TIME' }).then(res => {
+      lastDeepScavengeTime = res?.time || 1; // 1 = "checked but old", 0 = "never checked"
+      if (now - lastDeepScavengeTime > 24 * 60 * 60 * 1000) {
+        slyDeepScavengeStyles();
+      }
+    }).catch(() => {
+      lastDeepScavengeTime = 1;
+    });
+    return;
   }
 
-  if (typeof window.slyDeepScavengeStyles === 'function') {
-    window.slyDeepScavengeStyles();
+  if (now - lastDeepScavengeTime > 24 * 60 * 60 * 1000) {
+    slyDeepScavengeStyles();
   }
 }
 
@@ -206,6 +230,7 @@ export function slyDeepScavengeStyles(): void {
   safeBrowserCall(() => browser.runtime.sendMessage({ type: 'SLY_FETCH_CSS', url })).then((response: any) => {
     isDeepScavenging = false;
     if (!response || !response.success || !response.cssText) {
+        // SLY FIX (Bug 45): Always cleanup on failure
         document.body.classList.remove('sly-fallback');
         return;
     }
@@ -225,7 +250,8 @@ export function slyDeepScavengeStyles(): void {
 
     const futureMatches = Array.from(css.matchAll(new RegExp(`\\.${lineBase}\\.([a-zA-Z0-9_-]+)\\{color:var\\(--lyrics-color-inactive\\)(?:;[^}]*)?\\}`, 'g')));
     for (const match of futureMatches) {
-        if (match[0].includes('opacity:.5')) {
+        // SLY FIX (Bug 4): Handle both 'opacity:.5' and 'opacity:0.5' (minifier variants)
+        if (match[0].includes('opacity:.5') || match[0].includes('opacity:0.5')) {
             window.SPOTIFY_CLASSES.passedLine = match[1];
         } else {
             window.SPOTIFY_CLASSES.futureLine = match[1];
@@ -241,7 +267,7 @@ export function slyDeepScavengeStyles(): void {
     const unsyncedMsgMatch = css.match(unsyncedMsgRegex);
     if (unsyncedMsgMatch) window.SPOTIFY_CLASSES.unsyncedMessage = unsyncedMsgMatch[1];
 
-    const attrRegex = /\.([a-zA-Z0-9_-]+)\{[^}]*margin-bottom:20px;padding:20px 0;display:inline-block[^}]*\}/;
+    const attrRegex = /\.([a-zA-Z0-9_-]+)\{[^}]*margin-bottom:20px;padding:20px [^;]+;display:inline-block[^}]*\}/;
     const attrMatch = css.match(attrRegex);
     if (attrMatch) window.SPOTIFY_CLASSES.attribution = attrMatch[1];
 
@@ -250,6 +276,7 @@ export function slyDeepScavengeStyles(): void {
     console.log('[sly-scavenger] Deep CSS Scavenge complete:', { ...window.SPOTIFY_CLASSES });
     hasDeepScavenged = true;
     lastDeepScavengeTime = Date.now();
+    browser.runtime.sendMessage({ type: 'SLY_SET_SCAVENGE_TIME', payload: { time: lastDeepScavengeTime } }).catch(() => {});
   }).catch((err: any) => {
     isDeepScavenging = false;
     document.body.classList.remove('sly-fallback');
