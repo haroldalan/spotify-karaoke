@@ -81,7 +81,7 @@ window.slyPrepareContainer = function (): HTMLElement | null {
 /**
  * Calculates the perceived luminance of a CSS color string.
  */
-function perceivedLuminance(cssColor: string): number {
+window.slyPerceivedLuminance = function (cssColor: string): number {
   const tmp = document.createElement('div');
   tmp.style.color = cssColor;
   document.body.appendChild(tmp);
@@ -95,7 +95,7 @@ function perceivedLuminance(cssColor: string): number {
     // BUG-29 Fix: Always remove the temporary element even if getComputedStyle throws.
     document.body.removeChild(tmp);
   }
-}
+};
 
 /**
  * Mirrors the native Spotify theme and applies fallback upgrades.
@@ -105,7 +105,13 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
   const registryEntry = trackId ? window.slyPreFetchRegistry.getState(trackId) : null;
 
   // 1. CAPTURE & APPLY: If we have a native reference, steal its truth and learn it.
-  if (nativeReference && (nativeReference as HTMLElement).style.cssText) {
+  // NEW: Skip copying from nativeReference if this track has MISSING lyrics.
+  // The native container is an error DOM with grey placeholder colours, not real theme colours.
+  const isMissingTrack = registryEntry?.state === 'MISSING' || registryEntry?.nativeStatus === 'MISSING';
+  const hasNativeError = nativeReference?.querySelector(`.${window.SPOTIFY_CLASSES?.errorContainer}`);
+
+  let didSteal = false;
+  if (nativeReference && (nativeReference as HTMLElement).style.cssText && !isMissingTrack && !hasNativeError) {
     // Only mirror CSS Variables (colors). NEVER mirror layout styles like
     // 'display' or 'position' as they will reset the scrollbar if the native
     // container is hidden.
@@ -114,6 +120,7 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
       .filter(s => s.trim().startsWith('--'))
       .join(';');
     root.style.cssText = vars;
+    didSteal = true;
     
     // Save the "Official" colors to the registry for the next time we skip back to this song
     if (registryEntry) {
@@ -143,15 +150,21 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
   }
 
   const bg = root.style.getPropertyValue('--lyrics-color-background')?.trim();
-  const isBgTooBright = bg && perceivedLuminance(bg) > 0.25;
-  // BUG-30 Fix: Replace fragile string checks for '#333333' with a luminance threshold.
-  // This correctly identifies "dark but not pitch black" backgrounds across browsers.
-  const isBgTooDark = bg && perceivedLuminance(bg) < 0.05;
   
-  if (!bg || isBgTooBright || isBgTooDark) {
-    const rawExtracted = (lyricsObj.extractedColor as string) || '#121212';
-    const safeBg = perceivedLuminance(rawExtracted) > 0.25 ? '#121212' : rawExtracted;
-    root.style.setProperty('--lyrics-color-background', safeBg);
+  // SEAMLESS HIJACK GUARD: If we successfully stole from a legitimate native source,
+  // we TRUST its choice and skip the luminance fallback to prevent flickering.
+  if (!didSteal) {
+    const isBgTooBright = bg && window.slyPerceivedLuminance(bg) > 0.25;
+    // BUG-30 Fix: Replace fragile string checks for '#333333' with a luminance threshold.
+    // This correctly identifies "dark but not pitch black" backgrounds across browsers.
+    // Error grey (#333333) is exactly 0.20 luminance. Threshold 0.22 catches it.
+    const isBgTooDark = bg && window.slyPerceivedLuminance(bg) < 0.22;
+    
+    if (!bg || isBgTooBright || isBgTooDark) {
+      const rawExtracted = (lyricsObj.extractedColor as string) || '#121212';
+      const safeBg = window.slyPerceivedLuminance(rawExtracted) > 0.25 ? '#121212' : rawExtracted;
+      root.style.setProperty('--lyrics-color-background', safeBg);
+    }
   }
 
   if (nativeReference) (nativeReference as HTMLElement).style.display = 'none';

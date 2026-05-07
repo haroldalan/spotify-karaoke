@@ -193,7 +193,22 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
         // If lyrics are already being injected or are in the queue, DO NOT show a fetching HUD.
         // We check for .lines specifically to avoid "Ghost Payloads" (objects with only color but no text).
         const hasPayload = !!((window.slyInternalState.pendingLyricsData as Record<string, unknown> | null)?.lines);
-        const hasRendered = !!((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines);
+        const root = document.getElementById('lyrics-root-sync');
+        const hasRendered = !!((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) && !!root;
+
+        if (hasRendered && r.color) {
+          const currentBg = root.style.getPropertyValue('--lyrics-color-background')?.trim();
+          // ONLY upgrade if the current background is a placeholder (missing, pitch black, or the error grey 0.20).
+          // This prevents overwriting a high-quality "stolen" background from an unsynced track.
+          const currentLum = currentBg ? window.slyPerceivedLuminance?.(currentBg) : 0;
+          const isPlaceholder = !currentBg || currentLum < 0.05 || (currentLum > 0.19 && currentLum < 0.21);
+
+          if (isPlaceholder) {
+            console.log('[sly-dom] Upgrading placeholder background with late-arriving extracted color.');
+            const safeBg = window.slyPerceivedLuminance?.(r.color) > 0.25 ? '#121212' : r.color;
+            root.style.setProperty('--lyrics-color-background', safeBg);
+          }
+        }
 
         if (!hasPayload && !hasRendered) {
           window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
