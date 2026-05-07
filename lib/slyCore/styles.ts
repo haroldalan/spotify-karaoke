@@ -154,6 +154,26 @@ export function slyGetCoreStyles(): string {
             font-size: 0.88rem;
             font-weight: 400;
         }
+
+        /* Ensure both CTA buttons have identical flexbox layouts, middle-alignment, and 14px font-size */
+        #sly-status-hud .sly-hud-cta-wrapper a {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-sizing: border-box !important;
+            min-height: 48px !important;
+            font-size: 14px !important;
+            text-align: center !important;
+            line-height: normal !important;
+            text-decoration: none !important;
+        }
+        #sly-status-hud .sly-hud-cta-wrapper a span {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            line-height: normal !important;
+            font-size: 14px !important;
+        }
     `;
 }
 

@@ -51,6 +51,7 @@ export function createModeController(opts: ModeControllerOpts) {
       console.log(`[sly-audit] 📄 Applying Original Lyrics (Latin script fallback, First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
       applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
       syncButtonStates(next);
+      setLoadingState(false);
       return;
     }
 

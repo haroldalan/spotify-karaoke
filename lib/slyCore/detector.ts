@@ -110,10 +110,24 @@ window.slyDetectNativeState = function (): DetectorState {
 
   const errorEl = document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP')) as HTMLElement | null;
   const errorElAlt = document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM')) as HTMLElement | null;
-  state.hasUnavailableMessage = !isSettling && (
-                                 (!!errorEl && (errorEl.offsetParent !== null || (errorEl.textContent || '').trim().length > 0)) || 
-                                 (!!errorElAlt && (errorElAlt.offsetParent !== null || (errorElAlt.textContent || '').trim().length > 0))
-                               );
+  
+  const isRealError = (el: HTMLElement | null) => {
+    if (!el) return false;
+    const txt = (el.textContent || '').trim().toLowerCase();
+    if (!txt || txt.includes('loading')) return false;
+    return el.offsetParent !== null || txt.length > 0;
+  };
+
+  state.hasUnavailableMessage = !isSettling && (isRealError(errorEl) || isRealError(errorElAlt));
+
+  if (state.hasUnavailableMessage) {
+    if (errorEl && isRealError(errorEl)) {
+      console.log(`[sly-audit] 🚨 hasUnavailableMessage is true. Found errorEl <${errorEl.tagName}>. Classes: "${errorEl.className}". Text: "${(errorEl.textContent || '').trim().slice(0, 60)}". Visible (offsetParent): ${errorEl.offsetParent !== null}`);
+    }
+    if (errorElAlt && isRealError(errorElAlt)) {
+      console.log(`[sly-audit] 🚨 hasUnavailableMessage is true. Found errorElAlt <${errorElAlt.tagName}>. Classes: "${errorElAlt.className}". Text: "${(errorElAlt.textContent || '').trim().slice(0, 60)}". Visible (offsetParent): ${errorElAlt.offsetParent !== null}`);
+    }
+  }
 
   state.hasNativeLines = !isSettling && !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
                                  .find(el => !el.closest('#lyrics-root-sync'));

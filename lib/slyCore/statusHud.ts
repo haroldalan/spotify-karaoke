@@ -101,11 +101,11 @@ declare global {
                             Add lyrics to LRCLIB
                         </span>
                     </a>
-                    <button id="sly-hud-retry-btn" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnSecondary || 'e-10451-legacy-button e-10451-legacy-button-secondary'}" style="cursor: pointer; transition: transform 0.2s ease;">
+                    <a id="sly-hud-retry-btn" href="#" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnSecondary || 'e-10451-legacy-button e-10451-legacy-button-secondary'}" style="cursor: pointer; transition: transform 0.2s ease; text-decoration: none;">
                         <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnSecondaryInner || 'e-10451-button-secondary__inner'} e-10451-legacy-button--medium">
                             Retry Fetch
                         </span>
-                    </button>
+                    </a>
                 </div>
             `;
     } else {

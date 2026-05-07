@@ -28,9 +28,10 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
 
       if (
         mut.type === 'attributes' &&
-        mut.attributeName === 'data-active' &&
+        (mut.attributeName === 'data-active' || mut.attributeName === 'aria-pressed') &&
         (mut.target as Element).matches('[data-testid="lyrics-button"]') &&
-        (mut.target as Element).getAttribute('data-active') !== 'true'
+        (mut.target as Element).getAttribute('data-active') !== 'true' &&
+        (mut.target as Element).getAttribute('aria-pressed') !== 'true'
       ) {
         opts.onLyricsPanelClosed?.();
       }
@@ -67,7 +68,7 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['aria-label', 'data-active'],
+    attributeFilter: ['aria-label', 'data-active', 'aria-pressed'],
   });
 
   return observer;

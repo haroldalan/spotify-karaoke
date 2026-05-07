@@ -1,8 +1,10 @@
-import { getLyricsLines } from './domQueries';
+import { getLyricsLines, getNowPlayingKey } from './domQueries';
 import type { SongCache } from '../core/lyricsTypes';
 
 export function snapshotOriginals(cache: SongCache): void {
   const lines = getLyricsLines();
+  const currentKey = getNowPlayingKey();
+  console.log(`[sly-audit] 📸 snapshotOriginals executing for active songKey: "${currentKey}". Snapped ${lines.length} lines. First line preview: "${lines[0]?.textContent?.trim() || 'empty'}"`);
 
   lines.forEach((el) => {
     if (el.hasAttribute('data-sly-original')) return;

@@ -104,8 +104,11 @@ export const slyScavengeClasses = function (): void {
       // If the second child has NO lyrics lines, it could be the Error Container or a loading spinner.
       // We check for text content to ensure it's actually an error message, not an empty spinner.
       if (secondChild.querySelectorAll('[data-testid="lyrics-line"]').length === 0) {
-        if ((secondChild.textContent || '').trim().length > 0) {
+        const txt = (secondChild.textContent || '').trim().toLowerCase();
+        if (txt.length > 0 && !txt.includes('loading')) {
+          const oldError = window.SPOTIFY_CLASSES.errorContainer;
           window.SPOTIFY_CLASSES.errorContainer = secondChild.classList[0] || window.SPOTIFY_CLASSES.errorContainer;
+          console.log(`[sly-audit] Scavenged errorContainer: "${window.SPOTIFY_CLASSES.errorContainer}" (was: "${oldError}"). Node <${secondChild.tagName}>, Classes: "${secondChild.className}", Text: "${(secondChild.textContent || '').trim().slice(0, 60)}"`);
         }
       } else {
         window.SPOTIFY_CLASSES.wrapper = secondChild.classList[0] || window.SPOTIFY_CLASSES.wrapper;
@@ -143,19 +146,24 @@ export const slyScavengeClasses = function (): void {
     console.log('[sly-scavenger] Native container not visible — using cached fingerprints.');
   }
 
-  // 5. Buttons
+  // 5. Buttons (Surgically relaxed to support 'small-bold' or 'medium-bold')
   const btn = Array.from(document.querySelectorAll('[data-encore-id="buttonPrimary"]'))
-    .find(el => el.className.includes('medium-bold') && !(el as HTMLElement).dataset.testid);
+    .find(el => (el.className.includes('bold') || el.className.includes('medium')) && !(el as HTMLElement).dataset.testid) ||
+    document.querySelector('[data-encore-id="buttonPrimary"]'); // Safe fallback if strict matches fail
   if (btn) {
     window.SPOTIFY_CLASSES.btnPrimary = btn.className;
     const inner = btn.querySelector('span');
     if (inner) window.SPOTIFY_CLASSES.btnPrimaryInner = inner.className;
   }
 
+  // Secondary Button (Surgically excludes small, text-only, or icon-only variants)
   const btnSec = Array.from(document.querySelectorAll('[data-encore-id="buttonSecondary"]'))
-    .find(el => el.className.includes('legacy-button-secondary') && !(el as HTMLElement).dataset.testid) ||
-    Array.from(document.querySelectorAll('[data-encore-id="buttonSecondary"]'))
-    .find(el => !(el as HTMLElement).dataset.testid);
+    .find(el => {
+      const cls = el.className;
+      const isSmall = cls.includes('--small');
+      const isTextOnly = cls.includes('--text') || cls.includes('text-base');
+      return !(el as HTMLElement).dataset.testid && !isSmall && !isTextOnly;
+    });
   if (btnSec) {
     window.SPOTIFY_CLASSES.btnSecondary = btnSec.className;
     const inner = btnSec.querySelector('span');

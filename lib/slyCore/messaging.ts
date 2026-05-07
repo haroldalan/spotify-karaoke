@@ -264,7 +264,8 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       };
 
       // Only show failure HUD if panel is currently open
-      if (document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('data-active') === 'true') {
+      const btn = document.querySelector('[data-testid="lyrics-button"]');
+      if (btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true') {
         window.slyShowStatus(
           "Even Spotify Karaoke couldn't find the lyrics for this song.",
           'You can help the community by adding them to the open-source database.',

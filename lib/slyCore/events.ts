@@ -47,12 +47,20 @@ window.addEventListener('scroll', handleUserInteraction, interactionOptions);
 document.addEventListener('pointerdown', (e: Event) => {
   const btn = (e.target as HTMLElement).closest('[data-testid="lyrics-button"]');
   if (btn) {
-    // Only hijack if Spotify has no lyrics provider, or if the button is in its default state
-    if (window.spotifyState.lyricsProvider === null || btn.getAttribute('aria-label') === 'Lyrics') {
-      // If the panel is already open (active), let Spotify handle the close naturally
-      if (btn.getAttribute('data-active') === 'true') return;
+    const isPressed = btn.getAttribute('data-active') === 'true' || btn.getAttribute('aria-pressed') === 'true';
+    const provider = window.spotifyState?.lyricsProvider;
+    const label = btn.getAttribute('aria-label');
+    console.log(`[sly-audit] 🖱️ Lyrics Button Pointerdown captured. IsPressed: ${isPressed}, Provider: ${provider}, Label: "${label}"`);
 
-      console.log(`[sly] Hijack Pointer Detected | Provider: ${window.spotifyState.lyricsProvider}`);
+    // Only hijack if Spotify has no lyrics provider, or if the button is in its default state
+    if (provider === null || label === 'Lyrics') {
+      // If the panel is already open (active), let Spotify handle the close naturally
+      if (isPressed) {
+        console.log('[sly-audit] Button is already pressed. Letting Spotify handle close naturally.');
+        return;
+      }
+
+      console.log(`[sly-audit] 🚀 Hijacking Pointerdown to request native open.`);
 
       // Post a message to the Main World (bridge.js) to trigger the native toggle
       window.postMessage({ source: 'SLY_TRIGGER_NATIVE_OPEN' }, '*');
@@ -63,6 +71,8 @@ document.addEventListener('pointerdown', (e: Event) => {
 
       // Trigger a navigation event to force our decision engine to re-evaluate immediately
       window.dispatchEvent(new Event('sly_nav_change'));
+    } else {
+      console.log('[sly-audit] Bypassing hijack because provider is not null and label is not "Lyrics".');
     }
   }
 }, true); // Use capture phase to beat React's internal listeners
@@ -92,9 +102,9 @@ function attachLyricsButtonObserver(): void {
 
   lyricsButtonObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      if (mutation.type === 'attributes' && mutation.attributeName === 'data-active') {
+      if (mutation.type === 'attributes' && (mutation.attributeName === 'data-active' || mutation.attributeName === 'aria-pressed')) {
         const wasActive = mutation.oldValue === 'true';
-        const isNowInactive = (btn as HTMLElement).getAttribute('data-active') !== 'true';
+        const isNowInactive = (btn as HTMLElement).getAttribute('data-active') !== 'true' && (btn as HTMLElement).getAttribute('aria-pressed') !== 'true';
         if (wasActive && isNowInactive) {
           console.log('[sly] Panel close detected via lyrics button observer → dispatching sly:panel_close');
           document.dispatchEvent(new CustomEvent('sly:panel_close'));
@@ -105,7 +115,7 @@ function attachLyricsButtonObserver(): void {
 
   lyricsButtonObserver.observe(btn, {
     attributes: true,
-    attributeFilter: ['data-active'],
+    attributeFilter: ['data-active', 'aria-pressed'],
     attributeOldValue: true,
   });
   console.log('[sly] Lyrics button observer attached.');
@@ -128,18 +138,23 @@ attachLyricsButtonObserver();
 const errorObserver = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     if (mutation.addedNodes.length) {
-      const hasError = Array.from(mutation.addedNodes).some(node => {
-        const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
-        const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';
-        return node.nodeType === 1 && (
-          (node as HTMLElement).classList.contains(errCls1) || (node as HTMLElement).querySelector('.' + errCls1) ||
-          (node as HTMLElement).classList.contains(errCls2) || (node as HTMLElement).querySelector('.' + errCls2)
-        ) && (node.textContent || '').trim().length > 0;
-      });
-      if (hasError) {
-        console.log('[sly] Instant Detection: Native error DOM appeared. Triggering engine...');
-        if (typeof window.slyCheckNowPlaying === 'function') window.slyCheckNowPlaying();
-        break;
+      for (const node of Array.from(mutation.addedNodes)) {
+        if (node.nodeType === 1) {
+          const el = node as HTMLElement;
+          const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
+          const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';
+          
+          const match1 = el.classList.contains(errCls1) || el.querySelector('.' + errCls1);
+          const match2 = el.classList.contains(errCls2) || el.querySelector('.' + errCls2);
+          const text = (el.textContent || '').trim().toLowerCase();
+          const hasText = text.length > 0 && !text.includes('loading');
+
+          if ((match1 || match2) && hasText) {
+            console.log(`[sly-audit] 🚨 Instant Detection triggered by node <${el.tagName}>. Classes: "${el.className}". Text: "${(el.textContent || '').trim().slice(0, 60)}". Matches: errCls1=${!!match1}, errCls2=${!!match2}`);
+            if (typeof window.slyCheckNowPlaying === 'function') window.slyCheckNowPlaying();
+            return;
+          }
+        }
       }
     }
   }

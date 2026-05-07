@@ -219,7 +219,8 @@ window.slyUpdateSync = function (): void {
   const currentLyrics = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
   if (!currentLyrics || !currentLyrics.isSynced || !window.slyInternalState.customRoot) return;
 
-  const isPanelOpen = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('data-active') === 'true';
+  const btn = document.querySelector('[data-testid="lyrics-button"]');
+  const isPanelOpen = btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true';
   if (document.visibilityState !== 'visible' || !isPanelOpen || window.slyInternalState.customRoot.style.display === 'none') {
     window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
     return;

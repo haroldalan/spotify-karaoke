@@ -277,10 +277,11 @@ window.slyCheckNowPlaying = function (): void {
     }
 
     // 3. GRACE PERIOD HANDLING
-    const isMissingOrUnsynced = lyricsState.includes('MISSING') || 
-                                lyricsState.includes('UNSYNCED') || 
-                                lyricsState.includes('ROMANIZED') || 
-                                window.slyInternalState.forceFallback;
+    const isMissingOrUnsynced = (lyricsState.includes('MISSING') || 
+                                 lyricsState.includes('UNSYNCED') || 
+                                 lyricsState.includes('ROMANIZED') || 
+                                 window.slyInternalState.forceFallback) && 
+                                lyricsState !== 'LOADING';
 
     if (!window.slyInternalState.currentLyrics && !window.slyInternalState.fetchingForTitle && !window.slyInternalState.pendingLyricsData) {
       if (isMissingOrUnsynced) {
@@ -397,7 +398,8 @@ window.slyCheckNowPlaying = function (): void {
       if (!root || !root.isConnected || root.innerHTML === '') {
         const cl = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
         const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
-        if (detection.lyricsState !== 'LOADING' && cl && currentUri && cl._slyUri === currentUri) {
+        const hasValidLyrics = cl && Array.isArray((cl as any).lines) && (cl as any).lines.length > 0;
+        if ((detection.lyricsState !== 'LOADING' || hasValidLyrics) && cl && currentUri && cl._slyUri === currentUri) {
           console.log('[sly] Restore: Panel re-opened. Re-injecting lyrics DOM...');
           // Route through Pipeline B's unified injection path (sly:inject → setupSlyBridge).
           // slyInjectLyrics is no longer the executor — sly:inject is the contract.

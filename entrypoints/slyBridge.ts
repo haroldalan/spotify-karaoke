@@ -186,7 +186,7 @@ window.slyOmniscientSearch = function (
       syncType: aggregateState.syncType || null,
       isDenseTypeface: aggregateState.isDenseTypeface,
       language: aggregateState.language || null,
-      isPanelActive: activeBtn?.getAttribute('data-active') === 'true',
+      isPanelActive: activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true',
       nativeHasLyrics: window.__sly_native_has_lyrics ?? true,
       detectionMethod: inGrace ? 'Grace Period (Default)' : 'Fiber Prop (Definitive)',
       lastBridgeChangeTime: Date.now(),
@@ -464,10 +464,13 @@ window.slyOmniscientSearch = function (
         console.log('>>> [sly] Bridge: Invoking Native toggleLyrics()');
         window.cachedToggleLyrics();
 
-        // Flicker Guard
+        // Flicker Guard with detailed logging
         setTimeout(() => {
           const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
-          if (activeBtn?.getAttribute('data-active') !== 'true') {
+          const isPressed = activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true';
+          console.log(`>>> [sly-audit] Flicker Guard executing. Is active button pressed? ${isPressed}. Attributes: data-active="${activeBtn?.getAttribute('data-active')}", aria-pressed="${activeBtn?.getAttribute('aria-pressed')}"`);
+          if (!isPressed) {
+            console.warn('>>> [sly-audit] 🚨 Flicker Guard: Button state is not pressed. Re-invoking native toggleLyrics().');
             (window.cachedToggleLyrics as () => void)();
           }
         }, 300);

@@ -197,6 +197,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     setupLock = true;
     try {
     const activeKey = getNowPlayingKey();
+    console.log(`[sly-lifecycle] ⚙️ trySetup executing. activeKey: "${activeKey}", store.songKey: "${opts.store.songKey}"`);
     if (activeKey && opts.store.songKey !== activeKey) {
       console.log(`[sly-lifecycle] 🔄 trySetup detected out-of-sync songKey. Forcing onSongChange to ${activeKey}.`);
       onSongChange(activeKey);
@@ -467,7 +468,17 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
   function onSongChange(newKey: string): void {
     const songKey = opts.store.songKey;
+    console.log(`[sly-lifecycle] 🔄 onSongChange triggered. Moving from "${songKey || 'None'}" ➡️ "${newKey}". Synchronously purging TAKEOVER elements.`);
     if (newKey === songKey) return;
+
+    // Synchronously clear slyCore's currentLyrics to prevent stale restore/re-injection race conditions
+    if (typeof (window as any).slyInternalState === 'object') {
+      console.log('[sly-lifecycle] Synchronously clearing slyCore currentLyrics, lastDecision, fetchingForUri, and forceFallback to prevent stale restore and resolve decision engine deadlock.');
+      (window as any).slyInternalState.currentLyrics = null;
+      (window as any).slyInternalState.lastDecision = '';
+      (window as any).slyInternalState.fetchingForUri = '';
+      (window as any).slyInternalState.forceFallback = false;
+    }
 
     // Synchronously destroy the custom takeover container instantly on track skip
     // to eliminate the staggered unmount/delay for Takeover tracks.
@@ -710,12 +721,12 @@ export function setupSlyBridge(
     // Invalidate processed cache if the source of truth has changed.
     // This prevents "Cache Poisoning" where a proactive Native snapshot captured 
     // padding lines before the Takeover arrived.
-    const verbalCache = getVerbalLines(store.cache.original);
-    const verbalPlain = getVerbalLines(plainLines);
-    if (verbalCache.length > 0 && verbalCache.length !== verbalPlain.length) {
+    const isDifferent = store.cache.original.length !== plainLines.length ||
+                        !store.cache.original.every((l, i) => l === plainLines[i]);
+    if (store.cache.original.length > 0 && isDifferent) {
       const origSnippet = store.cache.original.slice(0, 3).join(' | ');
       const plainSnippet = plainLines.slice(0, 3).join(' | ');
-      console.log(`[sly-lifecycle] 🔄 Cache Invalidation: Takeover data verbal length (${verbalPlain.length} lines: "${plainSnippet}") differs from Native snapshot (${verbalCache.length} lines: "${origSnippet}"). Clearing processed map.`);
+      console.log(`[sly-lifecycle] 🔄 Cache Invalidation: Takeover data differs from Native snapshot. Clearing processed map.\nOld: "${origSnippet}"\nNew: "${plainSnippet}"`);
       store.cache.processed.clear();
     }
 
