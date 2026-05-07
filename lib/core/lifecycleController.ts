@@ -138,6 +138,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   }
 
   function verifyAndHealCache(cache: SongCache): void {
+    if (opts.store.isApplying) return;
     if (slyInternalState?.currentLyrics) return;
     if (opts.store.slyActiveContainer || document.getElementById('lyrics-root-sync') || godState === 'PIPELINE_A') return;
 

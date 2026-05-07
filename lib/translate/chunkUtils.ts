@@ -11,7 +11,7 @@ export function chunkByCharCount(lines: string[], maxChars: number): { chunks: s
       // This maintains 1:1 index alignment for the translation/romanization result arrays.
       const sliced = line.slice(0, maxChars);
       const wordBoundary = sliced.replace(/\s+\S*$/, '');
-      const truncated = (wordBoundary || sliced.slice(0, -1)) + '…';
+      const truncated = (wordBoundary || sliced.slice(0, maxChars - 1)) + '…';
       console.warn(`[SKaraoke:BG] Line too long, truncating to maintain index alignment: ${truncated}`);
       
       if (currentLen + truncated.length + 1 > maxChars && current.length > 0) {

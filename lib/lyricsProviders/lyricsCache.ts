@@ -27,7 +27,7 @@ export class LyricsCache {
   private inFlight: Map<string, Promise<FetchedLyricsResult>>;
   private limit: number;
 
-  constructor(limit = 10) {
+  constructor(limit = 50) {
     this.cache = new Map();
     this.inFlight = new Map(); // cacheKey -> Promise
     this.limit = limit;

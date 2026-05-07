@@ -77,7 +77,7 @@ export function createModeController(opts: ModeControllerOpts) {
         applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
         setLoadingState(false);
       } else {
-        const lang = forceLang ?? (await getTargetLang());
+        const lang = forceLang || opts.store.currentActiveLang || await getTargetLang();
 
         let processed: ProcessedCache | null = null;
         if (next === 'romanized' && cache.processed.size > 0) {
@@ -139,7 +139,13 @@ export function createModeController(opts: ModeControllerOpts) {
       processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
     }
 
-    if (!processed) return;
+    if (!processed) {
+      if (mode !== 'original') {
+        console.warn(`[SKaraoke:Mode] reapplyMode: Data missing for ${mode}. Triggering recovery fetch.`);
+        switchMode(mode, undefined, true);
+      }
+      return;
+    }
 
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
     const targets = getTargets();
@@ -152,6 +158,7 @@ export function createModeController(opts: ModeControllerOpts) {
   }
 
   function autoSwitchIfNeeded(forceRefresh = false): void {
+    if (opts.store.isSwitchingMode && !forceRefresh) return;
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     if ((mode === 'original' && preferredMode !== 'original') || forceRefresh) {

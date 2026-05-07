@@ -24,12 +24,21 @@ export function SearchablePicker({
         setIsOpen(false);
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
       // Auto-focus search input when opening
       setTimeout(() => inputRef.current?.focus(), 10);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen]);
 
   const filteredSuggested = suggested.filter(l =>

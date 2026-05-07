@@ -135,4 +135,6 @@ export const ALL_LANGUAGES = [
   { code: 'zu', label: 'Zulu' },
 ];
 
-export const LANGUAGES = QUICK_CODES.map(c => ALL_LANGUAGES.find(l => l.code === c)!);
+export const LANGUAGES = QUICK_CODES
+  .map(c => ALL_LANGUAGES.find(l => l.code === c))
+  .filter((l): l is typeof ALL_LANGUAGES[number] => l !== undefined);

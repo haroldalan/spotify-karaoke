@@ -1,4 +1,5 @@
 export function preserveCasing(original: string, romanized: string): string {
+  if (!original) return romanized;
   const latinWords = [...original.matchAll(/[a-zA-Z]+/g)].map(m => m[0]);
   if (latinWords.length === 0) return romanized;
 

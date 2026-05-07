@@ -74,8 +74,9 @@ async function callYtmDirect(
   return response.json();
 }
 
-function findTypedVideoId(obj: unknown, type: string | null, depth = 0): string | null {
-  if (!obj || typeof obj !== 'object' || depth > 20) return null;
+function findTypedVideoId(obj: unknown, type: string | null, depth = 0, visited = new Set<unknown>()): string | null {
+  if (!obj || typeof obj !== 'object' || depth > 20 || visited.has(obj)) return null;
+  visited.add(obj);
   const o = obj as Record<string, unknown>;
 
   if (o.musicResponsiveListItemRenderer) {
@@ -85,11 +86,11 @@ function findTypedVideoId(obj: unknown, type: string | null, depth = 0): string 
     const itemType = ((cols[0] as any)?.text || '').toLowerCase();
 
     if (type && itemType !== type) return null;
-    return findTypedVideoId(renderer, null, depth + 1);
+    return findTypedVideoId(renderer, null, depth + 1, visited);
   }
 
   if (o.musicCardShelfRenderer) {
-    return findTypedVideoId(o.musicCardShelfRenderer, null, depth + 1);
+    return findTypedVideoId(o.musicCardShelfRenderer, null, depth + 1, visited);
   }
 
   if (typeof o.videoId === 'string') return o.videoId;
@@ -98,18 +99,19 @@ function findTypedVideoId(obj: unknown, type: string | null, depth = 0): string 
   }
 
   for (const key in o) {
-    const found = findTypedVideoId(o[key], type, depth + 1);
+    const found = findTypedVideoId(o[key], type, depth + 1, visited);
     if (found) return found;
   }
   return null;
 }
 
-function findRenderer(obj: unknown, name: string, depth = 0): Record<string, unknown> | null {
-  if (!obj || typeof obj !== 'object' || depth > 20) return null;
+function findRenderer(obj: unknown, name: string, depth = 0, visited = new Set<unknown>()): Record<string, unknown> | null {
+  if (!obj || typeof obj !== 'object' || depth > 20 || visited.has(obj)) return null;
+  visited.add(obj);
   const o = obj as Record<string, unknown>;
   if (o[name]) return o[name] as Record<string, unknown>;
   for (const key in o) {
-    const found = findRenderer(o[key], name, depth + 1);
+    const found = findRenderer(o[key], name, depth + 1, visited);
     if (found) return found;
   }
   return null;
@@ -122,14 +124,14 @@ interface LrcLine {
   lyricLine?: string;
 }
 
-function convertToLRC(lyricsData: unknown): string | null {
+function convertToLRC(lyricsData: unknown): { lrc: string | null; plain: string | null } {
   const lines: LrcLine[] = Array.isArray(lyricsData)
     ? lyricsData
     : ((lyricsData as any)?.lines || (lyricsData as any)?.lyrics || []);
-  if (!lines.length) return null;
+  
+  if (!lines.length) return { lrc: null, plain: null };
 
   let validTimestamps = false;
-
   const formattedLines = lines.map((line) => {
     let ms = parseInt(String(line.startTimeMs ?? line.cueRange?.startTimeMilliseconds ?? ''));
     if (!isNaN(ms) && ms > 0) validTimestamps = true;
@@ -141,8 +143,13 @@ function convertToLRC(lyricsData: unknown): string | null {
     return `[${min.toString().padStart(2, '0')}:${sec.padStart(5, '0')}]${text}`;
   });
 
-  if (!validTimestamps) return null;
-  return formattedLines.join('\n');
+  const plain = lines
+    .map((l) => l.text || l.lyricLine || '')
+    .filter((t) => t.trim())
+    .join('\n');
+
+  if (!validTimestamps) return { lrc: null, plain: plain || null };
+  return { lrc: formattedLines.join('\n'), plain: plain || null };
 }
 
 export interface YtmResult {
@@ -186,11 +193,12 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
     const instantTimed = findRenderer(nextRes, 'musicTimedLyricsRenderer');
     if (instantTimed && (instantTimed.lyrics || instantTimed.timedLyricsData)) {
       console.log(`[YTM] Synced Lyrics Found in Next response!`);
-      const lrc = convertToLRC(instantTimed.lyrics || instantTimed.timedLyricsData);
-      if (lrc) {
+      const { lrc, plain } = convertToLRC(instantTimed.lyrics || instantTimed.timedLyricsData);
+      if (lrc || plain) {
         return {
-          syncedLyrics: lrc,
-          isSynced: true,
+          syncedLyrics: lrc || undefined,
+          plainLyrics: (!lrc && plain) ? plain : undefined,
+          isSynced: !!lrc,
           source: (instantTimed.footer as any)?.runs?.[0]?.text || 'YouTube Music',
           keySource: currentKeySource,
         };
@@ -214,25 +222,12 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
 
     if (timedData && timedData.timedLyricsData) {
       console.log(`[YTM] New format synced lyrics found.`);
-      const lrc = convertToLRC(timedData.timedLyricsData);
-      if (lrc) {
+      const { lrc, plain } = convertToLRC(timedData.timedLyricsData);
+      if (lrc || plain) {
         return {
-          syncedLyrics: lrc,
-          isSynced: true,
-          source: timedData.sourceMessage as string || 'YouTube Music',
-          keySource: currentKeySource,
-        };
-      }
-
-      const plainFallback = (timedData.timedLyricsData as any[])
-        .map((l: any) => l.text || l.lyricLine || '')
-        .filter((t: string) => t)
-        .join('\n');
-      if (plainFallback) {
-        console.log(`[YTM] No timestamps in timedLyricsData — falling back to plain lyrics.`);
-        return {
-          plainLyrics: plainFallback,
-          isSynced: false,
+          syncedLyrics: lrc || undefined,
+          plainLyrics: (!lrc && plain) ? plain : undefined,
+          isSynced: !!lrc,
           source: timedData.sourceMessage as string || 'YouTube Music',
           keySource: currentKeySource,
         };
@@ -242,13 +237,14 @@ export async function fetchYtmLyrics(title: string, artist: string): Promise<Ytm
     const timedRenderer = findRenderer(browseRes, 'musicTimedLyricsRenderer');
     if (timedRenderer) {
       console.log(`[YTM] Legacy format synced lyrics found.`);
-      const lrc = convertToLRC(
+      const { lrc, plain } = convertToLRC(
         timedRenderer.lyrics || timedRenderer.timedRendererData || [],
       );
-      if (lrc) {
+      if (lrc || plain) {
         return {
-          syncedLyrics: lrc,
-          isSynced: true,
+          syncedLyrics: lrc || undefined,
+          plainLyrics: (!lrc && plain) ? plain : undefined,
+          isSynced: !!lrc,
           source: (timedRenderer.footer as any)?.runs?.[0]?.text || 'YouTube Music',
           keySource: currentKeySource,
         };

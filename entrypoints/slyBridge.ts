@@ -110,13 +110,16 @@ window.slyOmniscientSearch = function (
   return null;
 };
 
-/* ============================================================
-   SECTION 2 — Scanner
-   Port of: lyric-test/modules/bridge/scanner.js
-   ============================================================ */
+  /* ============================================================
+     SECTION 2 — Scanner Module (Genetic Shield)
+     Port of: lyric-test/modules/bridge/scanner.js
+     ============================================================ */
+  (function () {
+    console.log('>>> [sly] Bridge: Scanner Module Booting...');
 
-(function () {
-  console.log('>>> [sly] Scanner Module Loading...');
+    // BUG-21 Fix: Initialize the track change timestamp on load so the first song 
+    // played in the session has a valid grace period for DOM discovery.
+    window.__sly_track_change_time = Date.now();
 
   let lastUri: string | null = null;
 
@@ -457,7 +460,8 @@ window.slyOmniscientSearch = function (
 
   // --- NATIVE TRIGGER HANDLER ---
   window.addEventListener('message', (event) => {
-    if ((event.data as Record<string, unknown>)?.source === 'SLY_TRIGGER_NATIVE_OPEN') {
+    const data = event.data as Record<string, any>;
+    if (data?.source === 'SLY_TRIGGER_NATIVE_OPEN') {
       console.log('>>> [sly] Bridge: Requesting Native Panel Open');
 
       if (typeof window.cachedToggleLyrics === 'function') {

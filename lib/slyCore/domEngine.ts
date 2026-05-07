@@ -85,12 +85,16 @@ function perceivedLuminance(cssColor: string): number {
   const tmp = document.createElement('div');
   tmp.style.color = cssColor;
   document.body.appendChild(tmp);
-  const rgb = getComputedStyle(tmp).color;
-  document.body.removeChild(tmp);
-  const match = rgb.match(/\d+/g);
-  if (!match) return 0;
-  const [r, g, b] = match.map(Number);
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  try {
+    const rgb = getComputedStyle(tmp).color;
+    const match = rgb.match(/\d+/g);
+    if (!match) return 0;
+    const [r, g, b] = match.map(Number);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  } finally {
+    // BUG-29 Fix: Always remove the temporary element even if getComputedStyle throws.
+    document.body.removeChild(tmp);
+  }
 }
 
 /**
@@ -140,7 +144,9 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
 
   const bg = root.style.getPropertyValue('--lyrics-color-background')?.trim();
   const isBgTooBright = bg && perceivedLuminance(bg) > 0.25;
-  const isBgTooDark = bg === '#333333' || bg.includes('rgba(51,51,51,1)') || bg === 'rgb(51, 51, 51)';
+  // BUG-30 Fix: Replace fragile string checks for '#333333' with a luminance threshold.
+  // This correctly identifies "dark but not pitch black" backgrounds across browsers.
+  const isBgTooDark = bg && perceivedLuminance(bg) < 0.05;
   
   if (!bg || isBgTooBright || isBgTooDark) {
     const rawExtracted = (lyricsObj.extractedColor as string) || '#121212';
@@ -230,6 +236,11 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   foot.className = window.SPOTIFY_CLASSES.footerGrid;
   foot.innerHTML = `<div class="${window.SPOTIFY_CLASSES.footerInner1}"></div><div class="${window.SPOTIFY_CLASSES.footerInner2}"></div>`;
   root.appendChild(foot);
+
+  // BUG-27 Fix: Ensure the sync loop starts when a new list is constructed.
+  if (isSynced && typeof window.slyUpdateSync === 'function') {
+    requestAnimationFrame(window.slyUpdateSync);
+  }
 };
 
 /**

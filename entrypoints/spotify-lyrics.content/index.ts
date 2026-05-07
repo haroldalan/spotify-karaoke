@@ -54,7 +54,7 @@ async function main(): Promise<void> {
   const { trySetup, syncSetup, onSongChange, trySetupOrPoll, syncPill } = lifecycleController;
 
   setupMessageListener(store, switchMode);
-  setupKeyboardShortcuts(switchMode);
+  const cleanupKeyboard = setupKeyboardShortcuts(switchMode);
   setupSlyBridge(store, switchMode, autoSwitchIfNeeded, syncPill);
 
   if (!store.domObserver) {
@@ -63,7 +63,10 @@ async function main(): Promise<void> {
       onLyricsInjected: () => syncSetup(),
       onControlsRemoved: () => trySetupOrPoll(),
       onLyricsPanelClosed: () => document.dispatchEvent(new CustomEvent('sly:panel_close')),
-      onInvalidate: () => { store.domObserver = null; },
+      onInvalidate: () => { 
+        store.domObserver = null; 
+        cleanupKeyboard();
+      },
     });
   }
 
@@ -73,4 +76,28 @@ async function main(): Promise<void> {
   });
 
   trySetup();
+
+  // BUG-31 Fix: Messaging bridge for Chrome MAIN world.
+  // This isolated world script can access extension APIs (browser.runtime.sendMessage).
+  window.addEventListener('message', (event) => {
+    const data = event.data as Record<string, any>;
+    if (data?.type === 'SLY_CHECK_CACHE') {
+      const { title, artist, uri } = data.payload;
+      browser.runtime.sendMessage({ type: 'SLY_CHECK_CACHE', payload: data.payload }).then((r: any) => {
+        window.postMessage({
+          source: 'SLY_BRIDGE_CACHE_RESULT',
+          uri,
+          title,
+          artist,
+          result: r
+        }, '*');
+      }).catch(() => {
+        window.postMessage({
+          source: 'SLY_BRIDGE_CACHE_RESULT',
+          uri,
+          error: true
+        }, '*');
+      });
+    }
+  });
 }

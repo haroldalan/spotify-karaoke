@@ -235,6 +235,28 @@ export default defineBackground(() => {
         })();
         return true;
       }
+
+      // ----------------------------------------------------------------
+      // New handler: Musixmatch Token Bridge (Bypasses localStorage)
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_GET_MXM_TOKEN') {
+        browser.storage.local.get(['skl_mxm_token', 'skl_mxm_token_expiry']).then(res => {
+          sendResponse({ 
+            token: res.skl_mxm_token || null, 
+            expiry: res.skl_mxm_token_expiry || 0 
+          });
+        });
+        return true;
+      }
+
+      if (msg.type === 'SLY_SET_MXM_TOKEN') {
+        const { token, expiry } = (msg as any).payload ?? {};
+        browser.storage.local.set({ 
+          skl_mxm_token: token, 
+          skl_mxm_token_expiry: expiry 
+        }).then(() => sendResponse({ ok: true }));
+        return true;
+      }
     },
   );
 });

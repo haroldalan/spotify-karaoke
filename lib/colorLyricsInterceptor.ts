@@ -67,7 +67,7 @@ export async function handleColorLyrics(
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'MISSING', nativeMissing: true });
             } else if (syncType === 'UNSYNCED') {
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'UNSYNCED' });
-            } else if (isDenseTypeface === false && !LATIN_LIKE_LANGS.has(language!)) {
+            } else if (isDenseTypeface === false && language !== undefined && !LATIN_LIKE_LANGS.has(language)) {
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'ROMANIZED' });
             }
         }

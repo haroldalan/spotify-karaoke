@@ -28,7 +28,7 @@
       ]
     },
     "condition": {
-      "urlFilter": "*://music.youtube.com/*",
+      "urlFilter": "*://music.youtube.com/youtubei/*",
       "resourceTypes": ["xmlhttprequest", "other"]
     }
   }

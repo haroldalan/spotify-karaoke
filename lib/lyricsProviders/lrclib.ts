@@ -26,6 +26,7 @@ export async function fetchLrcLibLyrics(
     const searchRes = await fetchWithTimeout(
       `https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + artist)}`,
     );
+    if (!searchRes.ok) return null;
     const results = await searchRes.json() as Record<string, unknown>[];
     console.log(`[LRCLIB] Search results: ${results.length}`);
     const match = results.find(r => r.syncedLyrics) || results[0] || null;

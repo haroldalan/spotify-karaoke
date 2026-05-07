@@ -1,15 +1,30 @@
 import { isContextValid, safeBrowserCall } from '../utils/browserUtils';
 import type { SongCache, LyricsCacheEntry, LyricsIndex } from './lyricsTypes';
 
-const RUNTIME_CACHE_MAX = 10;
+const RUNTIME_CACHE_MAX = 50; // BUG-15: Increased from 10
 const PERSISTED_CACHE_MAX = 200;
 
-function djb2(str: string): number {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) h = (h * 33) ^ str.charCodeAt(i);
-  return h >>> 0;
+/**
+ * Robust string hash (53-bit safe integer).
+ * Improved version of DJB2 with better entropy for longer strings.
+ * BUG-22 fix.
+ */
+function hashString(str: string): number {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0, ch; i < str.length; i++) {
+    ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
+/**
+ * Retrieves a lyric entry from the runtime cache or persistent storage.
+ * BUG-26: Lazy-load from persistent storage if missing from memory.
+ */
 export async function loadSongCache(
   key: string,
   cache: SongCache,
@@ -17,35 +32,39 @@ export async function loadSongCache(
 ): Promise<void> {
   if (!key || !isContextValid()) return;
   try {
-    let entry: LyricsCacheEntry | undefined;
+    let entry = runtimeCache.get(key);
 
-    const runtimeEntry = runtimeCache.get(key);
-    if (runtimeEntry) {
-      entry = runtimeEntry;
-    } else {
+    if (!entry) {
       const storageKey = `lc:${key}`;
       const data = await safeBrowserCall(() => browser.storage.local.get(storageKey));
       entry = data?.[storageKey] as LyricsCacheEntry | undefined;
+      
+      if (entry) {
+        runtimeCache.set(key, entry);
+      }
     }
 
     if (!entry) return;
 
+    // BUG-22: Improved hash coherence check
     if (cache.original.length > 0) {
-      const currentHash = djb2(cache.original.join('|'));
+      const currentHash = hashString(cache.original.join('|'));
       if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
         return;
       }
     }
 
     entry.lastAccessed = Date.now();
-    cache.original = [...entry.original];
-
-    for (const [lang, processed] of Object.entries(entry.processed)) {
-      if (!cache.processed.has(lang)) {
-        cache.processed.set(lang, processed);
-      }
+    // Only update cache if it's currently empty or we are forcing a load
+    if (cache.original.length === 0) {
+        cache.original = [...entry.original];
     }
 
+    for (const [lang, processed] of Object.entries(entry.processed)) {
+        cache.processed.set(lang, processed);
+    }
+
+    // Update index timestamp asynchronously
     safeBrowserCall(() => browser.storage.local.get('lc_index')).then((d) => {
       const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
       if (idx[key]) {
@@ -53,11 +72,15 @@ export async function loadSongCache(
         safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
       }
     }).catch(() => { });
+
   } catch (err) {
     console.warn('[SKaraoke:Content] loadSongCache failed:', err);
   }
 }
 
+/**
+ * Saves a lyric entry to both runtime cache and persistent storage.
+ */
 export async function saveSongCache(
   key: string,
   cache: SongCache,
@@ -72,24 +95,19 @@ export async function saveSongCache(
     original: cache.original,
     processed: processedObj,
     lastAccessed: Date.now(),
-    originalHash: djb2(cache.original.join('|')),
+    originalHash: hashString(cache.original.join('|')),
   };
 
+  // Manage runtime cache size
   runtimeCache.set(key, entry);
   if (runtimeCache.size > RUNTIME_CACHE_MAX) {
-    let oldestKey: string | undefined;
-    let oldestTime = Infinity;
-    for (const [k, v] of runtimeCache.entries()) {
-      if (v.lastAccessed < oldestTime) {
-        oldestTime = v.lastAccessed;
-        oldestKey = k;
-      }
-    }
-    if (oldestKey !== undefined) runtimeCache.delete(oldestKey);
+    const oldestKey = Array.from(runtimeCache.keys())[0];
+    if (oldestKey) runtimeCache.delete(oldestKey);
   }
 
   const storageKey = `lc:${key}`;
 
+  // Manage persistent storage index and eviction
   safeBrowserCall(() => browser.storage.local.get('lc_index')).then(async (d) => {
     const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
     idx[key] = { lastAccessed: entry.lastAccessed };

@@ -29,6 +29,7 @@ export class LyricsPersistence {
     return null;
   }
 
+  private storageQueue: Promise<void> = Promise.resolve();
   /**
    * Stores lyrics in persistent storage.
    * @param key - Spotify URI or title|artist
@@ -41,24 +42,31 @@ export class LyricsPersistence {
       persistedAt: data.persistedAt || Date.now(),
       lastCheckedAt: Date.now(),
     };
-    await browser.storage.local.set(entry);
 
-    // Eviction Logic: Maintain an l2_index to track the 200 most recent fetches
-    try {
-      const { l2_index } = await browser.storage.local.get({ l2_index: [] });
-      let index = (l2_index as string[]).filter(k => k !== key);
-      index.push(key);
+    // Serialize all storage writes to prevent l2_index race conditions
+    this.storageQueue = this.storageQueue.then(async () => {
+      try {
+        await browser.storage.local.set(entry);
 
-      if (index.length > 200) {
-        const toRemove = index.splice(0, 50);
-        await browser.storage.local.remove(toRemove);
+        // Eviction Logic: Maintain an l2_index to track the 200 most recent fetches
+        const { l2_index } = await browser.storage.local.get({ l2_index: [] });
+        let index = (l2_index as string[]).filter(k => k !== key);
+        index.push(key);
+
+        if (index.length > 200) {
+          const toRemove = index.splice(0, 50);
+          await browser.storage.local.remove(toRemove);
+        }
+        await browser.storage.local.set({ l2_index: index });
+        console.log(`[LyricsPersistence] SAVED: ${key}`);
+      } catch (e) {
+        console.warn('[LyricsPersistence] Index update failed:', e);
       }
-      await browser.storage.local.set({ l2_index: index });
-    } catch (e) {
-      console.warn('[LyricsPersistence] Index update failed:', e);
-    }
+    }).catch(err => {
+      console.error('[LyricsPersistence] Critical storage queue error:', err);
+    });
 
-    console.log(`[LyricsPersistence] SAVED: ${key}`);
+    return this.storageQueue;
   }
 }
 

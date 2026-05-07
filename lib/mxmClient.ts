@@ -27,23 +27,41 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
     const MXM_BASE = 'https://apic-desktop.musixmatch.com/ws/1.1';
 
     // ─── Token state ──────────────────────────────────────────────────────────
+    let _isHydrating = false;
+    let _hydrationPromise: Promise<void> | null = null;
     let _tokenCache: string | null = null;
     let _tokenExpiry = 0;
     let _tokenPromise: Promise<string | null> | null = null;
 
-    function hydrateTokenFromStorage() {
-        try {
-            const t = localStorage.getItem('skl_mxm_token');
-            const exp = Number(localStorage.getItem('skl_mxm_token_expiry') ?? '0');
-            if (t && Date.now() < exp) {
-                _tokenCache = t;
-                _tokenExpiry = exp;
-                // console.log('[SKaraoke:Interceptor] Token restored from storage, expires in', Math.round((exp - Date.now()) / 60000), 'min');
-            }
-        } catch { /* ignore */ }
+    async function hydrateTokenFromStorage(): Promise<void> {
+        if (_hydrationPromise) return _hydrationPromise;
+        _isHydrating = true;
+        _hydrationPromise = new Promise<void>((resolve) => {
+            const handler = (event: MessageEvent) => {
+                if (event.data?.type === 'SLY_MXM_TOKEN_RESPONSE') {
+                    const { token, expiry } = event.data;
+                    if (token && Date.now() < expiry) {
+                        _tokenCache = token;
+                        _tokenExpiry = expiry;
+                        // console.log('[SKaraoke:Interceptor] Token bridged from background, expires in', Math.round((expiry - Date.now()) / 60000), 'min');
+                    }
+                    window.removeEventListener('message', handler);
+                    _isHydrating = false;
+                    resolve();
+                }
+            };
+            window.addEventListener('message', handler);
+            window.postMessage({ type: 'SLY_GET_MXM_TOKEN' }, '*');
+            
+            // Timeout to prevent hanging if the bridge isn't ready
+            setTimeout(() => {
+                window.removeEventListener('message', handler);
+                _isHydrating = false;
+                resolve();
+            }, 1000);
+        });
+        return _hydrationPromise;
     }
-
-    hydrateTokenFromStorage();
 
     // ─── Metadata state ───────────────────────────────────────────────────────
 
@@ -66,6 +84,9 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
 
     // ─── Token management ─────────────────────────────────────────────────────
 
+    let _tokenFailCount = 0;
+    let _lastTokenFailTime = 0;
+
     /**
      * Returns a valid Musixmatch user token, fetching one if necessary.
      */
@@ -75,8 +96,22 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
             _tokenExpiry = 0;
         }
 
+        if (!_tokenCache || Date.now() >= _tokenExpiry) {
+            await hydrateTokenFromStorage();
+        }
+
         if (_tokenCache && Date.now() < _tokenExpiry) return _tokenCache;
         if (_tokenPromise) return _tokenPromise;
+
+        // Exponential backoff: If we've failed recently, don't spam the API.
+        // Wait 30s after 1 failure, 60s after 2, 5m after 3+.
+        const now = Date.now();
+        const cooldowns = [0, 30000, 60000, 300000];
+        const waitTime = cooldowns[Math.min(_tokenFailCount, cooldowns.length - 1)];
+        if (now - _lastTokenFailTime < waitTime) {
+            // console.warn('[SKaraoke:Interceptor] MXM Token Backoff active. Skipping fetch.');
+            return null;
+        }
 
         _tokenPromise = (async (): Promise<string | null> => {
             try {
@@ -88,16 +123,24 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                 if (token && token !== 'UpgradeRequiredUpgradeRequired' && !token.startsWith('UpgradeRequired')) {
                     _tokenCache = token;
                     _tokenExpiry = Date.now() + 55 * 60 * 1000;
-                    try {
-                        localStorage.setItem('skl_mxm_token', token);
-                        localStorage.setItem('skl_mxm_token_expiry', String(_tokenExpiry));
-                    } catch { /* ignore */ }
+                    _tokenFailCount = 0; // Reset on success
+                    
+                    window.postMessage({ 
+                        type: 'SLY_SET_MXM_TOKEN', 
+                        payload: { token, expiry: _tokenExpiry } 
+                    }, '*');
+                    
                     return token;
                 } else {
                     console.error('[SKaraoke:Interceptor] Token rejected. API response:', data);
-                    console.warn('[SKaraoke:Interceptor] Token rejected details:', token?.startsWith('Upgrade') ? 'Rate limited (UpgradeRequired)' : `Unexpected value: ${token}`);
+                    _tokenFailCount++;
+                    _lastTokenFailTime = Date.now();
                 }
-            } catch (e) { console.error('[SKaraoke:Interceptor] Token acquisition failed:', e); }
+            } catch (e) { 
+                console.error('[SKaraoke:Interceptor] Token acquisition failed:', e);
+                _tokenFailCount++;
+                _lastTokenFailTime = Date.now();
+            }
             return null;
         })();
 

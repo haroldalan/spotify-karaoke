@@ -28,6 +28,41 @@ window.addEventListener('sly_state_update', () => {
   window.slyCheckNowPlaying();
 });
 
+// BUG-31 Fix: Listen for results from the bridge (Extension world)
+window.addEventListener('message', (event) => {
+  const data = event.data as Record<string, any>;
+  if (data?.source === 'SLY_BRIDGE_CACHE_RESULT') {
+    const { uri, result, error } = data;
+    
+    // Guard: Song changed while we were asking the background script
+    const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
+    if (currentUri !== uri) return;
+
+    window.slyInternalState.warmedUri = uri; // Mark as settled
+    window.slyInternalState.warmingUri = undefined;
+
+    if (error) return;
+
+    if (result?.found) {
+       console.log(`[sly] 🧠 Proactive Cache Hit: Native=${result.nativeStatus || 'N/A'}, Custom=${result.prefetchState || 'N/A'}`);
+       const trackId = uri.split(':').pop();
+        if (trackId) {
+          const targetState = (result.nativeStatus === 'SYNCED' || result.nativeStatus === 'NATIVE_OK')
+            ? 'NATIVE_OK'
+            : (result.prefetchState || 'MISSING');
+          window.slyPreFetchRegistry.register(trackId, targetState, {
+            title: data.title, 
+            nativeStatus: result.nativeStatus,
+            customStatus: result.prefetchState,
+            reason: 'Persistent Cache Hit'
+          });
+        }
+    } else {
+       console.log(`[sly] 🆕 First Play: No cache record found for ${data.title}.`);
+    }
+  }
+});
+
 // Note: Pipeline B's lifecycleController.ts onSongChange detects track changes reactively
 // via aria-label mutation and dispatches 'sly:song_change'. We no longer listen to it
 // here to avoid double-reset races; our own 500ms poll (Step 1.5) handles it reliably.
@@ -116,36 +151,12 @@ window.slyCheckNowPlaying = function (): void {
       // SLY FIX: Set flag synchronously and use a separate 'warming' flag to prevent race conditions
       window.slyInternalState.warmingUri = fullUri;
 
-      browser.runtime.sendMessage({ 
+      // BUG-31 Fix: browser.runtime is undefined in MAIN world in Chrome.
+      // Route via window.postMessage to slyBridge.ts (Extension world).
+      window.postMessage({ 
         type: 'SLY_CHECK_CACHE', 
         payload: { title, artist, uri: fullUri } 
-      }).then((r: any) => {
-        // Guard: Song changed while we were asking the background script
-        if ((window.spotifyState?.track as Record<string, unknown> | null)?.uri !== fullUri) return;
-
-        window.slyInternalState.warmedUri = fullUri; // Mark as settled
-        window.slyInternalState.warmingUri = undefined;
-
-        if (r?.found) {
-           console.log(`[sly] 🧠 Proactive Cache Hit: Native=${r.nativeStatus || 'N/A'}, Custom=${r.prefetchState || 'N/A'}`);
-           const trackId = fullUri.split(':').pop();
-            if (trackId) {
-              const targetState = (r.nativeStatus === 'SYNCED' || r.nativeStatus === 'NATIVE_OK')
-                ? 'NATIVE_OK'
-                : (r.prefetchState || 'MISSING');
-              window.slyPreFetchRegistry.register(trackId, targetState, {
-                title, 
-                nativeStatus: r.nativeStatus,
-                customStatus: r.prefetchState,
-                reason: 'Persistent Cache Hit'
-              });
-            }
-        } else {
-           console.log(`[sly] 🆕 First Play: No cache record found for ${title}.`);
-        }
-      }).catch(() => {
-        window.slyInternalState.warmingUri = undefined;
-      });
+      }, '*');
     }
 
     // 0. UNIVERSAL ORPHAN GUARD

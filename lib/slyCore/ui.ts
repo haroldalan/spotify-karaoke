@@ -21,14 +21,22 @@ window.slyParseLRC = function (lrc: string): { time: number; text: string }[] {
   if (!lrc) return [];
   const result: { time: number; text: string }[] = [];
   const lines = lrc.split('\n');
-  const timeRegex = /\[(\d+):(\d+(?:\.\d+)?)\]/;
+  const timeRegex = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
   for (const line of lines) {
-    const match = timeRegex.exec(line);
-    if (match) {
-      result.push({
-        time: parseInt(match[1]) * 60 + parseFloat(match[2]),
-        text: line.replace(timeRegex, '').trim() || '♪',
-      });
+    let match;
+    const timestamps: number[] = [];
+    
+    // BUG-36 Fix: Extract all timestamps from the line
+    while ((match = timeRegex.exec(line)) !== null) {
+      timestamps.push(parseInt(match[1]) * 60 + parseFloat(match[2]));
+    }
+
+    if (timestamps.length > 0) {
+      // Remove all timestamps from the text
+      const text = line.replace(timeRegex, '').trim() || '♪';
+      for (const time of timestamps) {
+        result.push({ time, text });
+      }
     }
   }
   return result;
@@ -213,8 +221,12 @@ window.slyUpdateSyncButton = function (): void {
 window.slyUpdateSync = function (): void {
   // Yield to Pipeline B's syncedLyricsRenderer when it's active.
   // Without this, both RAF loops would fight over className on the same elements.
-  // This loop self-terminates (no RAF rescheduled) — zero ongoing cost.
-  if (window.slyInternalState.slySyncedRendererActive) return;
+  // BUG-27 Fix: Always reschedule the next frame even when yielding, so the loop
+  // survives track changes and resumes if the next song is NOT Pipeline B.
+  if (window.slyInternalState.slySyncedRendererActive) {
+    window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
+    return;
+  }
 
   const currentLyrics = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
   if (!currentLyrics || !currentLyrics.isSynced || !window.slyInternalState.customRoot) return;

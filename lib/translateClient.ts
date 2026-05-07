@@ -40,33 +40,42 @@ export async function googleProcess(
   const romanizedFlat: string[] = [];
   let isLowQualityRomanization = false;
 
-  for (let i = 0; i < chunks.length; i++) {
-    if (i > 0) await delay(CHUNK_DELAY_MS);
-    const joined = chunks[i].join('\n');
-
+  // Optimization: Parallelize the first two chunks to reduce "Time to First Lyric"
+  // Subsequent chunks remain serial with a delay to prevent 429s.
+  const processChunk = async (chunk: string[], index: number) => {
+    if (index >= 2) await delay(CHUNK_DELAY_MS);
+    const joined = chunk.join('\n');
     try {
       const result = await googleTranslate(joined, targetLang, includeRomanization);
-      translatedFlat.push(...result.translated.split('\n'));
-      // If Google didn't return romanization, fall back to translated text
-      romanizedFlat.push(...(result.romanized ?? result.translated).split('\n'));
+      const transLines = result.translated.split('\n');
+      const romLines = (result.romanized && result.romanized.trim()) 
+        ? result.romanized.split('\n') 
+        : transLines; // Fallback to translated if romanization is empty/invalid
+
+      return { transLines, romLines, isLowQuality: false };
     } catch (googleErr) {
       console.warn('[SKaraoke:BG] Google blocked, falling back to MyMemory:', googleErr);
-      isLowQualityRomanization = true;
-      try {
-        const { chunks: subChunks } = chunkByCharCount(chunks[i], MYMEMORY_MAX_CHARS);
-        for (let j = 0; j < subChunks.length; j++) {
-          if (j > 0) await delay(CHUNK_DELAY_MS);
-          const text = await myMemoryTranslate(subChunks[j].join('\n'), targetLang);
-          translatedFlat.push(...text.split('\n'));
-          romanizedFlat.push(...text.split('\n')); // MyMemory has no dt=rm equivalent
-        }
-      } catch (mmErr) {
-        console.error('[SKaraoke:BG] MyMemory also failed:', mmErr);
-        translatedFlat.push(...chunks[i]);
-        romanizedFlat.push(...chunks[i]);
+      const { chunks: subChunks } = chunkByCharCount(chunk, MYMEMORY_MAX_CHARS);
+      const subTrans: string[] = [];
+      const subRom: string[] = [];
+      for (let j = 0; j < subChunks.length; j++) {
+        if (j > 0) await delay(CHUNK_DELAY_MS);
+        const text = await myMemoryTranslate(subChunks[j].join('\n'), targetLang);
+        subTrans.push(...text.split('\n'));
+        subRom.push(...text.split('\n'));
       }
+      return { transLines: subTrans, romLines: subRom, isLowQuality: true };
     }
-  }
+  };
+
+  // Run first 2 chunks in parallel, others sequentially
+  const results = await Promise.all(chunks.map((c, i) => processChunk(c, i)));
+  
+  results.forEach(res => {
+    translatedFlat.push(...res.transLines);
+    romanizedFlat.push(...res.romLines);
+    if (res.isLowQuality) isLowQualityRomanization = true;
+  });
 
   const translatedOutput = [...lines];
   const romanizedOutput = [...lines];

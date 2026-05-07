@@ -1,12 +1,13 @@
 import { getLyricsContainer } from '../dom/domQueries';
 import type { LyricsMode } from './lyricsTypes';
 
-export function setupKeyboardShortcuts(switchMode: (mode: LyricsMode) => Promise<void>): void {
-  window.addEventListener('keydown', (e: KeyboardEvent) => {
+export function setupKeyboardShortcuts(switchMode: (mode: LyricsMode) => Promise<void>): () => void {
+  const handler = (e: KeyboardEvent) => {
     if (e.repeat) return;
     if (e.altKey || e.ctrlKey || e.metaKey) return; // ignore modified combos
     const tag = (document.activeElement as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable) return;
+    
     const hasLyricsPanel = !!getLyricsContainer() || !!document.getElementById('lyrics-root-sync');
     if (!hasLyricsPanel) return; // Only active when lyrics panel is open
 
@@ -20,5 +21,8 @@ export function setupKeyboardShortcuts(switchMode: (mode: LyricsMode) => Promise
       e.preventDefault();
       switchMode('translated');
     }
-  });
+  };
+
+  window.addEventListener('keydown', handler);
+  return () => window.removeEventListener('keydown', handler);
 }

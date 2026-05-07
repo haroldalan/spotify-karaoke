@@ -182,7 +182,6 @@ export default function App() {
     setShowConfirmModal(false);
     
     const syncKeys = ['targetLang', 'dualLyrics', 'showPill', 'preferredMode'];
-    await browser.storage.sync.remove(syncKeys);
     
     localStorage.removeItem('sly_targetLang');
     localStorage.removeItem('sly_dualLyrics');

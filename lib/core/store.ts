@@ -41,13 +41,8 @@ export class StateStore {
     });
 
     await safeBrowserCall(async () => {
-      const allLocal = await browser.storage.local.get(null);
-      for (const [k, v] of Object.entries(allLocal)) {
-        if (k.startsWith('lc:') && k !== 'lc_index') {
-          const key = k.substring(3); // strip 'lc:' prefix
-          this.runtimeCache.set(key, v as LyricsCacheEntry);
-        }
-      }
+      // Note: We no longer bulk-load all 'lc:' keys here (BUG-26).
+      // runtimeCache is now populated on-demand by LyricsCache.get().
     }).catch((err) => {
       console.warn('[SKaraoke:Content] Failed to preload runtime cache from storage.local', err);
     });
