@@ -53,11 +53,11 @@ document.addEventListener('pointerdown', (e: Event) => {
     const label = btn.getAttribute('aria-label');
     console.log(`[sly-audit] 🖱️ Lyrics Button Pointerdown captured. IsPressed: ${isPressed}, Provider: ${provider}, Label: "${label}", SlyActive: ${slyIsActive}`);
 
-    // SLY FIX (Problem 1 & 3): Teach the close path to dispatch sly:release
+    // SLY FIX (Problem 1 & 3): Teach the close path to dispatch sly:panel_close
     // If slyCore is active, we treat the panel as pressed regardless of button DOM state,
     // and we manually trigger a release when the user clicks to close.
     if (isPressed && slyIsActive) {
-      console.log('[sly-audit] Intercepting close click on active slyCore panel. Dispatching sly:release.');
+      console.log('[sly-audit] Intercepting close click on active slyCore panel. Dispatching sly:panel_close.');
       e.preventDefault();
       e.stopImmediatePropagation();
       
@@ -68,9 +68,8 @@ document.addEventListener('pointerdown', (e: Event) => {
       // Mark as intentional close so Step 6 re-injection stands down
       window.slyInternalState.userClosedPanel = true;
 
-      document.dispatchEvent(new CustomEvent('sly:release'));
-      // Note: We do NOT manually set aria-pressed/data-active here;
-      // we let React reconcile the attributes naturally after the toggle call.
+      // Dispatch panel_close, which handles full DOM cleanup AND dispatches sly:release
+      document.dispatchEvent(new CustomEvent('sly:panel_close'));
       return;
     }
 
@@ -132,8 +131,9 @@ function attachLyricsButtonObserver(): void {
         const wasActive = mutation.oldValue === 'true';
         const isNowInactive = (btn as HTMLElement).getAttribute('data-active') !== 'true' && (btn as HTMLElement).getAttribute('aria-pressed') !== 'true';
         if (wasActive && isNowInactive) {
-          // SLY FIX (Problem 3): Use OR to avoid double-fire if root is gone OR user intentionally closed
-          if (!document.getElementById('lyrics-root-sync') || window.slyInternalState.userClosedPanel) return;
+          // SLY FIX (Problem 3): Only skip if the root is ALREADY gone.
+          // Do not gate on userClosedPanel — we want panel_close to run for both accidental and intentional closes.
+          if (!document.getElementById('lyrics-root-sync')) return;
           console.log('[sly] Panel close detected via lyrics button observer → dispatching sly:panel_close');
           document.dispatchEvent(new CustomEvent('sly:panel_close'));
         }
