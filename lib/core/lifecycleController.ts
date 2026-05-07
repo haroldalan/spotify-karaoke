@@ -257,6 +257,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       getDualLyricsEnabled: () => opts.store.dualLyricsEnabled,
       setApplying: (v) => { opts.store.isApplying = v; },
       onInvalidate: () => { lyricsObserver = null; },
+      onReapply: opts.reapplyMode,
     });
 
       const s = performance.now();

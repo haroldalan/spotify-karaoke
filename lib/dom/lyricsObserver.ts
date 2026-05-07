@@ -11,23 +11,36 @@ export interface LyricsObserverOpts {
   getDualLyricsEnabled: () => boolean;
   setApplying: (v: boolean) => void;
   onInvalidate: () => void;
+  onReapply: () => Promise<void>;
 }
 
 export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver | null {
   const container = getLyricsContainer();
   if (!container) return null;
 
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((mutations) => {
     if (!isContextValid()) {
       observer.disconnect();
       opts.onInvalidate();
       return;
     }
+
+    // SLY FIX (Problem 2): Ignore attribute mutations (className changes from renderer).
+    // This prevents the RAF loop from triggering an infinite re-injection cycle.
+    const hasContentMutation = mutations.some(m => m.type === 'childList' || m.type === 'characterData');
+    if (!hasContentMutation) return;
+
     if (opts.getIsApplying() || opts.getMode() === 'original') return;
 
     const cache = opts.getCache();
     const processed = cache.processed.get(opts.getCurrentActiveLang());
-    if (!processed) return;
+    
+    // If processed data is missing, we still trigger onReapply() to allow it
+    // to potentially fire a recovery fetch (gated by isSwitchingMode in reapplyMode).
+    if (!processed) {
+      opts.onReapply();
+      return;
+    }
 
     const mode = opts.getMode();
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
@@ -41,14 +54,14 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
     });
 
     if (needsReapply) {
-      const dualLyricsEnabled = opts.getDualLyricsEnabled();
-      applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, opts.setApplying);
+      opts.onReapply();
     }
   });
 
   observer.observe(container, {
     subtree: true,
     childList: true,
+    characterData: true,
   });
 
   return observer;

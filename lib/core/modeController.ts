@@ -140,7 +140,7 @@ export function createModeController(opts: ModeControllerOpts) {
     }
 
     if (!processed) {
-      if (mode !== 'original') {
+      if (mode !== 'original' && !opts.store.isSwitchingMode) {
         console.warn(`[SKaraoke:Mode] reapplyMode: Data missing for ${mode}. Triggering recovery fetch.`);
         await switchMode(mode, undefined, true);
       }
