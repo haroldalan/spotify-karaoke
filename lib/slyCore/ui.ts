@@ -73,6 +73,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.isFetchingHUD = false;
   window.slyInternalState.statusHUDActive = false;
   window.slyInternalState.isAdHUDActive = false;
+  window.slyInternalState.userClosedPanel = false;
 
   // Reset playback extrapolator so the first slyGetPlaybackSeconds() call after
   // a skip reads the live progress bar DOM instead of extrapolating from the

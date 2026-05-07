@@ -60,6 +60,13 @@ document.addEventListener('pointerdown', (e: Event) => {
       console.log('[sly-audit] Intercepting close click on active slyCore panel. Dispatching sly:release.');
       e.preventDefault();
       e.stopImmediatePropagation();
+      
+      // SLY FIX (Problem 2): Tell React to actually close the panel — this makes isOnLyricsPage go false
+      window.postMessage({ source: 'SLY_TRIGGER_NATIVE_OPEN' }, '*'); // acts as toggle → closes
+      
+      // Mark as intentional close so Step 6 re-injection stands down
+      window.slyInternalState.userClosedPanel = true;
+
       document.dispatchEvent(new CustomEvent('sly:release'));
       // Manually un-press the button to reflect closed state:
       btn.setAttribute('aria-pressed', 'false');
@@ -72,10 +79,14 @@ document.addEventListener('pointerdown', (e: Event) => {
       // If the panel is already open (active), let Spotify handle the close naturally
       if (isPressed) {
         console.log('[sly-audit] Button is already pressed. Letting Spotify handle close naturally.');
+        // If we reached here but isPressed is true (likely via native state), 
+        // we should still mark userClosedPanel = true to prevent re-injection loops.
+        window.slyInternalState.userClosedPanel = true;
         return;
       }
 
       console.log(`[sly-audit] 🚀 Hijacking Pointerdown to request native open.`);
+      window.slyInternalState.userClosedPanel = false; // Reset on open
 
       // Post a message to the Main World (bridge.js) to trigger the native toggle
       window.postMessage({ source: 'SLY_TRIGGER_NATIVE_OPEN' }, '*');
@@ -121,6 +132,8 @@ function attachLyricsButtonObserver(): void {
         const wasActive = mutation.oldValue === 'true';
         const isNowInactive = (btn as HTMLElement).getAttribute('data-active') !== 'true' && (btn as HTMLElement).getAttribute('aria-pressed') !== 'true';
         if (wasActive && isNowInactive) {
+          // SLY FIX (Problem 3): Avoid double-fire if already cleaned up or userClosedPanel set
+          if (!document.getElementById('lyrics-root-sync') && !window.slyInternalState.userClosedPanel) return;
           console.log('[sly] Panel close detected via lyrics button observer → dispatching sly:panel_close');
           document.dispatchEvent(new CustomEvent('sly:panel_close'));
         }

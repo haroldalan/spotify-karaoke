@@ -135,6 +135,10 @@ document.addEventListener('sly:panel_close', () => {
   if (nativeContainer) nativeContainer.style.display = '';
   // Notify Pipeline B to stop its sync renderer and clear slyActiveContainer.
   document.dispatchEvent(new CustomEvent('sly:release'));
+
+  // SLY FIX (Problem 1): Set userClosedPanel = true when triggered by a close event.
+  // This tells Step 6 (Persistence & Re-injection) to stand down until the next open.
+  window.slyInternalState.userClosedPanel = true;
 });
 
 // slyCore records the incoming lyrics object when Pipeline B signals injection.
@@ -423,6 +427,11 @@ window.slyCheckNowPlaying = function (): void {
     }
 
     // 6. PERSISTENCE & RE-INJECTION: We already have lyrics active, ensure they stay there.
+    // SLY FIX (Problem 1): Stand down if the user intentionally closed the panel.
+    if (window.slyInternalState.userClosedPanel) {
+      return;
+    }
+
     if (detection.isOnLyricsPage && (window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
       const root = document.getElementById('lyrics-root-sync');
       const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);

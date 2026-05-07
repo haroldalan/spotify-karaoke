@@ -44,6 +44,7 @@ export interface SlyInternalState {
    *  fight over className on the same elements. */
   slySyncedRendererActive?: boolean;
   nativeRecoveryPending?: boolean;
+  userClosedPanel?: boolean;
 }
 
 declare global {
@@ -96,6 +97,7 @@ export const slyInternalState: SlyInternalState = {
   statusHUDActive: false,
   isFetchingHUD: false,
   isAdHUDActive: false,
+  userClosedPanel: false,
 };
 
 window.slyInternalState = slyInternalState;
