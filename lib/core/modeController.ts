@@ -27,13 +27,14 @@ export function createModeController(opts: ModeControllerOpts) {
       .filter((el): el is Element => el !== null);
   };
   async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false): Promise<void> {
-    const currentSwitchGen = ++opts.store.switchGenRef.value;
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     const cache = opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
 
     if (next === mode && forceLang === undefined && !forceRefresh) return;
+
+    const currentSwitchGen = ++opts.store.switchGenRef.value;
     const previousMode = mode;
     console.log(`[sly-audit] 🔄 Mode Change Requested: "${previousMode}" ➡️ "${next}"`);
     if (cache.original.length === 0) snapshotOriginals(cache);
@@ -131,7 +132,7 @@ export function createModeController(opts: ModeControllerOpts) {
     const cache = opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
 
-    if (mode === 'original') return;
+    if (mode === 'original' || opts.store.isSwitchingMode) return;
 
     let processed = cache.processed.get(currentActiveLang);
     if (!processed && mode === 'romanized' && cache.processed.size > 0) {

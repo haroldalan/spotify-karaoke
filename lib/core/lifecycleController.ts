@@ -21,6 +21,13 @@ let setupLock = false;
  */
 let godState: 'IDLE' | 'LOADING' | 'NATIVE_OK' | 'RELEASING' | 'PIPELINE_A' | 'FETCHING' | 'FAILED' | 'AD' = 'IDLE';
 
+const clearHUDFlags = () => {
+  slyInternalState.isFetchingHUD = false;
+  slyInternalState.statusHUDActive = false;
+  slyInternalState.isAdHUDActive = false;
+  document.getElementById('sly-status-hud')?.remove();
+};
+
 /**
  * lyricsObserver is module-level so both createLifecycleController and setupSlyBridge
  * can manage it without threading it through StateStore. Moved from StateStore in Step 5.
@@ -254,6 +261,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const s = performance.now();
       await opts.reapplyMode();
       opts.autoSwitchIfNeeded();
+      
+      // Setup successful. Clear any stale loading HUDs.
+      clearHUDFlags();
+
       const e = performance.now();
       console.log(`[sly-lifecycle] ✅ Bridge trySetup complete. Pill injected/updated (${(e - s).toFixed(2)}ms).`);
     } finally {
@@ -334,6 +345,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(syncPreferredMode);
           setLoadingState(false);
+          
+          // Native lyrics applied. Clear any fetching/loading HUDs.
+          clearHUDFlags();
+          
           syncPill('NATIVE_OK');
 
           const currentPollId = pollId;
@@ -401,6 +416,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(preferredMode);
           setLoadingState(false);
+          
+          // Native lyrics applied. Clear any fetching/loading HUDs.
+          clearHUDFlags();
+
           const currentPollId = pollId;
           if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
           return;
@@ -624,6 +643,10 @@ export function setupSlyBridge(
     }
     setupLock = true;
     try {
+      // Clear the logical fetching flag immediately to prevent the content.ts poll 
+      // from re-injecting a "Ghost HUD" during the 1-frame await below.
+      slyInternalState.isFetchingHUD = false;
+
       const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
       if (!lyricsObj || lyricsObj.failed) {
         setupLock = false;
@@ -764,6 +787,9 @@ export function setupSlyBridge(
       }
       auditOriginalLyrics(store.songKey, store.cache, store.preferredMode);
       autoSwitchIfNeeded(true);
+      
+      // Point of No Return: Successfully taken over. Clear all HUD flags and DOM.
+      clearHUDFlags();
     });
   });
 
