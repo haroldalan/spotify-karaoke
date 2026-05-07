@@ -51,6 +51,10 @@ window.slyCreateDOMLine = function (text: string, _index: number, isSynced: bool
  */
 window.slyInjectCoreStyles = function (): void {
   if (document.getElementById('sly-core-styles')) return;
+  if (!document.head) {
+    document.addEventListener('DOMContentLoaded', window.slyInjectCoreStyles);
+    return;
+  }
   const style = document.createElement('style');
   style.id = 'sly-core-styles';
   style.textContent = window.slyGetCoreStyles();

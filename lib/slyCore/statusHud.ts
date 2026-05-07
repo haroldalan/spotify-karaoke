@@ -63,14 +63,30 @@ declare global {
     title = title || 'this song';
     artist = artist || 'unknown artist';
 
-    // Duration Extraction: Try DOM first (most reliable), then metadata
-    const durationEl = document.querySelector('[data-testid="playback-duration"]');
-    let duration = 0;
-    if (durationEl && durationEl.textContent?.includes(':')) {
-      const parts = durationEl.textContent.split(':');
-      duration = (parseInt(parts[0]) * 60) + parseInt(parts[1]);
-    } else {
-      duration = Math.floor(((track?.duration_ms as number) || 0) / 1000);
+    // Duration Extraction: Metadata (Fiber) is the absolute source of truth. 
+    // Fallback to DOM with toggle-awareness only if metadata is missing.
+    let duration = Math.floor(((track?.duration_ms as number) || 0) / 1000);
+
+    if (!duration) {
+      const durationEl = document.querySelector('[data-testid="playback-duration"]');
+      const positionEl = document.querySelector('[data-testid="playback-position"]');
+      
+      const parseTime = (el: Element | null) => {
+        const text = el?.textContent || '0:00';
+        const parts = text.replace(/[^0-9:-]/g, '').split(':').map(Number);
+        const sign = text.includes('-') ? -1 : 1;
+        let total = 0;
+        if (parts.length === 3) total = Math.abs(parts[0]) * 3600 + Math.abs(parts[1]) * 60 + Math.abs(parts[2]);
+        else if (parts.length === 2) total = Math.abs(parts[0]) * 60 + Math.abs(parts[1]);
+        return total * sign;
+      };
+
+      const durVal = parseTime(durationEl);
+      const posVal = parseTime(positionEl);
+
+      // If duration label is negative, Spotify is in "Remaining Time" mode.
+      // Total Duration = abs(Elapsed) + abs(Remaining).
+      duration = durVal < 0 ? Math.abs(posVal) + Math.abs(durVal) : durVal;
     }
 
     const artUrl = (metadata?.albumArtUrl as string) ||

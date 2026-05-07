@@ -88,29 +88,29 @@ document.addEventListener('sly:panel_close', () => {
   if (window.slyInternalState.currentLyrics) {
     const cl = window.slyInternalState.currentLyrics as Record<string, unknown>;
     cl.failed = false;
-    if (!cl.lines) {
-      window.slyInternalState.currentLyrics = null;
-    }
   }
+  
+  // BUG-38 Fix: Always clear currentLyrics and fetching status to prevent persistence-loop Blank Panels
+  // if a takeover was aborted before the #lyrics-root-sync was injected.
+  window.slyInternalState.currentLyrics = null;
   window.slyInternalState.forceFallback = false;
+  window.slyInternalState.fetchingForTitle = '';
+  window.slyInternalState.fetchingForUri = '';
+  window.slyInternalState.isFetchingHUD = false;
 
   const root = document.getElementById('lyrics-root-sync');
-  if (!root) {
-    console.log('[sly-lifecycle] 🚪 Panel closed, but no injected DOM was active. Standing down.');
-    return;
+  if (root) {
+    console.log('[sly-lifecycle] 🧹 Cleaning up injected #lyrics-root-sync and restoring native UI.');
+    if (window.slyClearStatus) window.slyClearStatus();
+    root.remove();
   }
-  console.log('[sly-lifecycle] 🧹 Panel closed reactively. Removing injected #lyrics-root-sync and restoring native UI.');
-  if (window.slyClearStatus) window.slyClearStatus();
-  root.remove();
-  // Preserve fetching state: if a fetch is in-flight, re-mark isFetchingHUD = true
-  // so the Re-injection Check can restore the loading screen if the panel re-opens.
-  if (window.slyInternalState.fetchingForTitle) {
-    window.slyInternalState.isFetchingHUD = true;
-  }
+
   const syncBtn = document.getElementById('sly-sync-button');
   if (syncBtn) syncBtn.remove();
+  
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
   if (main) { main.classList.remove('sly-active'); main.style.display = ''; }
+  
   document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`)
     .forEach(n => ((n as HTMLElement).style.display = ''));
   const nativeContainer = document.querySelector(
@@ -318,6 +318,10 @@ window.slyCheckNowPlaying = function (): void {
         if (window.slyInternalState.lastDecision !== decision) {
           console.log(`[sly-dom] ✅ DECISION: Native lyrics are synced for "${title}" [${fullUri?.split(':').pop() || 'N/A'}]. Engine standing down.`);
           window.slyInternalState.lastDecision = decision;
+          // Cleanup custom state if we were previously taking over
+          if (window.slyInternalState.currentLyrics || window.slyInternalState.isFetchingHUD) {
+            document.dispatchEvent(new CustomEvent('sly:panel_close'));
+          }
           // Notify the bridge immediately to ensure the pill appears without MutationObserver latency
           document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
         }
@@ -356,6 +360,7 @@ window.slyCheckNowPlaying = function (): void {
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri = '';
         if (window.slyClearStatus) window.slyClearStatus();
+        document.dispatchEvent(new CustomEvent('sly:panel_close'));
         return;
       }
 
@@ -457,6 +462,10 @@ function startThrottledPoll() {
   const interval = isStandingDown ? 5000 : 500;
   window.antigravityInterval = setTimeout(startThrottledPoll, interval) as unknown as number;
 }
-startThrottledPoll();
+if (!document.body) {
+  document.addEventListener('DOMContentLoaded', startThrottledPoll);
+} else {
+  startThrottledPoll();
+}
 
 console.log('[sly] DOM Engine booted. Adaptive polling active.');

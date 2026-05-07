@@ -128,10 +128,18 @@ const buttonFinderObserver = new MutationObserver(() => {
     attachLyricsButtonObserver();
   }
 });
-buttonFinderObserver.observe(document.body, { childList: true, subtree: true });
 
-// Also try right away in case the button already exists at script load time
-attachLyricsButtonObserver();
+function initButtonFinder(): void {
+  if (!document.body) {
+    document.addEventListener('DOMContentLoaded', initButtonFinder);
+    return;
+  }
+  buttonFinderObserver.observe(document.body, { childList: true, subtree: true });
+  // Also try right away in case the button already exists at script load time
+  attachLyricsButtonObserver();
+}
+
+initButtonFinder();
 
 // --- INSTANT ERROR DETECTION ---
 // Monitors for the specific "Lyrics not available" node to bypass polling delays

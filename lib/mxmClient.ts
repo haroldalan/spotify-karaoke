@@ -58,7 +58,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                 window.removeEventListener('message', handler);
                 _isHydrating = false;
                 resolve();
-            }, 1000);
+            }, 2000);
         });
         return _hydrationPromise;
     }
@@ -132,7 +132,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                     
                     return token;
                 } else {
-                    console.error('[SKaraoke:Interceptor] Token rejected. API response:', data);
+                    console.error('[SKaraoke:Interceptor] Token rejected. API response:', JSON.stringify(data, null, 2));
                     _tokenFailCount++;
                     _lastTokenFailTime = Date.now();
                 }

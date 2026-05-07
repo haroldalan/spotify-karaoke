@@ -321,9 +321,20 @@ window.slyOmniscientSearch = function (
 
   function setupObserver(btn: Element): void {
     if (btnObserver) btnObserver.disconnect();
-    btnObserver = new MutationObserver(() => { enforceDOMState(btn); });
-    btnObserver.observe(btn, { attributes: true, attributeFilter: ['disabled', 'aria-label'] });
-    enforceDOMState(btn);
+    
+    // BUG FIX: Explicitly verify target is a Node to prevent "Failed to execute 'observe' on 'MutationObserver': parameter 1 is not of type 'Node'"
+    if (!(btn instanceof Node)) {
+      console.warn('[sly-shield] setupObserver aborted: target is not a valid Node.');
+      return;
+    }
+
+    try {
+      btnObserver = new MutationObserver(() => { enforceDOMState(btn); });
+      btnObserver.observe(btn, { attributes: true, attributeFilter: ['disabled', 'aria-label'] });
+      enforceDOMState(btn);
+    } catch (e) {
+      console.error('[sly-shield] MutationObserver setup failed:', e);
+    }
   }
 
   window.slyActivateShield = function () {

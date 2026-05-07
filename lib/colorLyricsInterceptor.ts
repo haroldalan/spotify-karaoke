@@ -89,7 +89,7 @@ export async function handleColorLyrics(
         }
 
         // Increment generation only for real intercepts.
-        const interceptId = mxm.newInterception(spotifyTrackId);
+        const interceptId = await mxm.newInterception(spotifyTrackId);
 
         // ── Signal 4: SLY_INTERCEPT_START ─────────────────────────────────────
         // Tells the DOM engine to suspend decisions while the MXM upgrade is in

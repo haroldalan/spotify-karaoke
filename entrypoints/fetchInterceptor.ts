@@ -1,22 +1,51 @@
-/**
- * fetchInterceptor.ts
- *
- * WXT unlisted script — compiled to a plain fetchInterceptor.js by Vite.
- * Injected into the page's MAIN world as a <script src> tag by
- * spotify-inject.content.ts before Spotify's React bundle loads.
- *
- * No WXT/browser extension APIs are available here — this runs in the
- * page's main world and is entirely self-contained.
- */
-
-import { createMxmClient } from '../lib/mxmClient';
 import { handleColorLyrics } from '../lib/colorLyricsInterceptor';
 
 export default defineUnlistedScript(() => {
-    const _fetch = window.fetch.bind(window);
-    const mxm = createMxmClient(_fetch);
+    /**
+     * Headless Musixmatch Client (Remote Bridge)
+     * Forwards all requests to the background script to ensure robust headers and caching.
+     */
+    const mxm = {
+        notifyMetadata(trackId: string, name: string, artist: string) {
+            window.postMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: { trackId, name, artist } }, '*');
+        },
+        async newInterception(trackId: string): Promise<number> {
+            return new Promise((resolve) => {
+                const requestId = Math.random().toString(36).slice(2);
+                const handler = (event: MessageEvent) => {
+                    if (event.data?.type === 'SLY_MXM_NEW_INTERCEPTION_RESPONSE' && event.data.requestId === requestId) {
+                        window.removeEventListener('message', handler);
+                        resolve(event.data.generation);
+                    }
+                };
+                window.addEventListener('message', handler);
+                window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload: { trackId }, requestId }, '*');
+            });
+        },
+        async fetchNativeLines(providerLyricsId: string | null, trackId: string, hexGid: string, interceptId: number): Promise<any[] | null> {
+            // Safety: Ensure the ID is a number (handles accidental double-promise passing)
+            const id = await interceptId;
+            return new Promise((resolve) => {
+                const requestId = Math.random().toString(36).slice(2);
+                const handler = (event: MessageEvent) => {
+                    if (event.data?.type === 'SLY_MXM_FETCH_NATIVE_RESPONSE' && event.data.requestId === requestId) {
+                        window.removeEventListener('message', handler);
+                        resolve(event.data.ok ? event.data.lines : null);
+                    }
+                };
+                window.addEventListener('message', handler);
+                window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload: { providerLyricsId, trackId, hexGid, interceptId: id }, requestId }, '*');
+            });
+        },
+        warmup() {
+            window.postMessage({ type: 'SLY_MXM_WARMUP' }, '*');
+        }
+    };
+
     mxm.warmup();
 
+    const _fetch = window.fetch.bind(window);
+    
     // ─── Fetch interceptor ────────────────────────────────────────────────────
 
     window.fetch = async function (
@@ -44,7 +73,7 @@ export default defineUnlistedScript(() => {
             const originalResponse = await _fetch(input, init);
             const fallbackResponse = originalResponse.clone();
             
-            return await handleColorLyrics(originalResponse, fallbackResponse, url, mxm);
+            return await handleColorLyrics(originalResponse, fallbackResponse, url, mxm as any);
         } catch (e) {
             console.error('[SKaraoke:Interceptor] Critical Fetch Intercept Failure:', e);
             return _fetch(input, init);

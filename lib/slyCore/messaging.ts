@@ -140,11 +140,35 @@ window.addEventListener('message', (event) => {
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
     if (trackId === currentTrackId) {
       window.slyInternalState.nativeUpgradedLines = nativeLines;
+      
+      // BUG-38 Fix: If a takeover was already in progress or active (e.g. from a cache hit),
+      // we MUST clean it up now that the network has recovered native lyrics.
+      if (window.slyInternalState.currentLyrics || window.slyInternalState.isFetchingHUD) {
+        document.dispatchEvent(new CustomEvent('sly:panel_close'));
+      }
+
       window.slyInternalState.pendingLyricsData = null;
       window.slyInternalState.fetchingForTitle = '';
       window.slyInternalState.fetchingForUri = '';
       if (window.slyClearStatus) window.slyClearStatus();
     }
+  } else if (data?.type === 'SLY_MXM_WARMUP') {
+    safeSendMessage({ type: 'SLY_MXM_WARMUP' });
+
+  } else if (data?.type === 'SLY_MXM_NOTIFY_METADATA') {
+    safeSendMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: data.payload });
+
+  } else if (data?.type === 'SLY_MXM_NEW_INTERCEPTION') {
+    const { requestId, payload } = data;
+    safeSendMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload }, (r) => {
+      window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r.generation }, '*');
+    });
+
+  } else if (data?.type === 'SLY_MXM_FETCH_NATIVE') {
+    const { requestId, payload } = data;
+    safeSendMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload }, (r) => {
+      window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r.ok, lines: r.lines }, '*');
+    });
   }
 });
 

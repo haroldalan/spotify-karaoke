@@ -6,7 +6,7 @@ import { createModeController } from '../../lib/core/modeController';
 import { createLifecycleController, setupSlyBridge } from '../../lib/core/lifecycleController';
 import { StateStore } from '../../lib/core/store';
 import { setupKeyboardShortcuts } from '../../lib/core/keyboardListener';
-import { setupMessageListener } from '../../lib/core/messageListener';
+import { setupMessageListener, setupTokenBridge } from '../../lib/core/messageListener';
 // --- slyCore initialization layer (lyric-test integration) ---
 import { SLY_NATIVE_LANGUAGES } from '../../lib/slyCore/languages';
 import '../../lib/slyCore/forensics';
@@ -28,54 +28,18 @@ void SLY_NATIVE_LANGUAGES;
 
 export default defineContentScript({
   matches: ['*://open.spotify.com/*'],
-  runAt: 'document_idle',
+  runAt: 'document_start',
   main,
 });
 
 
 async function main(): Promise<void> {
+  // 1. IMMEDIATE BRIDGE INITIALIZATION (Synchronous)
+  // This must run at document_start to catch the first Musixmatch token hydration request.
+  setupTokenBridge();
+
   // Register SLY_BRIDGE listener — populates window.spotifyState from scanner postMessages
   initSlyState();
-
-  if (!isContextValid()) return;
-
-  const store = new StateStore();
-  await store.loadFromStorage();
-
-  const modeController = createModeController({ store });
-  const { switchMode, reapplyMode, autoSwitchIfNeeded } = modeController;
-
-  const lifecycleController = createLifecycleController({
-    store,
-    switchMode,
-    reapplyMode,
-    autoSwitchIfNeeded,
-  });
-  const { trySetup, syncSetup, onSongChange, trySetupOrPoll, syncPill } = lifecycleController;
-
-  setupMessageListener(store, switchMode);
-  const cleanupKeyboard = setupKeyboardShortcuts(switchMode);
-  setupSlyBridge(store, switchMode, autoSwitchIfNeeded, syncPill);
-
-  if (!store.domObserver) {
-    store.domObserver = createDomObserver({
-      onSongChange: (key) => onSongChange(key),
-      onLyricsInjected: () => syncSetup(),
-      onControlsRemoved: () => trySetupOrPoll(),
-      onLyricsPanelClosed: () => document.dispatchEvent(new CustomEvent('sly:panel_close')),
-      onInvalidate: () => { 
-        store.domObserver = null; 
-        cleanupKeyboard();
-      },
-    });
-  }
-
-  startStorageListener({
-    store,
-    onSwitchMode: (m, lang) => switchMode(m, lang),
-  });
-
-  trySetup();
 
   // BUG-31 Fix: Messaging bridge for Chrome MAIN world.
   // This isolated world script can access extension APIs (browser.runtime.sendMessage).
@@ -100,4 +64,54 @@ async function main(): Promise<void> {
       });
     }
   });
+
+  // 2. DEFERRED UI INITIALIZATION
+  // We wait for the DOM to be ready before starting the store and controllers.
+  const initUI = async () => {
+    if (!isContextValid()) return;
+
+    const store = new StateStore();
+    await store.loadFromStorage();
+
+    const modeController = createModeController({ store });
+    const { switchMode, reapplyMode, autoSwitchIfNeeded } = modeController;
+
+    const lifecycleController = createLifecycleController({
+      store,
+      switchMode,
+      reapplyMode,
+      autoSwitchIfNeeded,
+    });
+    const { trySetup, syncSetup, onSongChange, trySetupOrPoll, syncPill } = lifecycleController;
+
+    setupMessageListener(store, switchMode);
+    const cleanupKeyboard = setupKeyboardShortcuts(switchMode);
+    setupSlyBridge(store, switchMode, autoSwitchIfNeeded, syncPill);
+
+    if (!store.domObserver) {
+      store.domObserver = createDomObserver({
+        onSongChange: (key) => onSongChange(key),
+        onLyricsInjected: () => syncSetup(),
+        onControlsRemoved: () => trySetupOrPoll(),
+        onLyricsPanelClosed: () => document.dispatchEvent(new CustomEvent('sly:panel_close')),
+        onInvalidate: () => { 
+          store.domObserver = null; 
+          cleanupKeyboard();
+        },
+      });
+    }
+
+    startStorageListener({
+      store,
+      onSwitchMode: (m, lang) => switchMode(m, lang),
+    });
+
+    trySetup();
+  };
+
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initUI);
+  } else {
+    initUI();
+  }
 }

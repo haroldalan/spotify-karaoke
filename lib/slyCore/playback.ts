@@ -34,6 +34,35 @@ function findMediaRecursively(root: Document | ShadowRoot): HTMLMediaElement | n
 }
 
 /**
+ * Robustly extracts the total duration of the current track.
+ * Prioritizes Spotify internal metadata, falls back to DOM with toggle-awareness.
+ */
+function getAbsoluteDuration(): number {
+  const track = (window as any).spotifyState?.track;
+  if (track?.duration_ms) return Math.floor(track.duration_ms / 1000);
+
+  const durationEl = document.querySelector('[data-testid="playback-duration"]');
+  const positionEl = document.querySelector('[data-testid="playback-position"]');
+
+  const parseTime = (el: Element | null) => {
+    const text = el?.textContent || '0:00';
+    const parts = text.replace(/[^0-9:-]/g, '').split(':').map(Number);
+    const sign = text.includes('-') ? -1 : 1;
+    let total = 0;
+    if (parts.length === 3) total = Math.abs(parts[0]) * 3600 + Math.abs(parts[1]) * 60 + Math.abs(parts[2]);
+    else if (parts.length === 2) total = Math.abs(parts[0]) * 60 + Math.abs(parts[1]);
+    return total * sign;
+  };
+
+  const durVal = parseTime(durationEl);
+  if (durVal >= 0) return durVal;
+
+  // Remaining mode fallback: Total = Elapsed + abs(Remaining)
+  const posVal = parseTime(positionEl);
+  return Math.abs(posVal) + Math.abs(durVal);
+}
+
+/**
  * Attempts to seek the current track to a specific timestamp.
  * Uses a layered approach: React State Bridge → Direct Media Access → Pointer Simulation.
  */
@@ -69,15 +98,8 @@ window.slySeekTo = function (time: number): void {
   }
 
   // LAYER 3: Simulated Pointer Interaction
-  const progressBar = document.querySelector('[data-testid="progress-bar"]');
   if (progressBar) {
-    const durationEl = document.querySelector('[data-testid="playback-duration"]');
-    const p = (durationEl?.textContent || '0:00').replace(/[^0-9:]/g, '').split(':').map(Number);
-    const durSec = p.length === 3
-      ? p[0] * 3600 + p[1] * 60 + p[2]
-      : p.length === 2
-        ? p[0] * 60 + p[1]
-        : 0;
+    const durSec = getAbsoluteDuration();
 
     if (durSec > 0) {
       const rect = progressBar.getBoundingClientRect();
@@ -107,15 +129,8 @@ window.slyGetPlaybackSeconds = function (): number {
   const percentStr = transformStyle ? transformStyle.replace('%', '') : '0';
   const posRatio = parseFloat(percentStr) / 100;
 
-  // 2. Extract duration from UI text
-  const durationEl = document.querySelector('[data-testid="playback-duration"]');
-  const durationStr = durationEl?.textContent || '0:00';
-  const p = durationStr.split(':').map(Number);
-  const durSec = p.length === 3
-    ? p[0] * 3600 + p[1] * 60 + p[2]
-    : p.length === 2
-      ? p[0] * 60 + p[1]
-      : 0;
+  // 2. Extract duration from metadata or UI text
+  const durSec = getAbsoluteDuration();
 
   const baselineUiTime = posRatio * durSec;
   const isPlaying = !!document.querySelector('[data-testid="control-button-pause"]');

@@ -2,6 +2,7 @@ import { processLines } from '../lib/lyrics/lyricsProcessor';
 import { lyricsCache } from '../lib/lyricsProviders/lyricsCache';
 import { lyricsPersistence } from '../lib/lyricsProviders/lyricsPersistence';
 import { getLyricsForTrack, getColorOnly } from '../lib/lyricsProviders/lyricsEngine';
+import { mxmProvider } from '../lib/lyricsProviders/mxm';
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
@@ -12,7 +13,20 @@ export default defineBackground(() => {
         lines?: string[];
         targetLang?: string;
         // FETCH_LYRICS / PREFETCH_LYRICS fields
-        payload?: { title: string; artist: string; albumArtUrl?: string; uri?: string; forceRefresh?: boolean };
+        payload?: { 
+          title?: string; 
+          artist?: string; 
+          albumArtUrl?: string; 
+          uri?: string; 
+          forceRefresh?: boolean;
+          // MXM fields
+          trackId?: string;
+          providerLyricsId?: string | null;
+          hexGid?: string;
+          interceptId?: number;
+          name?: string;
+          status?: string;
+        };
       },
       sender,
       sendResponse,
@@ -33,7 +47,6 @@ export default defineBackground(() => {
 
       // ----------------------------------------------------------------
       // New handler: fast-track album art color extraction
-      // Port of: lyric-test/service-worker.js GET_COLOR block
       // ----------------------------------------------------------------
       if (msg.type === 'GET_COLOR') {
         getColorOnly(msg.payload?.albumArtUrl).then(color => {
@@ -55,12 +68,10 @@ export default defineBackground(() => {
 
       // ----------------------------------------------------------------
       // New handler: fetch missing/unsynced lyrics from YTM + LRCLIB
-      // Port of: lyric-test/service-worker.js FETCH_LYRICS block
-      // Full 4-layer cache: L1 memory → L2 persistent → L3 in-flight → L4 network
       // ----------------------------------------------------------------
       if (msg.type === 'SLY_CHECK_CACHE') {
         const { title, artist, uri } = msg.payload ?? {} as any;
-        const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
+        const cacheKey = lyricsCache.getCacheKey(title!, artist!, uri);
         
         (async () => {
           const stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
@@ -119,28 +130,19 @@ export default defineBackground(() => {
             sendResponse(stored);
 
             // --- UPGRADE LOGIC ---
-            // If we have unsynced or missing lyrics cached, silently check once per week
-            // whether a better version has become available.
             const needsUpgrade = !stored.ok || (stored.data && stored.data.isSynced === false);
             const lastCheck = stored.lastCheckedAt || 0;
             const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
  
             if (needsUpgrade && lastCheck < weekAgo) {
-              console.log(`[ServiceWorker] 💡 Upgrade Check triggered for ${stored.ok ? 'unsynced' : 'missing'} track: ${title}`);
-              // Perform silent background fetch without blocking the sendResponse above
+              console.log(`[ServiceWorker] Upgrade Check for ${title}`);
               getLyricsForTrack(title, artist, albumArtUrl, uri).then(async (fresh) => {
                 if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
-                  console.log(`[ServiceWorker] ✨ UPGRADE SUCCESS: Found ${fresh.data?.isSynced ? 'synced' : 'new'} lyrics for ${title}`);
-                  
-                  // SLY FIX: Smart Merge. Don't let an upgrade wipe out our known nativeStatus.
                   if (stored.nativeStatus && !fresh.nativeStatus) {
                     fresh.nativeStatus = stored.nativeStatus;
                   }
-
                   await lyricsPersistence.set(cacheKey, fresh);
                   lyricsCache.set(cacheKey, fresh);
-
-                  // Broadcast to the originating tab so it can re-render
                   if (sender.tab?.id) {
                     browser.tabs.sendMessage(sender.tab.id, {
                       type: 'LYRICS_UPGRADED',
@@ -148,12 +150,9 @@ export default defineBackground(() => {
                     });
                   }
                 } else {
-                  // Still unsynced or failed — update timestamp to avoid checking for another week
-                  console.log(`[ServiceWorker] 😴 Upgrade Check: No synced version found for ${title}. Sleeping for 7 days.`);
                   await lyricsPersistence.set(cacheKey, stored);
                 }
-              }).catch(async (err) => {
-                console.error('[ServiceWorker] Upgrade check failed:', err);
+              }).catch(async () => {
                 await lyricsPersistence.set(cacheKey, stored);
               });
             }
@@ -163,7 +162,6 @@ export default defineBackground(() => {
           // 3. L3: Join In-Flight Fetch (Deduplication)
           const inFlight = lyricsCache.getInFlight(cacheKey);
           if (inFlight) {
-            console.log(`[ServiceWorker] Joining in-flight fetch for: ${title}`);
             const res = await inFlight;
             sendResponse(res);
             return;
@@ -179,13 +177,8 @@ export default defineBackground(() => {
                 } else {
                   result.prefetchState = 'MISSING';
                 }
-                // SLY FIX: Smart Merge. Don't let a fresh fetch wipe out our known nativeStatus.
                 const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
-                
-                // Priority: Existing L1/L2 > Payload (Known state) > Fresh Result
                 result.nativeStatus = result.nativeStatus || existing?.nativeStatus || (msg.payload as any)?.nativeStatus;
-
-                // Always persist results (including failures) to avoid redundant searches
                 lyricsCache.set(cacheKey, result);
                 await lyricsPersistence.set(cacheKey, result);
               }
@@ -219,17 +212,15 @@ export default defineBackground(() => {
             const fresh = {
               ok: false,
               prefetchState: 'MISSING' as const,
-              nativeStatus: status,
+              nativeStatus: status as any,
               isPlaceholder: true
             };
             lyricsCache.set(cacheKey, fresh);
             await lyricsPersistence.set(cacheKey, fresh);
-            console.log(`[ServiceWorker] 💾 SAVED (Fresh): Native Status for ${title} -> ${status}`);
           } else if (existing.nativeStatus !== status) {
-            existing.nativeStatus = status;
+            existing.nativeStatus = status as any;
             lyricsCache.set(cacheKey, existing);
             await lyricsPersistence.set(cacheKey, existing);
-            console.log(`[ServiceWorker] 💾 SAVED (Update): Native Status for ${title} -> ${status}`);
           }
           sendResponse({ ok: true });
         })();
@@ -237,24 +228,44 @@ export default defineBackground(() => {
       }
 
       // ----------------------------------------------------------------
-      // New handler: Musixmatch Token Bridge (Bypasses localStorage)
+      // ROBUST MUSIXMATCH HANDLERS (Background-Centric)
       // ----------------------------------------------------------------
-      if (msg.type === 'SLY_GET_MXM_TOKEN') {
-        browser.storage.local.get(['skl_mxm_token', 'skl_mxm_token_expiry']).then(res => {
-          sendResponse({ 
-            token: res.skl_mxm_token || null, 
-            expiry: res.skl_mxm_token_expiry || 0 
-          });
-        });
+      
+      if (msg.type === 'SLY_MXM_WARMUP') {
+        mxmProvider.warmup();
+        return false; // No response needed
+      }
+
+      if (msg.type === 'SLY_MXM_NOTIFY_METADATA') {
+        const { trackId, name, artist } = msg.payload ?? {};
+        if (trackId && name && artist) {
+          mxmProvider.notifyMetadata(trackId, name, artist);
+        }
+        return false;
+      }
+
+      if (msg.type === 'SLY_MXM_NEW_INTERCEPTION') {
+        const { trackId } = msg.payload ?? {};
+        if (trackId) {
+          const gen = mxmProvider.newInterception(trackId);
+          sendResponse({ generation: gen });
+        }
         return true;
       }
 
-      if (msg.type === 'SLY_SET_MXM_TOKEN') {
-        const { token, expiry } = (msg as any).payload ?? {};
-        browser.storage.local.set({ 
-          skl_mxm_token: token, 
-          skl_mxm_token_expiry: expiry 
-        }).then(() => sendResponse({ ok: true }));
+      if (msg.type === 'SLY_MXM_FETCH_NATIVE') {
+        const { providerLyricsId, trackId, hexGid, interceptId } = msg.payload ?? {};
+        mxmProvider.fetchNativeLines(
+          providerLyricsId ?? null,
+          trackId ?? '',
+          hexGid ?? '',
+          interceptId ?? 0
+        ).then(lines => {
+          sendResponse({ ok: !!lines, lines });
+        }).catch(err => {
+          console.error('[SKaraoke:BG] MXM Background Fetch failed:', err);
+          sendResponse({ ok: false, error: err.message });
+        });
         return true;
       }
     },
