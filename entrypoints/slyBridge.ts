@@ -501,6 +501,14 @@ window.slyOmniscientSearch = function (
 
         // Flicker Guard with detailed logging
         setTimeout(() => {
+          // SLY FIX (Problem 2): If slyCore has already taken over, the button state is 
+          // now managed by the extension. Standing down the Flicker Guard prevents 
+          // double-toggling React's internal state.
+          if (document.getElementById('lyrics-root-sync')) {
+            console.log('>>> [sly-audit] Flicker Guard: slyCore takeover active. Standing down.');
+            return;
+          }
+
           const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
           const isPressed = activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true';
           console.log(`>>> [sly-audit] Flicker Guard executing. Is active button pressed? ${isPressed}. Attributes: data-active="${activeBtn?.getAttribute('data-active')}", aria-pressed="${activeBtn?.getAttribute('aria-pressed')}"`);

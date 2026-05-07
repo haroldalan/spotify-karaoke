@@ -47,10 +47,25 @@ window.addEventListener('scroll', handleUserInteraction, interactionOptions);
 document.addEventListener('pointerdown', (e: Event) => {
   const btn = (e.target as HTMLElement).closest('[data-testid="lyrics-button"]');
   if (btn) {
-    const isPressed = btn.getAttribute('data-active') === 'true' || btn.getAttribute('aria-pressed') === 'true';
+    const slyIsActive = !!document.getElementById('lyrics-root-sync');
+    const isPressed = slyIsActive || btn.getAttribute('data-active') === 'true' || btn.getAttribute('aria-pressed') === 'true';
     const provider = window.spotifyState?.lyricsProvider;
     const label = btn.getAttribute('aria-label');
-    console.log(`[sly-audit] 🖱️ Lyrics Button Pointerdown captured. IsPressed: ${isPressed}, Provider: ${provider}, Label: "${label}"`);
+    console.log(`[sly-audit] 🖱️ Lyrics Button Pointerdown captured. IsPressed: ${isPressed}, Provider: ${provider}, Label: "${label}", SlyActive: ${slyIsActive}`);
+
+    // SLY FIX (Problem 1 & 3): Teach the close path to dispatch sly:release
+    // If slyCore is active, we treat the panel as pressed regardless of button DOM state,
+    // and we manually trigger a release when the user clicks to close.
+    if (isPressed && slyIsActive) {
+      console.log('[sly-audit] Intercepting close click on active slyCore panel. Dispatching sly:release.');
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      document.dispatchEvent(new CustomEvent('sly:release'));
+      // Manually un-press the button to reflect closed state:
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('data-active', 'false');
+      return;
+    }
 
     // Only hijack if Spotify has no lyrics provider, or if the button is in its default state
     if (provider === null || label === 'Lyrics') {
