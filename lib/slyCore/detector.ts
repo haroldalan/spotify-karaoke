@@ -203,15 +203,20 @@ window.slyDetectNativeState = function (): DetectorState {
                       state.preFetch?.state === 'SYNCED';
 
   // SLY TEST: Disabling the React Context Provider Timeout (timeSinceOpen > 2500) to test for false positive prevention.
-  const isNativeMissing = ((state.hasUnavailableMessage && isSettled && !isProtected) ||
-                           state.preFetch?.nativeStatus === 'MISSING' ||
-                           state.preFetch?.state === 'MISSING') && !state.hasNativeLines;
+  // SLY FIX: Background Throttling Guard
+  // If the document is hidden, we stay in LOADING unless we have a definitive pre-fetch hit.
+  // This prevents the engine from acting on throttled/stale Fiber data in the background.
+  const isNativeMissing = !document.hidden &&
+                           ((state.hasUnavailableMessage && isSettled && !isProtected) ||
+                            state.preFetch?.nativeStatus === 'MISSING' ||
+                            state.preFetch?.state === 'MISSING') && !state.hasNativeLines;
 
-  const isNativeUnsynced = (window.spotifyState.isTimeSynced === false || 
-                            state.preFetch?.nativeStatus === 'UNSYNCED' ||
-                            state.preFetch?.state === 'UNSYNCED') &&
-                           window.spotifyState.lyricsProvider !== null &&
-                           window.spotifyState.lyricsProvider !== undefined;
+  const isNativeUnsynced = !document.hidden &&
+                           (window.spotifyState.isTimeSynced === false || 
+                             state.preFetch?.nativeStatus === 'UNSYNCED' ||
+                             state.preFetch?.state === 'UNSYNCED') &&
+                            window.spotifyState.lyricsProvider !== null &&
+                            window.spotifyState.lyricsProvider !== undefined;
 
   const isNativeSynced = window.spotifyState.isTimeSynced === true;
 

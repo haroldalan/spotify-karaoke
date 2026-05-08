@@ -3,7 +3,7 @@
 export interface SpotifyBridgeState {
   track: Record<string, unknown> | null;
   lyricsProvider: string | null;
-  isTimeSynced: boolean;
+  isTimeSynced: boolean | undefined;
   syncType: string | null;
   isPanelOpen: boolean;
   nativeHasLyrics: boolean;
@@ -62,7 +62,7 @@ declare global {
 export const spotifyState: SpotifyBridgeState = {
   track: null,
   lyricsProvider: null,
-  isTimeSynced: false,
+  isTimeSynced: undefined,
   syncType: null,
   isPanelOpen: false,
   nativeHasLyrics: true,

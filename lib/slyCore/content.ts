@@ -409,6 +409,13 @@ window.slyCheckNowPlaying = function (): void {
     if (detection.isOnLyricsPage && (window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
       const root = document.getElementById('lyrics-root-sync');
       const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
+      
+      // RECOVERY GUARD: If native lyrics become SYNCED (and we're not in forceFallback), release the takeover.
+      if (detection.lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback) {
+        console.log('[sly-lifecycle] 🩹 Recovery: Native lyrics became synced while in Pipeline A. Releasing takeover.');
+        document.dispatchEvent(new CustomEvent('sly:panel_close'));
+        return;
+      }
 
       // If the panel was re-opened and our DOM was wiped by React, re-inject
       if (!root || !root.isConnected || root.innerHTML === '') {

@@ -140,9 +140,13 @@ window.slyOmniscientSearch = function (
   }
 
   window.slyScanSpotifyState = function () {
-    const lineNode = document.querySelector('[data-testid="lyrics-line"]');
+    const lineNode = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+      .find(el => !el.closest('#lyrics-root-sync'));
     // We cannot use SPOTIFY_CLASSES here since this runs in the MAIN world. Use structural queries.
-    const failNode = document.querySelector('.hfTlyhd7WCIk9xmP') || document.querySelector('.bRNotDNzO2suN6vM') || Array.from(document.querySelectorAll('main div[style*="--lyrics-color-active"] > div')).find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
+    const failNode = document.querySelector('.hfTlyhd7WCIk9xmP') || 
+                     document.querySelector('.bRNotDNzO2suN6vM') || 
+                     Array.from(document.querySelectorAll('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync) > div'))
+                       .find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
     const trackNode = document.querySelector('[data-testid="context-item-info-title"]');
     const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
 
@@ -185,7 +189,7 @@ window.slyOmniscientSearch = function (
       track: aggregateState.track,
       accessToken: window.__sly_spotify_token,
       lyricsProvider: aggregateState.provider || null,
-      isTimeSynced: !!aggregateState.isTimeSynced,
+      isTimeSynced: aggregateState.isTimeSynced,
       syncType: aggregateState.syncType || null,
       isDenseTypeface: aggregateState.isDenseTypeface,
       language: aggregateState.language || null,
