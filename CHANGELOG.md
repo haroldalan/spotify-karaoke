@@ -3,6 +3,18 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.1] — 2026-05-08
+
+### Added
+- **Stability & Hardening Release**: Conducted a comprehensive lifecycle audit to resolve intermittent desync and timing issues across all supported browsers.
+
+### Fixed
+- **Musixmatch Background Migration**: Moved all Musixmatch network operations to the Background Service Worker. This resolves the `401: captcha` error by simulating official mobile client headers, ensuring reliable lyrics fetching even during high-traffic sessions.
+- **Firefox Lifecycle Hardening**: Resolved `TypeError: document.head is null` and `MutationObserver` crashes that occurred on Firefox during the initial page load. The extension now safely defers DOM injection until the browser environment is fully ready.
+- **Background Desync "Death Loop"**: Patched a critical circular dependency where the extension would accidentally read its own injected DOM while the tab was throttled in the background, causing it to incorrectly assume lyrics were unsynced.
+- **Self-Healing Recovery**: Pipeline A (Custom Lyrics) now actively monitors native synced state and will automatically "release" control back to Spotify if native synced lyrics are recovered mid-session.
+- **DataCloneError Correction**: Fixed a messaging bug where Promises were accidentally passed to `postMessage` before resolution.
+
 ## [3.1.0] — 2026-04-30
 
 ### Added
