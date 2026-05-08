@@ -51,7 +51,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                 }
             };
             window.addEventListener('message', handler);
-            window.postMessage({ type: 'SLY_GET_MXM_TOKEN' }, '*');
+            window.postMessage({ type: 'SLY_GET_MXM_TOKEN' }, window.location.origin);
             
             // Timeout to prevent hanging if the bridge isn't ready
             setTimeout(() => {
@@ -128,7 +128,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                     window.postMessage({ 
                         type: 'SLY_SET_MXM_TOKEN', 
                         payload: { token, expiry: _tokenExpiry } 
-                    }, '*');
+                    }, window.location.origin);
                     
                     return token;
                 } else {

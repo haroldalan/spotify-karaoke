@@ -7,7 +7,7 @@ export default defineUnlistedScript(() => {
      */
     const mxm = {
         notifyMetadata(trackId: string, name: string, artist: string) {
-            window.postMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: { trackId, name, artist } }, '*');
+            window.postMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: { trackId, name, artist } }, window.location.origin);
         },
         async newInterception(trackId: string): Promise<number> {
             return new Promise((resolve) => {
@@ -19,7 +19,7 @@ export default defineUnlistedScript(() => {
                     }
                 };
                 window.addEventListener('message', handler);
-                window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload: { trackId }, requestId }, '*');
+                window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload: { trackId }, requestId }, window.location.origin);
             });
         },
         async fetchNativeLines(providerLyricsId: string | null, trackId: string, hexGid: string, interceptId: number): Promise<any[] | null> {
@@ -34,11 +34,11 @@ export default defineUnlistedScript(() => {
                     }
                 };
                 window.addEventListener('message', handler);
-                window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload: { providerLyricsId, trackId, hexGid, interceptId: id }, requestId }, '*');
+                window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload: { providerLyricsId, trackId, hexGid, interceptId: id }, requestId }, window.location.origin);
             });
         },
         warmup() {
-            window.postMessage({ type: 'SLY_MXM_WARMUP' }, '*');
+            window.postMessage({ type: 'SLY_MXM_WARMUP' }, window.location.origin);
         }
     };
 
@@ -47,6 +47,13 @@ export default defineUnlistedScript(() => {
     const _fetch = window.fetch.bind(window);
     
     // ─── Fetch interceptor ────────────────────────────────────────────────────
+
+    if ((window.fetch as any).__sly_intercepted__) {
+        console.warn('[SKaraoke:Interceptor] window.fetch is already intercepted. Skipping.');
+        return;
+    }
+
+    (window.fetch as any).__sly_intercepted__ = true;
 
     window.fetch = async function (
         input: RequestInfo | URL,

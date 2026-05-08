@@ -26,6 +26,7 @@ export default defineBackground(() => {
           interceptId?: number;
           name?: string;
           status?: string;
+          nativeStatus?: string;
         };
       },
       sender,
@@ -49,9 +50,14 @@ export default defineBackground(() => {
       // New handler: fast-track album art color extraction
       // ----------------------------------------------------------------
       if (msg.type === 'GET_COLOR') {
-        getColorOnly(msg.payload?.albumArtUrl).then(color => {
-          sendResponse({ color });
-        });
+        getColorOnly(msg.payload?.albumArtUrl)
+          .then(color => {
+            sendResponse({ color });
+          })
+          .catch(err => {
+            console.error('[SKaraoke:BG] GET_COLOR failed:', err);
+            sendResponse({ color: null });
+          });
         return true;
       }
 
@@ -87,7 +93,7 @@ export default defineBackground(() => {
       }
 
       if (msg.type === 'FETCH_LYRICS' || msg.type === 'PREFETCH_LYRICS') {
-        const { title, artist, albumArtUrl, uri, forceRefresh } = msg.payload ?? {} as NonNullable<typeof msg.payload>;
+        const { title, artist, albumArtUrl, uri, forceRefresh, nativeStatus } = msg.payload ?? {} as NonNullable<typeof msg.payload>;
 
         if (!title || !artist) {
           sendResponse({ ok: false, error: 'Missing metadata' });
@@ -130,7 +136,7 @@ export default defineBackground(() => {
             sendResponse(stored);
 
             // --- UPGRADE LOGIC ---
-            const needsUpgrade = !stored.ok || (stored.data && stored.data.isSynced === false);
+            const needsUpgrade = (!stored.ok && !stored.isPlaceholder) || (stored.data && stored.data.isSynced === false);
             const lastCheck = stored.lastCheckedAt || 0;
             const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
  
@@ -178,7 +184,7 @@ export default defineBackground(() => {
                   result.prefetchState = 'MISSING';
                 }
                 const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
-                result.nativeStatus = result.nativeStatus || existing?.nativeStatus || (msg.payload as any)?.nativeStatus;
+                result.nativeStatus = result.nativeStatus || existing?.nativeStatus || nativeStatus;
                 lyricsCache.set(cacheKey, result);
                 await lyricsPersistence.set(cacheKey, result);
               }

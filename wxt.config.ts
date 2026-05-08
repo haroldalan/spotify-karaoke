@@ -6,7 +6,7 @@ export default defineConfig({
   vite: (configEnv) => ({
     plugins: [
       preact(),
-      ...(configEnv.mode === 'production' ? [removeConsole({ includes: ['log', 'debug', 'info'] })] : []),
+      ...(configEnv.mode === 'production' ? [removeConsole({ includes: ['debug', 'info'] })] : []),
     ],
     optimizeDeps: {
       include: ['@indic-transliteration/sanscript'],

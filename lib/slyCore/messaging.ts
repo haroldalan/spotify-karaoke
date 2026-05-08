@@ -38,10 +38,8 @@ window.addEventListener('message', (event) => {
 
   } else if (data?.type === 'SLY_FETCH_END') {
     window.slyInternalState.isSpotifyFetching = false;
-    // Retry cascade covering slow React renders of the lyrics panel DOM.
-    setTimeout(window.slyCheckNowPlaying, 100);
+    // Debounced retry covering slow React renders of the lyrics panel DOM.
     setTimeout(window.slyCheckNowPlaying, 300);
-    setTimeout(window.slyCheckNowPlaying, 600);
 
   } else if (data?.type === 'SLY_INTERCEPT_START') {
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
@@ -161,13 +159,13 @@ window.addEventListener('message', (event) => {
   } else if (data?.type === 'SLY_MXM_NEW_INTERCEPTION') {
     const { requestId, payload } = data;
     safeSendMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload }, (r) => {
-      window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r.generation }, '*');
+      window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r.generation }, window.location.origin);
     });
 
   } else if (data?.type === 'SLY_MXM_FETCH_NATIVE') {
     const { requestId, payload } = data;
     safeSendMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload }, (r) => {
-      window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r.ok, lines: r.lines }, '*');
+      window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r.ok, lines: r.lines }, window.location.origin);
     });
   }
 });
@@ -185,7 +183,7 @@ function safeSendMessage(msg: Record<string, unknown>, callback?: (r: Record<str
 
 // --- FETCH TRIGGER ---
 window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false): void {
-  if (window.slyInternalState.fetchingForUri === uri) return;
+  if (window.slyInternalState.fetchingForUri === uri && !forceRefresh) return;
   window.slyInternalState.fetchingForTitle = title;
   window.slyInternalState.fetchingForUri = uri;
 

@@ -22,8 +22,10 @@ export default function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
     // Cloud Sync: Reconcile local state with cross-device storage.sync
     browser.storage.sync.get(['targetLang', 'dualLyrics', 'showPill', 'preferredMode']).then((data) => {
+      if (!isMounted) return;
       if (data.targetLang) {
         setTargetLang(data.targetLang as string);
         localStorage.setItem('sly_targetLang', data.targetLang as string);
@@ -60,9 +62,12 @@ export default function App() {
       }
 
       // Briefly keep transitions disabled to allow the state update to 'snap' instantly
-      setTimeout(() => setIsInitialHydrating(false), 50);
+      setTimeout(() => {
+        if (isMounted) setIsInitialHydrating(false);
+      }, 50);
     });
     refreshStorageInfo();
+    return () => { isMounted = false; };
   }, []);
 
   useEffect(() => {

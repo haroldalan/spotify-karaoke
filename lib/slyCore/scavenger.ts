@@ -6,43 +6,6 @@ import { safeBrowserCall } from '../utils/browserUtils';
  * SPOTIFY_CLASSES: The central dictionary of hashed class names used by Spotify.
  * These are updated dynamically by the scavenger if Spotify changes them.
  */
-export interface SpotifyClasses {
-  mainContainer: string;
-  container: string;
-  wrapper: string;
-  lyricsList: string;
-  lineBase: string;
-  // Synced States (Native Hashes)
-  passedLine: string;
-  activeLine: string;
-  futureLine: string;
-  // Unsynced States
-  unsynced: string;
-  unsyncedMessage: string;
-  // Utils
-  textInner: string;
-  attribution: string;
-  paddingLineHelper: string;
-  footerGrid: string;
-  // Resilience Additions (Chunk 1)
-  errorContainer: string;
-  btnPrimary: string;
-  btnPrimaryInner: string;
-  btnSecondary: string;
-  btnSecondaryInner: string;
-  topSpacer: string;
-  footerInner1: string;
-  footerInner2: string;
-}
-
-declare global {
-  interface Window {
-    SPOTIFY_CLASSES: SpotifyClasses;
-    slyScavengeClasses: () => void;
-    slyDeepScavengeStyles: () => void;
-  }
-}
-
 export const SPOTIFY_CLASSES: SpotifyClasses = {
   mainContainer:     'J6wP3V0xzh0Hj_MS',
   container:         'bbJIIopLxggQmv5x',
@@ -81,58 +44,61 @@ export const slyScavengeClasses = function (): void {
 
   console.log('[sly-scavenger] Inspecting DOM for class updates...');
 
+  // Helper: Find the hashed class in a list. 
+  // Spotify hashes are usually 8+ chars and alphanumeric. Utilities often have dashes.
+  const findHash = (list: DOMTokenList, fallbackIdx = 0) => 
+    Array.from(list).find(c => c.length >= 8 && !c.includes('--') && !c.includes('encore-')) || list[fallbackIdx];
+
   // 1. Main View Wrapper
   const main = document.querySelector('main');
   if (main && main.classList.length > 0) {
-    window.SPOTIFY_CLASSES.mainContainer = main.classList[0];
+    window.SPOTIFY_CLASSES.mainContainer = findHash(main.classList);
   }
 
   // 2. Lyrics Container (Anchor: Inline CSS Variables)
   const nativeContainer = document.querySelector('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)') as HTMLElement | null;
   
   if (nativeContainer) {
-    window.SPOTIFY_CLASSES.container = nativeContainer.classList[0] || window.SPOTIFY_CLASSES.container;
+    window.SPOTIFY_CLASSES.container = findHash(nativeContainer.classList) || window.SPOTIFY_CLASSES.container;
 
     // 3. Structural Children
     if (nativeContainer.children.length > 0) {
-      window.SPOTIFY_CLASSES.topSpacer = nativeContainer.children[0].classList[0] || window.SPOTIFY_CLASSES.topSpacer;
+      window.SPOTIFY_CLASSES.topSpacer = findHash(nativeContainer.children[0].classList) || window.SPOTIFY_CLASSES.topSpacer;
     }
 
     if (nativeContainer.children.length > 1) {
       const secondChild = nativeContainer.children[1] as HTMLElement;
       
       // If the second child has NO lyrics lines, it could be the Error Container or a loading spinner.
-      // We check for text content to ensure it's actually an error message, not an empty spinner.
       if (secondChild.querySelectorAll('[data-testid="lyrics-line"]').length === 0) {
         const txt = (secondChild.textContent || '').trim().toLowerCase();
         if (txt.length > 0 && !txt.includes('loading')) {
           const oldError = window.SPOTIFY_CLASSES.errorContainer;
-          window.SPOTIFY_CLASSES.errorContainer = secondChild.classList[0] || window.SPOTIFY_CLASSES.errorContainer;
-          console.log(`[sly-audit] Scavenged errorContainer: "${window.SPOTIFY_CLASSES.errorContainer}" (was: "${oldError}"). Node <${secondChild.tagName}>, Classes: "${secondChild.className}", Text: "${(secondChild.textContent || '').trim().slice(0, 60)}"`);
+          window.SPOTIFY_CLASSES.errorContainer = findHash(secondChild.classList) || window.SPOTIFY_CLASSES.errorContainer;
+          console.log(`[sly-audit] Scavenged errorContainer: "${window.SPOTIFY_CLASSES.errorContainer}" (was: "${oldError}")`);
         }
       } else {
-        window.SPOTIFY_CLASSES.wrapper = secondChild.classList[0] || window.SPOTIFY_CLASSES.wrapper;
+        window.SPOTIFY_CLASSES.wrapper = findHash(secondChild.classList) || window.SPOTIFY_CLASSES.wrapper;
         const list = secondChild.children[0] as HTMLElement | undefined;
-        if (list) window.SPOTIFY_CLASSES.lyricsList = list.classList[0] || window.SPOTIFY_CLASSES.lyricsList;
+        if (list) window.SPOTIFY_CLASSES.lyricsList = findHash(list.classList) || window.SPOTIFY_CLASSES.lyricsList;
       }
     }
 
     const footer = nativeContainer.lastElementChild as HTMLElement | null;
-    // Ensure the footer isn't accidentally the top spacer or error container
     if (footer && footer !== nativeContainer.children[0] && footer !== nativeContainer.children[1]) {
-      window.SPOTIFY_CLASSES.footerGrid = footer.classList[0] || window.SPOTIFY_CLASSES.footerGrid;
+      window.SPOTIFY_CLASSES.footerGrid = findHash(footer.classList) || window.SPOTIFY_CLASSES.footerGrid;
       if (footer.children.length > 1) {
-        window.SPOTIFY_CLASSES.footerInner1 = footer.children[0].classList[0] || window.SPOTIFY_CLASSES.footerInner1;
-        window.SPOTIFY_CLASSES.footerInner2 = footer.children[1].classList[0] || window.SPOTIFY_CLASSES.footerInner2;
+        window.SPOTIFY_CLASSES.footerInner1 = findHash(footer.children[0].classList) || window.SPOTIFY_CLASSES.footerInner1;
+        window.SPOTIFY_CLASSES.footerInner2 = findHash(footer.children[1].classList) || window.SPOTIFY_CLASSES.footerInner2;
       }
     }
 
     // 4. Line Base & Padding Helper
     const lines = nativeContainer.querySelectorAll('[data-testid="lyrics-line"]');
     if (lines.length > 0) {
-      window.SPOTIFY_CLASSES.lineBase = lines[0].classList[0] || window.SPOTIFY_CLASSES.lineBase;
+      window.SPOTIFY_CLASSES.lineBase = findHash(lines[0].classList) || window.SPOTIFY_CLASSES.lineBase;
       const inner = lines[0].querySelector('div');
-      if (inner) window.SPOTIFY_CLASSES.textInner = inner.classList[0] || window.SPOTIFY_CLASSES.textInner;
+      if (inner) window.SPOTIFY_CLASSES.textInner = findHash(inner.classList) || window.SPOTIFY_CLASSES.textInner;
 
       // HACK: Find the padding helper class by looking for lines with no text (spacers)
       const paddingLine = Array.from(lines).find(l => !l.textContent?.trim());

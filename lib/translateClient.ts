@@ -68,8 +68,15 @@ export async function googleProcess(
     }
   };
 
-  // Run first 2 chunks in parallel, others sequentially
-  const results = await Promise.all(chunks.map((c, i) => processChunk(c, i)));
+  // Run first 2 chunks in parallel, others sequentially to prevent 429 bursts.
+  const results = [
+    await processChunk(chunks[0], 0),
+    ...(chunks[1] ? [await processChunk(chunks[1], 1)] : [])
+  ];
+
+  for (let i = 2; i < chunks.length; i++) {
+    results.push(await processChunk(chunks[i], i));
+  }
   
   results.forEach(res => {
     translatedFlat.push(...res.transLines);

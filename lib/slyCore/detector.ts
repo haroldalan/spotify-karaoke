@@ -57,15 +57,13 @@ window.slyDetectNativeState = function (): DetectorState {
                !!adLink || !!adWidget || !!adBar;
 
   // 0.1 PAGE DETECTION (Dynamic)
-  const containerClass = window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x';
+  const containerClass = window.SPOTIFY_CLASSES?.container;
+  const mainClass = window.SPOTIFY_CLASSES?.mainContainer;
 
   // We check URL, Button states (Main), and Native Container presence.
-  // NOTE: There is no functional "now-playing-view-lyrics-button" (side button) in the Spotify UI DOM.
-  // CRITICAL: We do NOT check for !!document.getElementById('lyrics-root-sync') here
-  // to avoid a circular dependency that prevents the extension from switching off.
   const onLyricsPath = window.location.pathname === '/lyrics';
   const mainBtnPressed = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
-  const nativeFound = !!document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`);
+  const nativeFound = !!(mainClass && containerClass && document.querySelector(`main.${mainClass} .${containerClass}:not(#lyrics-root-sync)`));
 
   state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound;
 
@@ -212,11 +210,11 @@ window.slyDetectNativeState = function (): DetectorState {
                             state.preFetch?.state === 'MISSING') && !state.hasNativeLines;
 
   const isNativeUnsynced = !document.hidden &&
-                           (window.spotifyState.isTimeSynced === false || 
-                             state.preFetch?.nativeStatus === 'UNSYNCED' ||
-                             state.preFetch?.state === 'UNSYNCED') &&
-                            window.spotifyState.lyricsProvider !== null &&
-                            window.spotifyState.lyricsProvider !== undefined;
+                           ((window.spotifyState.isTimeSynced === false && 
+                             window.spotifyState.lyricsProvider !== null &&
+                             window.spotifyState.lyricsProvider !== undefined) || 
+                            state.preFetch?.nativeStatus === 'UNSYNCED' ||
+                            state.preFetch?.state === 'UNSYNCED');
 
   const isNativeSynced = window.spotifyState.isTimeSynced === true;
 

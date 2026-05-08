@@ -21,11 +21,15 @@ export function startStorageListener(opts: StorageListenerOpts): void {
       }
       if (area !== 'sync') return;
 
+      let modeToSwitch: LyricsMode | null = null;
+      let langToSwitch: string | null = null;
+
       if ('targetLang' in changes) {
         const newLang = (changes.targetLang.newValue as string | undefined) ?? 'en';
         opts.store.currentActiveLang = newLang;
         if (opts.store.mode === 'translated') {
-          opts.onSwitchMode('translated', newLang);
+          modeToSwitch = 'translated';
+          langToSwitch = newLang;
         }
       }
 
@@ -46,7 +50,8 @@ export function startStorageListener(opts: StorageListenerOpts): void {
         const newPref = (changes.preferredMode.newValue as LyricsMode | undefined) ?? 'original';
         opts.store.preferredMode = newPref;
         if (newPref !== opts.store.mode) {
-          opts.onSwitchMode(newPref);
+          modeToSwitch = newPref;
+          langToSwitch = null; // Use default
         }
       }
 
@@ -54,6 +59,11 @@ export function startStorageListener(opts: StorageListenerOpts): void {
         const newShowPill = (changes.showPill.newValue as boolean | undefined) ?? true;
         opts.store.showPill = newShowPill;
         setPillVisibility(newShowPill);
+      }
+
+      // Batch: If multiple changes triggered a mode switch, only fire the final one.
+      if (modeToSwitch) {
+        opts.onSwitchMode(modeToSwitch, langToSwitch ?? undefined);
       }
     });
   });

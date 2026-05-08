@@ -1,14 +1,11 @@
 // @ts-nocheck
-// Port of: lyric-test/content.js
-export {};
-/* content.js: sly Pixel-Perfect DOM Engine */
+import { slyAdManager } from './adManager';
+import { getLyricsLines } from '../dom/domQueries';
 
 declare global {
   interface Window {
     slyCheckNowPlaying: () => void;
     antigravityInterval?: NodeJS.Timeout | number;
-    // from ad-manager
-    slyAdManager: { getAdMessage: () => string };
   }
 }
 
@@ -94,9 +91,10 @@ document.addEventListener('sly:panel_close', () => {
   // if a takeover was aborted before the #lyrics-root-sync was injected.
   window.slyInternalState.currentLyrics = null;
   window.slyInternalState.forceFallback = false;
-  window.slyInternalState.fetchingForTitle = '';
-  window.slyInternalState.fetchingForUri = '';
-  window.slyInternalState.isFetchingHUD = false;
+  // BUG-38 Fix: Only clear pendingLyricsData on panel close to prevent stale injections.
+  // We PRESERVE fetchingForTitle/Uri and isFetchingHUD so that reopening the panel
+  // can "continue" an in-flight fetch visually (HUD recovery).
+  window.slyInternalState.pendingLyricsData = null;
 
   const root = document.getElementById('lyrics-root-sync');
   if (root) {
@@ -182,7 +180,7 @@ window.slyCheckNowPlaying = function (): void {
         // If it's missing or we haven't marked it active yet, show it.
         if (!hud || !window.slyInternalState.isAdHUDActive) {
           console.log('[sly] Ad HUD: Injecting/Restoring...');
-          window.slyShowStatus('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
+          window.slyShowStatus('Ad Break', slyAdManager.getAdMessage(), false, { isAd: true });
         }
       }
       return;
@@ -238,7 +236,10 @@ window.slyCheckNowPlaying = function (): void {
 
 
     // RE-INJECTION CHECK: If we are searching, failed, or in an ad, but the panel was re-rendered, restore the HUD.
-    if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed || window.slyInternalState.isFetchingHUD || window.slyInternalState.isAdHUDActive) {
+    if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed || 
+        window.slyInternalState.isFetchingHUD || 
+        window.slyInternalState.isAdHUDActive ||
+        window.slyInternalState.fetchingForTitle) {
       if (!document.getElementById('sly-status-hud')) {
         // Safety Exit: If we actually have valid lyrics in the state, do not restore a loading HUD.
         if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
@@ -261,8 +262,8 @@ window.slyCheckNowPlaying = function (): void {
               true
             );
           } else {
-            console.log('[sly] Restore: Re-injecting loading HUD...');
-            window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Resuming external search...');
+            console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
+            window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, albumArtUrl });
           }
           return;
         }

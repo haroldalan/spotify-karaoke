@@ -253,7 +253,7 @@ window.slyOmniscientSearch = function (
       window.__sly_track_change_time = Date.now();
     }
 
-    window.postMessage({ source: 'SLY_BRIDGE', data: state }, '*');
+    window.postMessage({ source: 'SLY_BRIDGE', data: state }, window.location.origin);
   };
 
   // Scanner interval merged into shield loop (Section 3)

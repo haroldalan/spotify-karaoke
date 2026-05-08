@@ -44,7 +44,7 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
 export async function extractImageColor(imageUrl: string): Promise<string | null> {
   if (!imageUrl) return null;
   try {
-    const response = await fetch(imageUrl, { mode: 'cors' });
+    const response = await fetch(imageUrl);
     const blob = await response.blob();
     const imageBitmap = await createImageBitmap(blob);
 
@@ -59,7 +59,7 @@ export async function extractImageColor(imageUrl: string): Promise<string | null
     let maxCount = 0;
     let dominantBucket: { r: number; g: number; b: number } | null = null;
 
-    for (let i = 0; i < data.length; i += 16) {
+    for (let i = 0; i < data.length; i += 4) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
 
       if (r > 200 && g > 200 && b > 200) continue;

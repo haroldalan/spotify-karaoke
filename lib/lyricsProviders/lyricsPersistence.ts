@@ -61,6 +61,7 @@ export class LyricsPersistence {
         console.log(`[LyricsPersistence] SAVED: ${key}`);
       } catch (e) {
         console.warn('[LyricsPersistence] Index update failed:', e);
+        throw e; // Propagate to caller
       }
     }).catch(err => {
       console.error('[LyricsPersistence] Critical storage queue error:', err);

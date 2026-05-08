@@ -52,25 +52,24 @@ export function syncButtonStates(mode: LyricsMode): void {
     .forEach((btn) => btn.classList.toggle('active', btn.dataset.mode === mode));
 }
 
-let _loadingTarget: Element | null = null;
-
 export function setLoadingState(loading: boolean): void {
   document
     .getElementById(CONTROLS_ID)
     ?.querySelectorAll<HTMLButtonElement>('.sly-lyrics-btn')
     .forEach((b) => (b.disabled = loading));
     
-  if (loading) {
-    _loadingTarget?.classList.remove('sly-loading');
-
+  const getTarget = () => {
     const customRoot = document.getElementById('lyrics-root-sync');
-    _loadingTarget = (customRoot && customRoot.style.display !== 'none') 
+    return (customRoot && customRoot.style.display !== 'none') 
       ? customRoot 
       : getLyricsContainer();
-      
-    _loadingTarget?.classList.add('sly-loading');
+  };
+
+  if (loading) {
+    getTarget()?.classList.add('sly-loading');
   } else {
-    _loadingTarget?.classList.remove('sly-loading');
-    _loadingTarget = null;
+    // Clear from BOTH possible containers to be safe against late-arriving results
+    document.getElementById('lyrics-root-sync')?.classList.remove('sly-loading');
+    getLyricsContainer()?.classList.remove('sly-loading');
   }
 }

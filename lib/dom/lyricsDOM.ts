@@ -26,7 +26,7 @@ export function snapshotOriginals(cache: SongCache): void {
     (el) => el.getAttribute('data-sly-original') ?? ''
   );
 
-  const hasContent = snapped.some(l => l.trim().length > 0);
+  const hasContent = snapped.filter(l => l.trim().length > 0).length >= 3;
   if (!hasContent) return;
 
   cache.original = snapped;

@@ -1,7 +1,6 @@
 export const getLyricsLines = (): Element[] =>
   Array.from(document.querySelectorAll('[data-testid="lyrics-line"] > div'))
-    .filter(el => !el.closest('#lyrics-root-sync'))
-    .filter(el => (el.textContent || '').trim() !== '');
+    .filter(el => !el.closest('#lyrics-root-sync'));
 
 export const getLyricsContainer = (): Element | null => {
   const first = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))

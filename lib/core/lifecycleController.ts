@@ -528,7 +528,6 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     lyricsObserver = null;
     opts.store.cache = { original: [], processed: new Map() };
     opts.store.pendingNativeLines.clear();
-    setupLock = false;
 
     const hasHotCache = opts.store.runtimeCache.has(newKey);
     if (hasHotCache) {
@@ -675,6 +674,13 @@ export function setupSlyBridge(
       await new Promise(r => requestAnimationFrame(r));
 
       const sly = window as any;
+
+      // BUG-5 Fix: If the panel was closed during the async yield, abort injection.
+      if (!window.slyInternalState.currentLyrics) {
+        console.log('[sly-lifecycle] 🚫 sly:inject aborted: currentLyrics cleared (panel closed).');
+        setupLock = false;
+        return;
+      }
 
       // 1. Prepare the #lyrics-root-sync container (create or clear existing).
       const root: HTMLElement | null = sly.slyPrepareContainer?.();

@@ -12,6 +12,7 @@ declare global {
 
 let lastExtrapolatedTime = 0;
 let lastRecordWallTime = 0;
+let lastIsPlaying = false;
 
 /**
  * Recursively searches for media elements within Shadow DOMs.
@@ -138,10 +139,13 @@ window.slyGetPlaybackSeconds = function (): number {
 
   // 3. Extrapolate if playing
   // We only reset the baseline if Spotify's UI has moved significantly (>50ms)
-  if (Math.abs(baselineUiTime - lastExtrapolatedTime) > 0.05 || !isPlaying) {
+  // OR if we just transitioned from pause to play (prevents pause-duration time warp).
+  const isTransitioningToPlay = isPlaying && !lastIsPlaying;
+  if (Math.abs(baselineUiTime - lastExtrapolatedTime) > 0.05 || !isPlaying || isTransitioningToPlay) {
     lastExtrapolatedTime = baselineUiTime;
     lastRecordWallTime = now;
   }
+  lastIsPlaying = isPlaying;
 
   const timeDiff = isPlaying ? (now - lastRecordWallTime) / 1000 : 0;
   return lastExtrapolatedTime + timeDiff;

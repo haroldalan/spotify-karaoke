@@ -28,4 +28,4 @@ export const slyAdManager: SlyAdManager = {
   },
 };
 
-window.slyAdManager = slyAdManager;
+

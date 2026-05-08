@@ -16,12 +16,8 @@ export async function fetchLrcLibLyrics(
     const cleanTitle = title.split(' (')[0].split(' - ')[0].trim();
     const params = new URLSearchParams({ track_name: cleanTitle, artist_name: artist });
     console.log(`[LRCLIB] Searching: ${cleanTitle} - ${artist}`);
-    const res = await fetchWithTimeout(`https://lrclib.net/api/get?${params.toString()}`);
-    if (res.ok) {
-      const data = await res.json() as Record<string, unknown>;
-      console.log(`[LRCLIB] Success (Synced: ${!!data.syncedLyrics})`);
-      return { ...data, isSynced: !!data.syncedLyrics } as LrclibResult;
-    }
+    // SLY OPTIMIZATION: Skip /api/get (which requires duration for high hit rate) 
+    // and go straight to /api/search to save latency.
 
     const searchRes = await fetchWithTimeout(
       `https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + artist)}`,
@@ -29,7 +25,10 @@ export async function fetchLrcLibLyrics(
     if (!searchRes.ok) return null;
     const results = await searchRes.json() as Record<string, unknown>[];
     console.log(`[LRCLIB] Search results: ${results.length}`);
-    const match = results.find(r => r.syncedLyrics) || results[0] || null;
+    const match = results.find(r => 
+      r.syncedLyrics && 
+      (r.trackName as string)?.toLowerCase().includes(cleanTitle.toLowerCase())
+    ) || results[0] || null;
     return match ? { ...match, isSynced: !!match.syncedLyrics } as LrclibResult : null;
   } catch (err: unknown) {
     console.warn(`[LRCLIB] Fetch failed:`, (err as Error).message);

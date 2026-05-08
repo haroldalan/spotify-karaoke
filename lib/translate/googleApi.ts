@@ -18,7 +18,6 @@ export async function googleTranslate(
       `https://translate.googleapis.com/translate_a/single?${params}`,
       {
         headers: {
-          Referer: 'https://translate.google.com/',
           Accept: 'application/json',
         },
       }
@@ -45,17 +44,18 @@ export async function googleTranslate(
   let segments = allSegments;
   let romanized: string | null = null;
 
-  if (
-    includeRomanization &&
-    allSegments.length > 0 &&
-    allSegments[allSegments.length - 1][0] === null &&
-    allSegments[allSegments.length - 1][1] === null &&
-    typeof allSegments[allSegments.length - 1][3] === 'string'
-  ) {
-    const last = allSegments[allSegments.length - 1];
-    romanized = (last[3] as string | null | undefined) ?? null;
-    // Exclude the romanization block so it doesn't pollute the translated text
-    segments = allSegments.slice(0, -1);
+  if (includeRomanization && allSegments.length > 0) {
+    const lastBlock = allSegments[allSegments.length - 1];
+    // Google's romanization block is always a trailing array where the first few elements are null
+    // and the romanized text is the first string found (historically at index 3).
+    if (lastBlock[0] === null && lastBlock[1] === null) {
+      const firstString = lastBlock.find(val => typeof val === 'string');
+      if (firstString) {
+        romanized = firstString as string;
+        // Exclude the romanization block so it doesn't pollute the translated text
+        segments = allSegments.slice(0, -1);
+      }
+    }
   }
 
   const translated = segments.map((s) => (s[0] ?? '') as string).join('');

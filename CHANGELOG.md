@@ -3,6 +3,19 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.2] — 2026-05-08
+
+### Fixed
+- **Systematic Audit Remediation**: Successfully completed a comprehensive 54-point technical audit, resolving 49 verified bugs across the entire codebase.
+- **Playback Resume Sync**: Fixed a "time warp" position jump when resuming from a pause. The extrapolator now forces an immediate sync on play to prevent lyrics from flickering forward.
+- **Translation Rate-Limit Hardening**: Refactored the translation engine to use a hybrid sequential queue for chunks 2-N. This ensures the 120ms safety delay is strictly enforced, eliminating simultaneous request bursts and 429 errors.
+- **Zero-Latency Hijacking**: Corrected an operator precedence bug in the native detector. High-confidence cache hits now trigger UI injection instantly on page load, removing the previous 2-second "settling" delay.
+- **DOM Resilience (Scavenger v2)**: Replaced fragile hardcoded CSS class fallbacks with a robust, pattern-matching self-healing scavenger. This ensures the extension survives Spotify's dynamic class obfuscation across weekly deployments.
+- **Security & Hygiene**: Restricted `postMessage` origin to `window.location.origin` to prevent data leaks to third-party iframes, and removed global window pollution by refactoring the ad manager into a clean module export.
+- **Color Extraction Precision**: Reduced the pixel-sampling stride in color extraction to 4. This ensures dominant color accents on minimalist album covers are no longer missed.
+- **Retry Reliability**: Updated the fetch semaphore to respect the `forceRefresh` flag, allowing users to manually re-trigger stalled or failed fetches via the Status HUD.
+- **Fetch Continuity Fix**: Resolved a regression where closing the lyrics panel would prematurely clear the fetching state, leading to blank panels or restarted fetches upon reopening. In-flight searches now correctly "continue" visually, re-injecting a "Continuing external search..." indicator when the panel is reopened.
+
 ## [3.1.1] — 2026-05-08
 
 ### Added

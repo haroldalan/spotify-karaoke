@@ -15,21 +15,38 @@ export function getYtmKeySource(): string {
 }
 
 async function getApiKey(): Promise<string> {
+  // 1. Check in-memory cache first (hot)
   if (cachedApiKey) return cachedApiKey;
+
+  // 2. Check browser storage (cold but faster than network)
+  try {
+    const storage = await browser.storage.local.get(['ytm_api_key', 'ytm_key_source']);
+    if (storage.ytm_api_key) {
+      cachedApiKey = storage.ytm_api_key;
+      currentKeySource = storage.ytm_key_source || 'scraped';
+      return cachedApiKey!;
+    }
+  } catch (e) { /* ignore storage errors */ }
+
+  // 3. Fallback to scrape
   try {
     const res = await fetchWithTimeout('https://music.youtube.com/', {}, 8000);
     const html = await res.text();
-    // ytcfg.set({"INNERTUBE_API_KEY":"AIza..."}) is always present in the page HTML
     const match = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/);
     if (match?.[1]) {
       cachedApiKey = match[1];
       currentKeySource = 'scraped';
-      console.log('[YTM] Dynamic API key acquired.');
+      await browser.storage.local.set({ 
+        ytm_api_key: cachedApiKey, 
+        ytm_key_source: currentKeySource 
+      }).catch(() => {});
+      console.log('[YTM] Dynamic API key acquired and persisted.');
       return cachedApiKey;
     }
   } catch (e) {
     console.warn('[YTM] Dynamic key fetch failed, using fallback.', e);
   }
+
   currentKeySource = 'fallback';
   return YT_API_KEY_FALLBACK;
 }

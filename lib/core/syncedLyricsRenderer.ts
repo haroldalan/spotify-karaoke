@@ -73,7 +73,8 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
     const outerEls = opts.getOuterElements();
 
     // Panel may not be visible yet on first frame — keep looping until ready.
-    if (!outerEls.length) {
+    // SLY FIX: Also guard against partial renders where outerEls.length < lines.length.
+    if (!outerEls.length || outerEls.length !== lines.length) {
       animFrame = requestAnimationFrame(tick);
       return;
     }
