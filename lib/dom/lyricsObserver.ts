@@ -42,7 +42,7 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
 
     if (needsReapply) {
       const dualLyricsEnabled = opts.getDualLyricsEnabled();
-      applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, opts.setApplying);
+      applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, opts.setApplying, domLines);
     }
   });
 

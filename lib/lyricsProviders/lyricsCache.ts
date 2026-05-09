@@ -35,7 +35,17 @@ export class LyricsCache {
 
   getCacheKey(title: string, artist: string, uri?: string): string {
     if (uri) return uri; // Prioritize unique Spotify URI
-    return `${(title || '').trim().toLowerCase()}|${(artist || '').trim().toLowerCase()}`;
+    
+    // Normalize: trim, lower, and strip common punctuation/remix markers
+    const normalize = (s: string) => (s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\(\[\{].*?[\)\]\}]/g, '') // Remove (Remix), [Remaster], etc.
+      .replace(/[^\w\s]/g, '')             // Remove punctuation
+      .replace(/\s+/g, ' ')                // Collapse whitespace
+      .trim();
+
+    return `${normalize(title)}|${normalize(artist)}`;
   }
 
   get(key: string): FetchedLyricsResult | undefined {

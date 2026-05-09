@@ -5,14 +5,12 @@ export function chunkByCharCount(lines: string[], maxChars: number): { chunks: s
   let wasTruncated = false;
 
   for (const line of lines) {
-    if (line.length > maxChars) {
+    const lineLen = line.length;
+    if (lineLen > maxChars) {
       wasTruncated = true;
-      // Truncate to maxChars. Try to split at last space for readability; always append '…'.
-      // This maintains 1:1 index alignment for the translation/romanization result arrays.
-      const sliced = line.slice(0, maxChars);
-      const wordBoundary = sliced.replace(/\s+\S*$/, '');
-      const truncated = (wordBoundary || sliced.slice(0, maxChars - 1)) + '…';
-      console.warn(`[SKaraoke:BG] Line too long, truncating to maintain index alignment: ${truncated}`);
+      // Truncate to maxChars. Try to split at last space, else hard-slice at maxChars.
+      const truncated = line.slice(0, maxChars).replace(/\s+\S*$/, '…');
+      console.warn(`[SKaraoke:BG] Line too long (${lineLen} chars), truncating: ${truncated}`);
       
       if (currentLen + truncated.length + 1 > maxChars && current.length > 0) {
         chunks.push(current);
@@ -24,13 +22,13 @@ export function chunkByCharCount(lines: string[], maxChars: number): { chunks: s
       }
       continue;
     }
-    if (currentLen + line.length + 1 > maxChars && current.length > 0) {
+    if (currentLen + lineLen + 1 > maxChars && current.length > 0) {
       chunks.push(current);
       current = [line];
-      currentLen = line.length;
+      currentLen = lineLen;
     } else {
       current.push(line);
-      currentLen += line.length + 1;
+      currentLen += lineLen + 1;
     }
   }
   if (current.length > 0) chunks.push(current);

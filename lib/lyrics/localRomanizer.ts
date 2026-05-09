@@ -71,7 +71,7 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         return k.convert(line, { to: 'romaji', mode: 'spaced' });
       }
       case 'chinese':
-        return pinyin(line, { toneType: 'symbol', type: 'string', nonZh: 'consecutive' }).replace(/\s+/g, ' ');
+        return pinyin(line, { toneType: 'none', type: 'string', nonZh: 'consecutive' }).replace(/\s+/g, ' ');
 
       case 'korean':
         return romanizeKorean(line);
@@ -91,7 +91,7 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         return scheme ? Sanscript.t(line, scheme, 'iast') : transliterate(line);
       }
       case 'tamil':
-        return romanizeTamil(line).replace(/^[^a-zA-Z]*[a-zA-Z]/, (m) => m.toUpperCase());
+        return romanizeTamil(line);
 
       case 'thai':
         return romanizeThai(line);

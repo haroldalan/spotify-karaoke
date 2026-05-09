@@ -23,7 +23,7 @@ export default defineConfig({
     permissions: ['storage', 'unlimitedStorage', 'declarativeNetRequest'],
     content_scripts: [
       {
-        matches: ['*://open.spotify.com/*'],
+        matches: ['https://open.spotify.com/*'],
         js: ['fetchInterceptor.js', 'slyBridge.js'],
         world: 'MAIN',
         run_at: 'document_start',
@@ -55,7 +55,7 @@ export default defineConfig({
 
     web_accessible_resources: [{
       resources: ['fetchInterceptor.js', 'slyBridge.js'],
-      matches: ['*://open.spotify.com/*'],
+      matches: ['https://open.spotify.com/*'],
     }],
 
     browser_specific_settings: {

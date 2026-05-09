@@ -43,6 +43,8 @@ async function performFetch(title: string, artist: string, uri = 'N/A'): Promise
   return { ok: false };
 }
 
+import { themePersistence } from './themePersistence';
+
 const colorCache = new Map<string, string>();
 
 /**
@@ -50,10 +52,25 @@ const colorCache = new Map<string, string>();
  */
 export async function getColorOnly(albumArtUrl: string | undefined): Promise<string | null> {
   if (!albumArtUrl) return null;
+  
+  // 1. L1 Memory Check
   if (colorCache.has(albumArtUrl)) return colorCache.get(albumArtUrl)!;
+
+  // 2. L2 Persistent Check
+  const stored = await themePersistence.get(albumArtUrl);
+  if (stored) {
+    colorCache.set(albumArtUrl, stored);
+    return stored;
+  }
+
+  // 3. L3 Extraction (Cold Path)
   try {
     const color = await extractImageColor(albumArtUrl);
-    if (color) colorCache.set(albumArtUrl, color);
+    if (color) {
+      colorCache.set(albumArtUrl, color);
+      // Fire and forget persistence
+      themePersistence.set(albumArtUrl, color).catch(() => {});
+    }
     return color;
   } catch (e) {
     return null;
@@ -79,10 +96,17 @@ export async function getLyricsForTrack(
       if (colorCache.has(albumArtUrl)) {
         finalData.data.extractedColor = colorCache.get(albumArtUrl);
       } else {
-        const color = await extractImageColor(albumArtUrl);
-        if (color) {
-          colorCache.set(albumArtUrl, color);
-          finalData.data.extractedColor = color;
+        const stored = await themePersistence.get(albumArtUrl);
+        if (stored) {
+          colorCache.set(albumArtUrl, stored);
+          finalData.data.extractedColor = stored;
+        } else {
+          const color = await extractImageColor(albumArtUrl);
+          if (color) {
+            colorCache.set(albumArtUrl, color);
+            await themePersistence.set(albumArtUrl, color);
+            finalData.data.extractedColor = color;
+          }
         }
       }
     } catch (e) {

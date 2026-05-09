@@ -3,6 +3,7 @@ import type { SongCache, LyricsCacheEntry, LyricsIndex } from './lyricsTypes';
 
 const RUNTIME_CACHE_MAX = 50; // BUG-15: Increased from 10
 const PERSISTED_CACHE_MAX = 200;
+let storageQueue: Promise<void> = Promise.resolve();
 
 /**
  * Robust string hash (53-bit safe integer).
@@ -64,12 +65,13 @@ export async function loadSongCache(
         cache.processed.set(lang, processed);
     }
 
-    // Update index timestamp asynchronously
-    safeBrowserCall(() => browser.storage.local.get('lc_index')).then((d) => {
+    // Update index timestamp asynchronously via queue
+    storageQueue = storageQueue.then(async () => {
+      const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
       const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
       if (idx[key]) {
         idx[key].lastAccessed = Date.now();
-        safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+        await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
       }
     }).catch(() => { });
 
@@ -107,35 +109,37 @@ export async function saveSongCache(
 
   const storageKey = `lc:${key}`;
 
-  // Manage persistent storage index and eviction
-  safeBrowserCall(() => browser.storage.local.get('lc_index')).then(async (d) => {
-    const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
-    idx[key] = { lastAccessed: entry.lastAccessed };
-
-    const keys = Object.keys(idx);
-    if (keys.length > PERSISTED_CACHE_MAX) {
-      const sorted = keys.sort((a, b) => (idx[a].lastAccessed ?? 0) - (idx[b].lastAccessed ?? 0));
-      const toEvict = sorted.slice(0, keys.length - PERSISTED_CACHE_MAX);
-      for (const k of toEvict) {
-        delete idx[k];
-        await safeBrowserCall(() => browser.storage.local.remove(`lc:${k}`));
-      }
-    }
-
+  // Manage persistent storage index and eviction via queue
+  storageQueue = storageQueue.then(async () => {
     try {
+      const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
+      const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
+      idx[key] = { lastAccessed: entry.lastAccessed };
+
+      const keys = Object.keys(idx);
+      if (keys.length > PERSISTED_CACHE_MAX) {
+        const sorted = keys.sort((a, b) => (idx[a].lastAccessed ?? 0) - (idx[b].lastAccessed ?? 0));
+        const toEvict = sorted.slice(0, keys.length - PERSISTED_CACHE_MAX);
+        for (const k of toEvict) {
+          delete idx[k];
+          await safeBrowserCall(() => browser.storage.local.remove(`lc:${k}`));
+        }
+      }
+
       await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
     } catch (err: any) {
       console.warn('[SKaraoke:Content] saveSongCache failed:', err);
     }
-  }).catch((err) => { console.warn('[SKaraoke:Content] saveSongCache index get failed:', err); });
+  }).catch((err) => { console.warn('[SKaraoke:Content] saveSongCache index queue failed:', err); });
 }
 
 export function deleteSongCache(key: string): void {
   if (!key) return;
-  safeBrowserCall(() => browser.storage.local.get('lc_index')).then((d) => {
+  storageQueue = storageQueue.then(async () => {
+    const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
     const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
     delete idx[key];
-    safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
-    safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+    await safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
+    await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
   }).catch(() => { });
 }

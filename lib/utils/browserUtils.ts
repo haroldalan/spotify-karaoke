@@ -11,8 +11,9 @@ export async function safeBrowserCall<T>(fn: () => Promise<T>): Promise<T | null
   try {
     return await fn();
   } catch (err: any) {
-    if (err.message?.includes('Extension context invalidated')) {
-      console.warn('[SKaraoke:Content] Context invalidated.');
+    const msg = err.message || '';
+    if (msg.includes('Extension context invalidated') || msg.includes('Message port closed before a response was received')) {
+      console.warn('[SKaraoke:Content] Browser call failed (recoverable):', msg);
     } else {
       console.error('[SKaraoke:Content] Browser call failed:', err);
     }

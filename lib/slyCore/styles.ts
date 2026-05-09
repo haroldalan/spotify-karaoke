@@ -174,6 +174,36 @@ export function slyGetCoreStyles(): string {
             line-height: normal !important;
             font-size: 14px !important;
         }
+
+        /* ─── Lyrics Shimmer (Stabilized) ──────────────────────────────────── */
+        /* Reverted to line-based movement for reliability, but slowed down for smoothness */
+        .sly-loading [data-testid="lyrics-line"] > div,
+        .sly-loading .sly-main-line {
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0.25) 25%,
+                rgba(255, 255, 255, 0.7) 50%,
+                rgba(255, 255, 255, 0.25) 75%
+            );
+            background-size: 200% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent !important;
+            animation: sly-shimmer 2.2s infinite linear; /* Slower, linear sweep for stability */
+            display: block !important;
+            vertical-align: top !important;
+        }
+
+        /* Prevent dual-lyrics from vanishing by keeping the container background transparent-only for main-line */
+        .sly-loading [data-testid="lyrics-line"] > div:has(.sly-main-line) {
+            -webkit-text-fill-color: initial !important;
+            background: none !important;
+        }
+
+        @keyframes sly-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
     `;
 }
 

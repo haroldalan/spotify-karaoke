@@ -47,6 +47,15 @@ function capMap<K, V>(map: Map<K, V>): void {
   }
 }
 
+function getMetadata(id: string): TrackMetadata | undefined {
+  const val = _metadataCache.get(id);
+  if (val) {
+    _metadataCache.delete(id);
+    _metadataCache.set(id, val);
+  }
+  return val;
+}
+
 // ─── Token Management ────────────────────────────────────────────────────────
 
 async function getToken(forceNew = false): Promise<string | null> {
@@ -60,7 +69,15 @@ async function getToken(forceNew = false): Promise<string | null> {
 
   // 2. Try Persistent Storage
   if (!_tokenCache) {
-    const stored = await browser.storage.local.get(['skl_mxm_token', 'skl_mxm_token_expiry']);
+    const stored = await browser.storage.local.get([
+      'skl_mxm_token', 
+      'skl_mxm_token_expiry',
+      'skl_mxm_fail_count',
+      'skl_mxm_fail_time'
+    ]);
+    _tokenFailCount = (stored.skl_mxm_fail_count as number) || 0;
+    _lastTokenFailTime = (stored.skl_mxm_fail_time as number) || 0;
+
     if (stored.skl_mxm_token && Date.now() < (stored.skl_mxm_token_expiry || 0)) {
       _tokenCache = stored.skl_mxm_token as string;
       _tokenExpiry = stored.skl_mxm_token_expiry as number;
@@ -96,7 +113,8 @@ async function getToken(forceNew = false): Promise<string | null> {
         _tokenFailCount = 0;
         await browser.storage.local.set({ 
           skl_mxm_token: token, 
-          skl_mxm_token_expiry: _tokenExpiry 
+          skl_mxm_token_expiry: _tokenExpiry,
+          skl_mxm_fail_count: 0
         });
         console.log('[MXM] Token acquired and persisted.');
         return token;
@@ -104,11 +122,19 @@ async function getToken(forceNew = false): Promise<string | null> {
         console.error('[MXM] Token rejected:', JSON.stringify(data, null, 2));
         _tokenFailCount++;
         _lastTokenFailTime = Date.now();
+        await browser.storage.local.set({ 
+          skl_mxm_fail_count: _tokenFailCount,
+          skl_mxm_fail_time: _lastTokenFailTime
+        });
       }
     } catch (e) {
       console.error('[MXM] Token acquisition failed:', e);
       _tokenFailCount++;
       _lastTokenFailTime = Date.now();
+      await browser.storage.local.set({ 
+        skl_mxm_fail_count: _tokenFailCount,
+        skl_mxm_fail_time: _lastTokenFailTime
+      });
     }
     return null;
   })();
@@ -226,7 +252,7 @@ async function fetchUnsyncedLyrics(commontrackId: string | null): Promise<Subtit
 }
 
 function verifyNativeScript(lines: SubtitleLine[]): boolean {
-  const NATIVE_REGEX = /[\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F]/g;
+  const NATIVE_REGEX = /[\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F\u0590-\u05FF\u0370-\u03FF\u0530-\u058F\u10A0-\u10FF\u1200-\u137F\u0750-\u077F\u1000-\u109F]/g;
   const sample = lines.slice(0, 15).map(l => l.words).join(' ');
   const matches = sample.match(NATIVE_REGEX);
   return (matches ? matches.length : 0) > 10;
@@ -254,11 +280,16 @@ export const mxmProvider: MxmProvider = {
         const fromTrackId = await fetchSubtitleByTrackId(body.track_id);
         if (isStale()) return null;
         if (fromTrackId && verifyNativeScript(fromTrackId)) return fromTrackId;
+
+        // BUG-H7 Fix: Fallback to unsynced for the linked track ID
+        const unsyncedFromTrackId = await fetchUnsyncedLyrics(body.track_id);
+        if (isStale()) return null;
+        if (unsyncedFromTrackId && verifyNativeScript(unsyncedFromTrackId)) return unsyncedFromTrackId;
       }
     }
 
     // Strategy 3: Metadata Search
-    const meta = _metadataCache.get(hexGid);
+    const meta = getMetadata(hexGid);
     if (meta) {
       const fromSearch = await fetchSubtitleBySearch(meta.name, meta.artist);
       if (isStale()) return null;

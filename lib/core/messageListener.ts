@@ -37,6 +37,9 @@ export function setupMessageListener(
  * Must be initialized as early as possible (document_start) to avoid race conditions on refresh.
  */
 export function setupTokenBridge(): void {
+  if ((window as any).slyTokenBridgeReady) return;
+  (window as any).slyTokenBridgeReady = true;
+
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const msg = event.data;

@@ -45,7 +45,8 @@ export function SearchablePicker({
     l.label.toLowerCase().includes(search.toLowerCase())
   );
   const filteredAll = all.filter(l =>
-    l.label.toLowerCase().includes(search.toLowerCase())
+    l.label.toLowerCase().includes(search.toLowerCase()) &&
+    !filteredSuggested.some(s => s.code === l.code)
   );
 
   return (

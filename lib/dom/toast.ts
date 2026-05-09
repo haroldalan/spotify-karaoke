@@ -9,7 +9,10 @@ export function showToast(message: string, durationMs = 0): void {
     document.body.appendChild(toast);
   }
 
-  if (toastTimer) clearTimeout(toastTimer);
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
   toast.textContent = message;
   toast.classList.add('visible');
 

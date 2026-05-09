@@ -14,7 +14,6 @@ export async function fetchProcessed(
   if (lines.length === 0 || !lines.some(l => l.trim().length > 0)) return null;
 
   if (cache.processed.has(lang)) {
-    processGenRef.value++;
     return cache.processed.get(lang)!;
   }
 

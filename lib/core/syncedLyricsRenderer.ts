@@ -61,23 +61,38 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
 
   /** Binary-search style scan for the currently active line index. */
   function findActiveIndex(t: number): number {
+    let low = 0;
+    let high = lines.length - 1;
     let active = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (t >= lines[i].time) active = i;
-      else break;
+
+    while (low <= high) {
+      const mid = (low + high) >>> 1;
+      if (lines[mid].time <= t) {
+        active = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
     }
     return active;
   }
 
+  let retryCount = 0;
   function tick(): void {
     const outerEls = opts.getOuterElements();
 
     // Panel may not be visible yet on first frame — keep looping until ready.
     // SLY FIX: Also guard against partial renders where outerEls.length < lines.length.
+    // SLY FIX (BUG-C8): Add a safety timeout (300 frames ~ 5s) to prevent permanent CPU drain.
     if (!outerEls.length || outerEls.length !== lines.length) {
+      if (++retryCount > 300) {
+        console.warn(`[sly-sync] 🛑 Giving up after 300 retries. outerEls: ${outerEls.length}, lines: ${lines.length}`);
+        return;
+      }
       animFrame = requestAnimationFrame(tick);
       return;
     }
+    retryCount = 0;
 
     const t = opts.getPlaybackSeconds();
     const activeIndex = findActiveIndex(t);

@@ -86,19 +86,29 @@ window.slyPrepareContainer = function (): HTMLElement | null {
  * Calculates the perceived luminance of a CSS color string.
  */
 window.slyPerceivedLuminance = function (cssColor: string): number {
-  const tmp = document.createElement('div');
-  tmp.style.color = cssColor;
-  document.body.appendChild(tmp);
-  try {
-    const rgb = getComputedStyle(tmp).color;
-    const match = rgb.match(/\d+/g);
-    if (!match) return 0;
-    const [r, g, b] = match.map(Number);
+  if (!cssColor) return 0;
+  
+  // Fast path for rgb/rgba strings (common resolved browser format)
+  const rgbMatch = cssColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  } finally {
-    // BUG-29 Fix: Always remove the temporary element even if getComputedStyle throws.
-    document.body.removeChild(tmp);
   }
+
+  // Hex path (#RRGGBB)
+  if (cssColor.startsWith('#')) {
+    const hex = cssColor.length === 4 
+      ? cssColor[1] + cssColor[1] + cssColor[2] + cssColor[2] + cssColor[3] + cssColor[3]
+      : cssColor.slice(1);
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  }
+
+  return 0.5; // Neutral fallback for named colors or edge cases
 };
 
 /**
@@ -184,7 +194,10 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   // window.slyParseLRC comes from ui.js (not yet ported) — guarded with || []
   const lines = isSynced ? (window.slyParseLRC?.(lyricsObj.syncedLyrics as string) || []) : [];
   const texts = isSynced ? lines.map((l: { time: number; text: string }) => l.text) : ((lyricsObj.plainLyrics as string) || '').split('\n');
-  lyricsObj.lines = isSynced ? lines : texts.map((t: string) => ({ time: 0, text: t }));
+  const newLines = isSynced ? lines : texts.map((t: string) => ({ time: 0, text: t }));
+  if (!lyricsObj.lines || (lyricsObj.lines as any[]).length !== newLines.length) {
+    lyricsObj.lines = newLines;
+  }
 
   const topSpacer = document.createElement('div');
   topSpacer.className = window.SPOTIFY_CLASSES.topSpacer;

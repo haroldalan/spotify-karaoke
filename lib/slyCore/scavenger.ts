@@ -47,7 +47,7 @@ export const slyScavengeClasses = function (): void {
   // Helper: Find the hashed class in a list. 
   // Spotify hashes are usually 8+ chars and alphanumeric. Utilities often have dashes.
   const findHash = (list: DOMTokenList, fallbackIdx = 0) => 
-    Array.from(list).find(c => c.length >= 8 && !c.includes('--') && !c.includes('encore-')) || list[fallbackIdx];
+    Array.from(list).find(c => c.length >= 8 && !c.includes('-') && !c.includes('encore-')) || list[fallbackIdx];
 
   // 1. Main View Wrapper
   const main = document.querySelector('main');

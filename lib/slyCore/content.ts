@@ -21,6 +21,8 @@ document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles').forEach(node 
 
 // --- STATE SYNC ---
 // Note: Internal extension state is now managed by window.slyInternalState in modules/state-manager.js
+window.slyCheckNowPlaying = slyCheckNowPlaying;
+
 window.addEventListener('sly_state_update', () => {
   window.slyCheckNowPlaying();
 });
@@ -96,6 +98,9 @@ document.addEventListener('sly:panel_close', () => {
   // can "continue" an in-flight fetch visually (HUD recovery).
   window.slyInternalState.pendingLyricsData = null;
 
+  // SLY FIX (BUG-C9): Dispatch release BEFORE removing root so Pipeline B can rescue the pill.
+  document.dispatchEvent(new CustomEvent('sly:release'));
+
   const root = document.getElementById('lyrics-root-sync');
   if (root) {
     console.log('[sly-lifecycle] 🧹 Cleaning up injected #lyrics-root-sync and restoring native UI.');
@@ -115,8 +120,6 @@ document.addEventListener('sly:panel_close', () => {
     `main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
   ) as HTMLElement | null;
   if (nativeContainer) nativeContainer.style.display = '';
-  // Notify Pipeline B to stop its sync renderer and clear slyActiveContainer.
-  document.dispatchEvent(new CustomEvent('sly:release'));
 });
 
 // slyCore records the incoming lyrics object when Pipeline B signals injection.
@@ -136,7 +139,19 @@ document.addEventListener('sly:takeover', () => {
   window.slyInternalState.fetchingForTitle = '';
 });
 
-window.slyCheckNowPlaying = function (): void {
+let checkTimeout: ReturnType<typeof setTimeout> | null = null;
+function slyCheckNowPlaying(): void {
+  if (checkTimeout) clearTimeout(checkTimeout);
+  checkTimeout = setTimeout(() => {
+    slyCheckNowPlayingInternal();
+  }, 50);
+}
+
+function slyCheckNowPlayingInternal(): void {
+  // SLY FIX: If the extension was reloaded/updated, the context is invalidated.
+  // Abort immediately to prevent "Extension context invalidated" errors.
+  if (typeof browser === 'undefined' || !browser.runtime?.id) return;
+
   try {
     const detection = window.slyDetectNativeState();
     const { title, artist, albumArtUrl } = detection;

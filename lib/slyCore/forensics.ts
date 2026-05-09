@@ -26,7 +26,7 @@ declare global {
 export const slyForensics: SlyForensics = {
   // Covers: Devanagari, Indic scripts, Hiragana, Katakana, CJK, Hangul,
   //         Cyrillic, Arabic/Persian, Thai, Hebrew, Greek, Armenian, Georgian, Ethiopic
-  nativeRegex: /[\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F\u05D0-\u05FF\u0370-\u03FF\u0530-\u058F\u10A0-\u10FF\u1200-\u137F]/g,
+  nativeRegex: /[\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F\u0590-\u05FF\u0370-\u03FF\u0530-\u058F\u10A0-\u10FF\u1200-\u137F\u0750-\u077F\u1000-\u109F]/g,
 
   analyzeText(input: unknown): ForensicsResult {
     // Accept either a raw string or an array of lyric line objects
@@ -45,7 +45,7 @@ export const slyForensics: SlyForensics = {
     return {
       nativeCount,
       latinCount,
-      isActuallyNative: nativeCount > 10,
+      isActuallyNative: nativeCount > 0 && nativeCount >= (latinCount / 2),
       hasAnyNative: nativeCount > 0,
     };
   },

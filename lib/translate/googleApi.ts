@@ -1,11 +1,12 @@
 export async function googleTranslate(
   text: string,
   targetLang: string,
-  includeRomanization: boolean
+  includeRomanization: boolean,
+  sourceLang: string = 'auto'
 ): Promise<{ translated: string; romanized: string | null }> {
   const params = new URLSearchParams({
     client: 'gtx',
-    sl: 'auto',
+    sl: sourceLang,
     tl: targetLang,
     q: text,
   });
@@ -19,6 +20,7 @@ export async function googleTranslate(
       {
         headers: {
           Accept: 'application/json',
+          Referer: 'https://translate.google.com/',
         },
       }
     );
@@ -48,7 +50,7 @@ export async function googleTranslate(
     const lastBlock = allSegments[allSegments.length - 1];
     // Google's romanization block is always a trailing array where the first few elements are null
     // and the romanized text is the first string found (historically at index 3).
-    if (lastBlock[0] === null && lastBlock[1] === null) {
+    if (!lastBlock[0] && !lastBlock[1]) {
       const firstString = lastBlock.find(val => typeof val === 'string');
       if (firstString) {
         romanized = firstString as string;

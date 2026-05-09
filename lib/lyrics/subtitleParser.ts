@@ -7,7 +7,13 @@ export interface SubtitleLine {
 }
 
 export function parseSubtitle(data: unknown): SubtitleLine[] | null {
-    const raw = (data as any)?.message?.body?.subtitle?.subtitle_body as string | undefined;
+    let body = (data as any)?.message?.body;
+    if (typeof body === 'string') {
+        try {
+            body = JSON.parse(body);
+        } catch { return null; }
+    }
+    const raw = body?.subtitle?.subtitle_body as string | undefined;
     if (!raw) return null;
     try {
         const parsed: unknown = JSON.parse(raw);

@@ -21,8 +21,8 @@ window.slyParseLRC = function (lrc: string): { time: number; text: string }[] {
   if (!lrc) return [];
   const result: { time: number; text: string }[] = [];
   const lines = lrc.split('\n');
-  const timeRegex = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
   for (const line of lines) {
+    const timeRegex = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
     let match;
     const timestamps: number[] = [];
     
@@ -219,17 +219,25 @@ window.slyUpdateSyncButton = function (): void {
 };
 
 window.slyUpdateSync = function (): void {
+  const localRef = window.slyUpdateSync;
+
   // Yield to Pipeline B's syncedLyricsRenderer when it's active.
   // Without this, both RAF loops would fight over className on the same elements.
   // BUG-27 Fix: Always reschedule the next frame even when yielding, so the loop
   // survives track changes and resumes if the next song is NOT Pipeline B.
   if (window.slyInternalState.slySyncedRendererActive) {
+    // SLY FIX (BUG-M18): If the global reference changed (re-inject), terminate this ghost loop.
+    if (localRef !== window.slyUpdateSync) return;
+
     window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
     return;
   }
 
   const currentLyrics = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
   if (!currentLyrics || !currentLyrics.isSynced || !window.slyInternalState.customRoot) return;
+
+  // SLY FIX (BUG-M18): If the global reference changed (re-inject), terminate this ghost loop.
+  if (localRef !== window.slyUpdateSync) return;
 
   const btn = document.querySelector('[data-testid="lyrics-button"]');
   const isPanelOpen = btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true';

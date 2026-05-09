@@ -11,6 +11,7 @@ import { StateStore } from './store';
 import { slyInternalState, spotifyState } from '../slyCore/state';
 
 let setupLock = false;
+let lockOwnerKey: string | null = null;
 
 /**
  * lifecycleController's owned extension state.
@@ -201,8 +202,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   }
 
   async function trySetup(): Promise<void> {
-    if (setupLock) return;
+    const entryKey = getNowPlayingKey();
+    if (setupLock && lockOwnerKey === entryKey) return;
     setupLock = true;
+    lockOwnerKey = entryKey;
     try {
     const activeKey = getNowPlayingKey();
     console.log(`[sly-lifecycle] ⚙️ trySetup executing. activeKey: "${activeKey}", store.songKey: "${opts.store.songKey}"`);
@@ -268,13 +271,18 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const e = performance.now();
       console.log(`[sly-lifecycle] ✅ Bridge trySetup complete. Pill injected/updated (${(e - s).toFixed(2)}ms).`);
     } finally {
-      setupLock = false;
+      if (lockOwnerKey === entryKey) {
+        setupLock = false;
+        lockOwnerKey = null;
+      }
     }
   }
 
   async function syncSetup(): Promise<void> {
-    if (setupLock) return;
+    const entryKey = getNowPlayingKey();
+    if (setupLock && lockOwnerKey === entryKey) return;
     setupLock = true;
+    lockOwnerKey = entryKey;
     try {
       const activeKey = getNowPlayingKey();
       if (activeKey && opts.store.songKey !== activeKey) {
@@ -326,7 +334,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         if (processed) {
           verifyAndHealCache(cache);
           auditOriginalLyrics(opts.store.songKey, cache, syncPreferredMode);
-          applyNativeOverride({ cache, pendingNativeLines: opts.store.pendingNativeLines });
+          applyNativeOverride(opts.store.songKey, { cache, pendingNativeLines: opts.store.pendingNativeLines });
 
           lyricsObserver?.disconnect();
           lyricsObserver = createLyricsObserver({
@@ -372,7 +380,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
       verifyAndHealCache(cache);
       auditOriginalLyrics(opts.store.songKey, cache, opts.store.preferredMode);
-      applyNativeOverride({ cache, pendingNativeLines: opts.store.pendingNativeLines });
+      applyNativeOverride(opts.store.songKey, { cache, pendingNativeLines: opts.store.pendingNativeLines });
 
       // Ensure the cache is warm (check runtime then storage) before proceeding.
       // loadSongCache also performs a hash coherence check against the newly snapshotted originals.
@@ -442,7 +450,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const e = performance.now();
       console.log(`[sly-lifecycle] ✅ Bridge syncSetup complete. Native lyrics identified (${(e - s).toFixed(2)}ms).`);
     } finally {
-      setupLock = false;
+      if (lockOwnerKey === entryKey) {
+        setupLock = false;
+        lockOwnerKey = null;
+      }
     }
   }
 
@@ -503,6 +514,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // Synchronously destroy the custom takeover container instantly on track skip
     // to eliminate the staggered unmount/delay for Takeover tracks.
     document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
+    document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`)?.classList.remove('sly-active');
 
     // Revert the dual lyrics DOM to their single original native text
     // to ensure both lines disappear cleanly and simultaneously during track change.
@@ -515,7 +527,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       }
     });
 
-    lastAuditedSongKey = '';
+    if (newKey) lastAuditedSongKey = '';
     godState = 'LOADING'; // Track is changing — no stable pill target until next state event.
     opts.store.songKey = newKey;
     opts.store.mode = 'original';
@@ -636,11 +648,13 @@ export function setupSlyBridge(
   // creation functions as individual tools and dispatches sly:takeover itself.
   // slyInjectLyrics is no longer in the call chain after this expansion.
   document.addEventListener('sly:inject', async (e: Event) => {
-    if (setupLock) {
-      console.log('[sly-lifecycle] 🚫 Bridge sly:inject aborted: setupLock is active.');
+    const entryUri = (window as any).spotifyState?.track?.uri as string | undefined;
+    if (setupLock && lockOwnerKey === entryUri) {
+      console.log('[sly-lifecycle] 🚫 Bridge sly:inject aborted: setupLock is active for this URI.');
       return;
     }
     setupLock = true;
+    lockOwnerKey = entryUri || 'unknown';
     try {
       // Clear the logical fetching flag immediately to prevent the content.ts poll 
       // from re-injecting a "Ghost HUD" during the 1-frame await below.
@@ -648,7 +662,6 @@ export function setupSlyBridge(
 
       const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
       if (!lyricsObj || lyricsObj.failed) {
-        setupLock = false;
         return;
       }
 
@@ -656,14 +669,12 @@ export function setupSlyBridge(
       const currentUri = (window as any).spotifyState?.track?.uri;
       if (lyricsObj._slyUri && currentUri && lyricsObj._slyUri !== currentUri) {
         console.warn(`[sly] Bridge sly:inject aborted: lyrics URI (${lyricsObj._slyUri}) does not match current track URI (${currentUri})`);
-        setupLock = false;
         return;
       }
 
       const domTrackId = getNowPlayingTrackId();
       if (domTrackId && lyricsObj._slyUri && !(lyricsObj._slyUri as string).includes(domTrackId)) {
         console.warn(`[sly] Bridge sly:inject aborted: lyrics URI (${lyricsObj._slyUri}) does not match DOM now playing track ID (${domTrackId})`);
-        setupLock = false;
         return;
       }
 
@@ -678,7 +689,6 @@ export function setupSlyBridge(
       // BUG-5 Fix: If the panel was closed during the async yield, abort injection.
       if (!window.slyInternalState.currentLyrics) {
         console.log('[sly-lifecycle] 🚫 sly:inject aborted: currentLyrics cleared (panel closed).');
-        setupLock = false;
         return;
       }
 
@@ -725,7 +735,10 @@ export function setupSlyBridge(
       sly.slySetupSyncButton?.(lyricsObj);
       // slyUpdateSync is intentionally omitted — Pipeline B's syncedLyricsRenderer owns sync.
     } finally {
-      setupLock = false;
+      if (lockOwnerKey === (entryUri || 'unknown')) {
+        setupLock = false;
+        lockOwnerKey = null;
+      }
     }
   });
 
@@ -784,6 +797,11 @@ export function setupSlyBridge(
       // syncPill() resolves the target deterministically from #lyrics-root-sync.
       syncPill('PIPELINE_A');
       godState = 'PIPELINE_A'; // lifecycleController now knows it owns the Pipeline A DOM.
+
+      // SLY FIX: Trigger auto-switch logic immediately after takeover setup.
+      // If the cache was just healed/invalidated above, this ensures a fresh
+      // translation/romanization fetch is triggered for the correct lyrics.
+      autoSwitchIfNeeded(true);
 
       // Start Pipeline B's RAF sync loop for synced tracks. Sets the
       // slySyncedRendererActive flag so slyCore's own loop yields immediately.

@@ -21,7 +21,7 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
       if (
         mut.type === 'attributes' &&
         mut.attributeName === 'aria-label' &&
-        (mut.target as Element).closest('[data-testid="now-playing-widget"]')
+        (mut.target as Element).matches('[data-testid="now-playing-widget"]')
       ) {
         opts.onSongChange(getNowPlayingKey());
       }

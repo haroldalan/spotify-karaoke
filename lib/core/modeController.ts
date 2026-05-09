@@ -141,9 +141,17 @@ export function createModeController(opts: ModeControllerOpts) {
     }
 
     if (!processed) {
+      if (mode === 'romanized' && isLatinScript(cache.original)) {
+        const targets = getTargets();
+        console.log(`[SKaraoke:Mode] reapplyMode: Latin script detected for romanized mode. Using originals.`);
+        applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+        setLoadingState(false);
+        return;
+      }
+
       if (mode !== 'original') {
         console.warn(`[SKaraoke:Mode] reapplyMode: Data missing for ${mode}. Triggering recovery fetch.`);
-        switchMode(mode, undefined, true);
+        await switchMode(mode, undefined, true, true);
       }
       return;
     }

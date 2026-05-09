@@ -4,7 +4,7 @@ import type { LyricsMode } from './lyricsTypes';
 export function setupKeyboardShortcuts(switchMode: (mode: LyricsMode) => Promise<void>): () => void {
   const handler = (e: KeyboardEvent) => {
     if (e.repeat) return;
-    if (e.altKey || e.ctrlKey || e.metaKey) return; // ignore modified combos
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return; // ignore modified combos
     const tag = (document.activeElement as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable) return;
     

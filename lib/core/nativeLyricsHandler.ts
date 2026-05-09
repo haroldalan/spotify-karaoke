@@ -11,9 +11,12 @@ export interface NativeLyricsState {
   runtimeCache: Map<string, LyricsCacheEntry>;
 }
 
-export function applyNativeOverride(state: Pick<NativeLyricsState, 'cache' | 'pendingNativeLines'>): void {
+export function applyNativeOverride(
+  expectedTrackId: string,
+  state: Pick<NativeLyricsState, 'cache' | 'pendingNativeLines'>
+): void {
   const domTrackId = getNowPlayingTrackId();
-  if (!domTrackId) return;
+  if (!domTrackId || domTrackId !== expectedTrackId) return;
 
   const native = state.pendingNativeLines.get(domTrackId);
   if (!native || native.length === 0) return;
@@ -25,6 +28,9 @@ export function applyNativeOverride(state: Pick<NativeLyricsState, 'cache' | 'pe
     if (native[i] !== undefined) {
       el.textContent = native[i];
       el.setAttribute('data-sly-original', native[i]);
+    } else {
+      el.textContent = '';
+      el.removeAttribute('data-sly-original');
     }
   });
 }
@@ -61,6 +67,9 @@ export async function handleNativeLyrics(
       if (nativeLines[i] !== undefined) {
         el.textContent = nativeLines[i];
         el.setAttribute('data-sly-original', nativeLines[i]);
+      } else {
+        el.textContent = '';
+        el.removeAttribute('data-sly-original');
       }
     });
   } else {

@@ -37,10 +37,13 @@ export function startStorageListener(opts: StorageListenerOpts): void {
         const newDual = (changes.dualLyrics.newValue as boolean | undefined) ?? true;
         opts.store.dualLyricsEnabled = newDual;
         const cache = opts.store.cache;
-        if (opts.store.mode !== 'original' && cache.original.length > 0) {
+        if (cache.original.length > 0) {
           const processed = cache.processed.get(opts.store.currentActiveLang);
-          if (processed) {
-            const lines = opts.store.mode === 'romanized' ? processed.romanized : processed.translated;
+          const lines = (opts.store.mode === 'original') 
+            ? cache.original 
+            : (processed ? (opts.store.mode === 'romanized' ? processed.romanized : processed.translated) : null);
+          
+          if (lines) {
             applyLinesToDOM(lines, newDual ? cache.original : undefined, newDual, (v) => { opts.store.isApplying = v; });
           }
         }

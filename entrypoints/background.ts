@@ -107,9 +107,16 @@ export default defineBackground(() => {
           if (lyricsCache.has(cacheKey) && !forceRefresh) {
             const cached = lyricsCache.get(cacheKey);
             if (cached && !(cached as any).isPlaceholder) {
-              console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
-              sendResponse(cached);
-              return;
+              const age = Date.now() - (cached.persistedAt || 0);
+              const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+              if (age > THIRTY_DAYS) {
+                console.log(`[ServiceWorker] L1 EXPIRED (TTL): ${title}`);
+                // Fall through to L2/Fetch path
+              } else {
+                console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
+                sendResponse(cached);
+                return;
+              }
             }
           }
 
@@ -144,8 +151,10 @@ export default defineBackground(() => {
               console.log(`[ServiceWorker] Upgrade Check for ${title}`);
               getLyricsForTrack(title, artist, albumArtUrl, uri).then(async (fresh) => {
                 if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
-                  if (stored.nativeStatus && !fresh.nativeStatus) {
-                    fresh.nativeStatus = stored.nativeStatus;
+                  // BUG-C3 Fix: Re-fetch current state to avoid overwriting late-arriving nativeStatus
+                  const current = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+                  if (current?.nativeStatus && !fresh.nativeStatus) {
+                    fresh.nativeStatus = current.nativeStatus;
                   }
                   await lyricsPersistence.set(cacheKey, fresh);
                   lyricsCache.set(cacheKey, fresh);
@@ -208,7 +217,7 @@ export default defineBackground(() => {
       // ----------------------------------------------------------------
       if (msg.type === 'SLY_REPORT_NATIVE_STATUS') {
         const { title, artist, uri, status } = msg.payload ?? {};
-        if (!title || !artist || !status) return true;
+        if (!title || !artist || !status) return false;
 
         const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
         (async () => {

@@ -99,6 +99,18 @@ function attachLyricsButtonObserver(): void {
   }
 
   observedButton = btn;
+  buttonFinderObserver.disconnect();
+
+  if (removalObserver) removalObserver.disconnect();
+  removalObserver = new MutationObserver(() => {
+    if (!btn.isConnected) {
+      removalObserver?.disconnect();
+      removalObserver = null;
+      observedButton = null;
+      buttonFinderObserver.observe(document.body, { childList: true, subtree: true });
+    }
+  });
+  removalObserver.observe(btn.parentElement || document.body, { childList: true });
 
   lyricsButtonObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -129,12 +141,17 @@ const buttonFinderObserver = new MutationObserver(() => {
   }
 });
 
+let removalObserver: MutationObserver | null = null;
+
 function initButtonFinder(): void {
   if (!document.body) {
     document.addEventListener('DOMContentLoaded', initButtonFinder);
     return;
   }
-  buttonFinderObserver.observe(document.body, { childList: true, subtree: true });
+  const target = document.querySelector('.main-nowPlayingBar-container') || 
+                 document.querySelector('[data-testid="now-playing-bar"]') || 
+                 document.body;
+  buttonFinderObserver.observe(target, { childList: true, subtree: true });
   // Also try right away in case the button already exists at script load time
   attachLyricsButtonObserver();
 }

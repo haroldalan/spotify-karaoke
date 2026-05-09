@@ -105,12 +105,12 @@ window.addEventListener('message', (event) => {
     });
 
     // SLY FIX: Persist interceptor discovery to Background so it survives sessions.
-    if (nativeStatus) {
+    if (nativeStatus && metadata) {
       safeSendMessage({
         type: 'SLY_REPORT_NATIVE_STATUS',
         payload: {
-          title: metadata?.title || 'Unknown',
-          artist: metadata?.artist || 'Unknown',
+          title: metadata.title as string,
+          artist: metadata.artist as string,
           uri: `spotify:track:${trackId}`,
           status: nativeStatus
         }
@@ -187,13 +187,20 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   window.slyInternalState.fetchingForTitle = title;
   window.slyInternalState.fetchingForUri = uri;
 
-  // Capture the generation and URI at the moment this fetch is dispatched.
+  // Capturing URI for stale check
   const myGeneration = window.slyInternalState.fetchGeneration;
   const myUri = uri;
 
   const pinnedMetadata: Record<string, unknown> = { title, artist, albumArtUrl };
 
-  // Show initial Status HUD immediately to prevent blank panel
+  // 1. L0 SESSION CACHE CHECK (Instant)
+  const sessionKey = `sly_theme_${albumArtUrl}`;
+  const l0Color = albumArtUrl ? sessionStorage.getItem(sessionKey) : null;
+  if (l0Color) {
+    pinnedMetadata.extractedColor = l0Color;
+  }
+
+  // Show initial Status HUD immediately. If L0 hit, background is vibrant from Frame 1.
   window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
 
   // Fast-track color extraction to upgrade the HUD asynchronously
@@ -203,6 +210,9 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       if (myGeneration !== window.slyInternalState.fetchGeneration) return;
 
       if (r?.color) {
+        // Populate L0 for next time
+        sessionStorage.setItem(sessionKey, r.color as string);
+
         // Pin to metadata for the HUD
         pinnedMetadata.extractedColor = r.color;
 

@@ -59,8 +59,10 @@ window.slyApplyGeneticLock = function (obj: unknown, prop: string, targetVal: un
   if (!obj || typeof obj !== 'object' || !(prop in (obj as object))) return;
 
   const desc = Object.getOwnPropertyDescriptor(obj as object, prop);
-  if (desc && desc.configurable === true && typeof desc.get === 'function') {
-    // Already locked
+  if (desc && desc.configurable === false) return;
+  if (desc && typeof desc.get === 'function' && desc.configurable === true) {
+    // Already has a getter-based lock; check if it's ours or needs update
+    try { if (desc.get() === targetVal) return; } catch(e) {}
   }
 
   try {

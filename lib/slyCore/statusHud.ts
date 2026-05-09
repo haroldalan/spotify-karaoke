@@ -113,14 +113,10 @@ declare global {
       content += `
                 <div class="sly-hud-cta-wrapper" style="display: flex; gap: 12px; margin-top: 16px; justify-content: flex-start; flex-wrap: wrap;">
                     <a href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnPrimary || 'e-10451-legacy-button e-10451-legacy-button-primary'}">
-                        <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnPrimaryInner || 'e-10451-button-primary__inner'} encore-inverted-light-set e-10451-legacy-button--medium">
-                            Add lyrics to LRCLIB
-                        </span>
+                        <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnPrimaryInner || 'e-10451-button-primary__inner'} encore-inverted-light-set e-10451-legacy-button--medium">Add lyrics to LRCLIB</span>
                     </a>
                     <a id="sly-hud-retry-btn" href="#" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnSecondary || 'e-10451-legacy-button e-10451-legacy-button-secondary'}" style="cursor: pointer; transition: transform 0.2s ease; text-decoration: none;">
-                        <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnSecondaryInner || 'e-10451-button-secondary__inner'} e-10451-legacy-button--medium">
-                            Retry Fetch
-                        </span>
+                        <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnSecondaryInner || 'e-10451-button-secondary__inner'} e-10451-legacy-button--medium">Retry Fetch</span>
                     </a>
                 </div>
             `;

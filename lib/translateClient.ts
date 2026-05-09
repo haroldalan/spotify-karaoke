@@ -14,7 +14,8 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function googleProcess(
   lines: string[],
   targetLang: string,
-  includeRomanization: boolean
+  includeRomanization: boolean,
+  sourceLang: string = 'auto'
 ): Promise<{ 
   translated: string[]; 
   romanized: string[]; 
@@ -43,14 +44,16 @@ export async function googleProcess(
   // Optimization: Parallelize the first two chunks to reduce "Time to First Lyric"
   // Subsequent chunks remain serial with a delay to prevent 429s.
   const processChunk = async (chunk: string[], index: number) => {
-    if (index >= 2) await delay(CHUNK_DELAY_MS);
+    if (index >= 1) await delay(CHUNK_DELAY_MS);
     const joined = chunk.join('\n');
     try {
-      const result = await googleTranslate(joined, targetLang, includeRomanization);
-      const transLines = result.translated.split('\n');
+      const result = await googleTranslate(joined, targetLang, includeRomanization, sourceLang);
+      
+      // Trim to avoid trailing newline misalignment and slice to match input chunk length
+      const transLines = result.translated.trim().split('\n').slice(0, chunk.length);
       const romLines = (result.romanized && result.romanized.trim()) 
-        ? result.romanized.split('\n') 
-        : transLines; // Fallback to translated if romanization is empty/invalid
+        ? result.romanized.trim().split('\n').slice(0, chunk.length)
+        : transLines; // Fallback to translated text (best effort romanization)
 
       return { transLines, romLines, isLowQuality: false };
     } catch (googleErr) {

@@ -9,7 +9,7 @@ import type { MxmClient } from './mxmClient';
 function slyPost(type: string, trackId?: string, extra?: Record<string, unknown>): void {
     window.postMessage(
         { type, ...(trackId ? { trackId } : {}), ...(extra ?? {}) },
-        '*',
+        window.location.origin,
     );
 }
 
