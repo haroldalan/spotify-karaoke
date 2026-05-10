@@ -40,7 +40,9 @@ const _currentInterceptGeneration = new Map<string, number>();
 
 const MAP_CAP = 200;
 
-function capMap<K, V>(map: Map<K, V>): void {
+function touchAndCap<K, V>(map: Map<K, V>, key: K, value: V): void {
+  map.delete(key);
+  map.set(key, value);
   if (map.size > MAP_CAP) {
     const firstKey = map.keys().next().value;
     if (firstKey !== undefined) map.delete(firstKey);
@@ -305,8 +307,7 @@ export const mxmProvider: MxmProvider = {
   },
 
   notifyMetadata(id, name, artist) {
-    capMap(_metadataCache);
-    _metadataCache.set(id, { name, artist });
+    touchAndCap(_metadataCache, id, { name, artist });
     const callbacks = _pendingMetaCallbacks.get(id);
     if (callbacks) {
       callbacks.forEach(cb => cb({ name, artist }));
@@ -316,8 +317,7 @@ export const mxmProvider: MxmProvider = {
 
   newInterception(spotifyTrackId) {
     const nextGen = (_currentInterceptGeneration.get(spotifyTrackId) || 0) + 1;
-    capMap(_currentInterceptGeneration);
-    _currentInterceptGeneration.set(spotifyTrackId, nextGen);
+    touchAndCap(_currentInterceptGeneration, spotifyTrackId, nextGen);
     return nextGen;
   },
 

@@ -32,6 +32,17 @@ export function snapshotOriginals(cache: SongCache): void {
   cache.original = snapped;
 }
 
+/**
+ * Capitalizes the first alphabetic character in a string, preserving any leading
+ * non-alphabetic characters (e.g., "(dha" -> "(Dha").
+ */
+function capitalizeLine(line: string): string {
+  if (!line) return line;
+  return line.replace(/^([^a-zA-Z]*)([a-z])/, (match, prefix, firstChar) => {
+    return prefix + firstChar.toUpperCase();
+  });
+}
+
 export function applyLinesToDOM(
   lines: string[] | null | undefined,
   originals: string[] | undefined,
@@ -50,6 +61,8 @@ export function applyLinesToDOM(
       el.setAttribute('data-sly-original', originals[i]);
     }
 
+    const processedLine = capitalizeLine(lines[i]);
+
     const showDual =
       dualLyricsEnabled &&
       originals !== undefined &&
@@ -60,7 +73,7 @@ export function applyLinesToDOM(
       el.textContent = '';
       const mainSpan = document.createElement('span');
       mainSpan.className = 'sly-main-line';
-      mainSpan.textContent = lines[i];
+      mainSpan.textContent = processedLine;
       el.appendChild(mainSpan);
 
       const subSpan = document.createElement('span');
@@ -68,7 +81,7 @@ export function applyLinesToDOM(
       subSpan.textContent = originals![i];
       el.appendChild(subSpan);
     } else {
-      el.textContent = lines[i];
+      el.textContent = processedLine;
     }
   });
 

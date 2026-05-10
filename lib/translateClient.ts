@@ -1,6 +1,7 @@
 import { chunkByCharCount } from './translate/chunkUtils';
 import { googleTranslate } from './translate/googleApi';
 import { myMemoryTranslate } from './translate/myMemoryApi';
+import { transliterate } from 'transliteration';
 
 // Re-export chunkByCharCount for backward compatibility
 export { chunkByCharCount };
@@ -51,11 +52,19 @@ export async function googleProcess(
       
       // Trim to avoid trailing newline misalignment and slice to match input chunk length
       const transLines = result.translated.trim().split('\n').slice(0, chunk.length);
-      const romLines = (result.romanized && result.romanized.trim()) 
-        ? result.romanized.trim().split('\n').slice(0, chunk.length)
-        : transLines; // Fallback to translated text (best effort romanization)
+      
+      let isLowQuality = false;
+      let romLines: string[];
 
-      return { transLines, romLines, isLowQuality: false };
+      if (result.romanized && result.romanized.trim()) {
+        romLines = result.romanized.trim().split('\n').slice(0, chunk.length);
+      } else {
+        // Fallback to local transliteration library (silent)
+        romLines = chunk.map(l => transliterate(l));
+        isLowQuality = true;
+      }
+
+      return { transLines, romLines, isLowQuality };
     } catch (googleErr) {
       console.warn('[SKaraoke:BG] Google blocked, falling back to MyMemory:', googleErr);
       const { chunks: subChunks } = chunkByCharCount(chunk, MYMEMORY_MAX_CHARS);
@@ -72,10 +81,10 @@ export async function googleProcess(
   };
 
   // Run first 2 chunks in parallel, others sequentially to prevent 429 bursts.
-  const results = [
-    await processChunk(chunks[0], 0),
-    ...(chunks[1] ? [await processChunk(chunks[1], 1)] : [])
-  ];
+  const results = await Promise.all([
+    processChunk(chunks[0], 0),
+    ...(chunks[1] ? [processChunk(chunks[1], 1)] : [])
+  ]);
 
   for (let i = 2; i < chunks.length; i++) {
     results.push(await processChunk(chunks[i], i));

@@ -60,7 +60,11 @@ function getAbsoluteDuration(): number {
 
   // Remaining mode fallback: Total = Elapsed + abs(Remaining)
   const posVal = parseTime(positionEl);
-  return Math.abs(posVal) + Math.abs(durVal);
+  const total = Math.abs(posVal) + Math.abs(durVal);
+  
+  // BUG-37 Fix: If duration is ambiguous (0:00 / -0:00), return 1 as a safe divisor
+  // to prevent progress bar collapse and division-by-zero errors in the renderer.
+  return total || 1;
 }
 
 /**
@@ -99,6 +103,7 @@ window.slySeekTo = function (time: number): void {
   }
 
   // LAYER 3: Simulated Pointer Interaction
+  const progressBar = document.querySelector('[data-testid="progress-bar"]');
   if (progressBar) {
     const durSec = getAbsoluteDuration();
 

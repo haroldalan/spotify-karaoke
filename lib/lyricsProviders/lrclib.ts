@@ -20,7 +20,7 @@ export async function fetchLrcLibLyrics(
     // and go straight to /api/search to save latency.
 
     const searchRes = await fetchWithTimeout(
-      `https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + artist)}`,
+      `https://lrclib.net/api/search?${params.toString()}`,
     );
     if (!searchRes.ok) return null;
     const results = await searchRes.json() as Record<string, unknown>[];

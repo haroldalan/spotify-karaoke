@@ -10,7 +10,11 @@ export const getLyricsContainer = (): Element | null => {
 
 export const getLyricsViewRoot = (): Element | null => {
   // Try to find the main scrollable container where lyrics are rendered
-  return document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
+  const scavenged = window.SPOTIFY_CLASSES?.mainContainer;
+  if (scavenged) return document.querySelector(`main.${scavenged}`);
+  
+  // Robust Fallback: find any main element that houses the native lyrics variables
+  return document.querySelector('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)')?.closest('main') ?? null;
 };
 
 export const getNowPlayingKey = (): string =>

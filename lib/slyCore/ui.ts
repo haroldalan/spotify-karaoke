@@ -87,18 +87,19 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   document.dispatchEvent(new CustomEvent('sly:release'));
 
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
-  document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
-  window.slyInternalState.customRoot = null;
+  // UNLESS we have an L0 hit, in which case we preserve them for a seamless swap.
+  const l0Hit = window.slyInternalState.l0Cache.get(uri);
+  if (!l0Hit) {
+    document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
+    window.slyInternalState.customRoot = null;
+  }
 
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
-  if (main) {
+  if (main && !l0Hit) {
     main.classList.remove('sly-active');
     main.style.display = '';
     main.style.position = '';
   }
-
-  const syncBtn = document.getElementById('sly-sync-button');
-  if (syncBtn) syncBtn.remove();
 
   // 3. Restore Spotify Native UI visibility
   const containerClass = window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x';

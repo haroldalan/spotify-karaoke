@@ -44,6 +44,9 @@ export interface SlyInternalState {
    *  fight over className on the same elements. */
   slySyncedRendererActive?: boolean;
   nativeRecoveryPending?: boolean;
+  /** L0 Session Cache: Synchronous in-memory store for lyrics objects.
+   *  Eliminates async fetch delays for repeated tracks in the same session. */
+  l0Cache: Map<string, any>;
 }
 
 declare global {
@@ -65,11 +68,13 @@ export const spotifyState: SpotifyBridgeState = {
   isTimeSynced: undefined,
   syncType: null,
   isPanelOpen: false,
-  nativeHasLyrics: true,
+  nativeHasLyrics: false, // BUG-31 Fix: Pessimistic initial state prevents "Blank Panel" stand-down race.
   detectionMethod: 'Initializing...',
   lastBridgeChangeTime: 0,
 };
 
+// SLY FIX (BUG-41): Assigning to window by reference ensures module imports and
+// global lookups stay in sync. DO NOT replace the object reference in listeners.
 window.spotifyState = spotifyState as unknown as Record<string, unknown>;
 
 /**
@@ -96,6 +101,7 @@ export const slyInternalState: SlyInternalState = {
   statusHUDActive: false,
   isFetchingHUD: false,
   isAdHUDActive: false,
+  l0Cache: new Map(),
 };
 
 window.slyInternalState = slyInternalState;
@@ -110,22 +116,33 @@ window.slyInternalState = slyInternalState;
  */
 export function initSlyState(): void {
   window.addEventListener('message', (event) => {
+    // Security: Only accept messages from the same window (MAIN world bridge)
+    if (event.source !== window) return;
+
     if ((event.data as Record<string, unknown>)?.source === 'SLY_BRIDGE') {
-      const { track, lyricsProvider, isTimeSynced, syncType, isPanelActive, accessToken, queue } =
-        (event.data as { source: string; data: Record<string, unknown> }).data;
+      const data = (event.data as { source: string; data: Record<string, unknown> }).data;
+      
+      // BUG-41 Fix: Mutate the existing object by reference instead of potentially 
+      // replacing window.spotifyState with a new object literal. This ensures 
+      // that modules which imported 'spotifyState' at boot time see the updates.
+      const state = spotifyState as unknown as Record<string, unknown>;
+      
+      state.track = data.track as Record<string, unknown> | null;
+      state.lyricsProvider = data.lyricsProvider as string | null;
+      state.isTimeSynced = data.isTimeSynced as boolean;
+      state.syncType = data.syncType as string | null;
+      state.isPanelOpen = data.isPanelActive as boolean;
+      state.nativeHasLyrics = data.nativeHasLyrics as boolean;
+      state.detectionMethod = data.detectionMethod as string;
+      state.lastBridgeChangeTime = data.lastBridgeChangeTime as number;
+      
+      if (data.accessToken) state.accessToken = data.accessToken as string;
+      if (data.queue) state.queue = data.queue as unknown[];
 
-      if (!window.spotifyState) window.spotifyState = {};
-      window.spotifyState.track = track as Record<string, unknown> | null;
-      window.spotifyState.lyricsProvider = lyricsProvider as string | null;
-      window.spotifyState.isTimeSynced = isTimeSynced as boolean;
-      window.spotifyState.syncType = syncType as string | null;
-      window.spotifyState.isPanelOpen = isPanelActive as boolean;
-      if (accessToken) window.spotifyState.accessToken = accessToken as string;
-      if (queue) window.spotifyState.queue = queue as unknown[];
-
-      window.dispatchEvent(new CustomEvent('sly_state_update', { detail: window.spotifyState }));
+      window.dispatchEvent(new CustomEvent('sly_state_update', { detail: spotifyState }));
     }
   });
 
   console.log('[sly] State Module: SLY_BRIDGE Listener Active.');
 }
+

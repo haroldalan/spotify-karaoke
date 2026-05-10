@@ -3,10 +3,13 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [3.1.2] — 2026-05-08
+## [3.1.2] — 2026-05-10
 
 ### Fixed
-- **Systematic Audit Remediation**: Successfully completed a comprehensive 54-point technical audit, resolving 49 verified bugs across the entire codebase.
+- **Malayalam Processing Restoration**: Resolved a critical bug where certain Malayalam lines (especially musical notation) were skipped or misaligned. Restored the robust "translation-as-fallback" logic from v3.0.5 and increased chunk context to prevent Google Translate misidentification.
+- **Romanization Normalization**: Standardized all romanized lyrics (Hindi, Chinese, Japanese, etc.) to "texting style" ASCII by implementing a global diacritic stripper. All macrons, tone marks, and dots are now removed for better readability.
+- **Instant Theme Architecture**: Eliminated the "one-second pop" in background colors for fetching and failure screens. Introduced a dual-layer theme cache (L0 Session + L2 Persistent) that allows vibrant backgrounds to appear synchronously from the very first frame for previously encountered tracks.
+- **Source Language Hinting**: Improved the accuracy of the auto-romanization pipeline by propagating song-level script detection as a hint to the translation engine, preventing mixed-language chunks from being misidentified as English.
 - **Playback Resume Sync**: Fixed a "time warp" position jump when resuming from a pause. The extrapolator now forces an immediate sync on play to prevent lyrics from flickering forward.
 - **Translation Rate-Limit Hardening**: Refactored the translation engine to use a hybrid sequential queue for chunks 2-N. This ensures the 120ms safety delay is strictly enforced, eliminating simultaneous request bursts and 429 errors.
 - **Zero-Latency Hijacking**: Corrected an operator precedence bug in the native detector. High-confidence cache hits now trigger UI injection instantly on page load, removing the previous 2-second "settling" delay.
@@ -14,7 +17,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Security & Hygiene**: Restricted `postMessage` origin to `window.location.origin` to prevent data leaks to third-party iframes, and removed global window pollution by refactoring the ad manager into a clean module export.
 - **Color Extraction Precision**: Reduced the pixel-sampling stride in color extraction to 4. This ensures dominant color accents on minimalist album covers are no longer missed.
 - **Retry Reliability**: Updated the fetch semaphore to respect the `forceRefresh` flag, allowing users to manually re-trigger stalled or failed fetches via the Status HUD.
-- **Fetch Continuity Fix**: Resolved a regression where closing the lyrics panel would prematurely clear the fetching state, leading to blank panels or restarted fetches upon reopening. In-flight searches now correctly "continue" visually, re-injecting a "Continuing external search..." indicator when the panel is reopened.
+- **Fetch Continuity & Recovery**: Resolved a regression where closing the lyrics panel would prematurely clear the fetching state. Synchronized lyrics upgrades are now preserved across panel toggles for the same track. Fixed a race condition where fast-finishing fetches would hang on the loading screen due to asynchronous Bridge state latency.
+- **Transition Smoothness & Latency**: Eliminated the 50ms debounce in the content script and implemented "Pre-Injection Mirroring," ensuring background themes appear instantly without frame-yield flicker.
+- **Romanized Tab Casing**: Implemented an on-the-fly capitalization transform for processed lyrics, ensuring the first letter of each line is capitalized (e.g., "(dha-" -> "(Dha-") for both new and cached entries.
+- **Bridge Reliability (Flicker Guard)**: Tapered the bridge-level toggle timeout from 300ms to 100ms, improving responsiveness and preventing "double-toggle" races during rapid interactions.
+- **State Ownership Consolidation**: Fixed a state desync bug by unifying the `window` scope and module-import references under a single mutable object, ensuring all components see the same track metadata in real-time.
+- **Systematic Audit Remediation**: Successfully completed a comprehensive 41-point technical audit and remediation, resolving all verified logic, security, and DOM stability findings.
 
 ## [3.1.1] — 2026-05-08
 

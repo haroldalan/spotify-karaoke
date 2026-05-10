@@ -1,9 +1,13 @@
 // @ts-nocheck
+import { getLyricsViewRoot } from '../dom/domQueries';
 // Port of: lyric-test/modules/core/events.js
 /* modules/content-events.js: Global Event Observers (Navigation & Interactions) */
 
 // --- NAVIGATION INTERCEPTOR ---
 function wrapHistory(): void {
+  if (window.__sly_history_wrapped) return;
+  window.__sly_history_wrapped = true;
+
   const pushState = history.pushState;
   history.pushState = function (...args) {
     pushState.apply(history, args);
@@ -32,7 +36,7 @@ const interactionOptions = { passive: true, capture: true };
 function handleUserInteraction(e: Event): void {
   const lyricsRoot = (window.slyInternalState.customRoot as HTMLElement | null)
     ?? document.getElementById('lyrics-root-sync');
-  if (lyricsRoot && lyricsRoot.contains(e.target as Node)) {
+  if (lyricsRoot && e.target && lyricsRoot.contains(e.target as Node)) {
     window.slyInternalState.isUserScrolling = true;
   }
 }
@@ -99,18 +103,6 @@ function attachLyricsButtonObserver(): void {
   }
 
   observedButton = btn;
-  buttonFinderObserver.disconnect();
-
-  if (removalObserver) removalObserver.disconnect();
-  removalObserver = new MutationObserver(() => {
-    if (!btn.isConnected) {
-      removalObserver?.disconnect();
-      removalObserver = null;
-      observedButton = null;
-      buttonFinderObserver.observe(document.body, { childList: true, subtree: true });
-    }
-  });
-  removalObserver.observe(btn.parentElement || document.body, { childList: true });
 
   lyricsButtonObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -150,8 +142,14 @@ function initButtonFinder(): void {
   }
   const target = document.querySelector('.main-nowPlayingBar-container') || 
                  document.querySelector('[data-testid="now-playing-bar"]') || 
+                 document.querySelector('.Root__now-playing-bar') ||
+                 document.querySelector('.Root') ||
                  document.body;
-  buttonFinderObserver.observe(target, { childList: true, subtree: true });
+  
+  // Performance: Only use subtree: true if we have a narrow target. 
+  // If we fall back to .Root or body, we use a less aggressive observation.
+  const isBroadTarget = target === document.body || target?.classList.contains('Root');
+  buttonFinderObserver.observe(target, { childList: true, subtree: !isBroadTarget });
   // Also try right away in case the button already exists at script load time
   attachLyricsButtonObserver();
 }
@@ -187,7 +185,7 @@ const errorObserver = new MutationObserver((mutations) => {
 
 // Start observing the main view once it's available
 function startErrorObserver(): void {
-  const target = document.querySelector('.B0fBZOXNHNc2YVYO') || document.body;
+  const target = getLyricsViewRoot() || document.body;
   errorObserver.observe(target, { childList: true, subtree: true });
 }
 

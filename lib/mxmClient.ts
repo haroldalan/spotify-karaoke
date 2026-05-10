@@ -47,6 +47,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                     }
                     window.removeEventListener('message', handler);
                     _isHydrating = false;
+                    _hydrationPromise = null;
                     resolve();
                 }
             };
@@ -57,6 +58,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
             setTimeout(() => {
                 window.removeEventListener('message', handler);
                 _isHydrating = false;
+                _hydrationPromise = null;
                 resolve();
             }, 2000);
         });

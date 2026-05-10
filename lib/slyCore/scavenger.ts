@@ -145,6 +145,9 @@ export const slyScavengeClasses = function (): void {
   if (typeof window.slyDeepScavengeStyles === 'function') {
     window.slyDeepScavengeStyles();
   }
+
+  // Broadcast updated classes to the MAIN world (slyBridge.js)
+  window.postMessage({ type: 'SLY_UPDATE_CLASSES', classes: window.SPOTIFY_CLASSES }, window.location.origin);
 }
 
 let isDeepScavenging = false;
@@ -214,6 +217,10 @@ export function slyDeepScavengeStyles(): void {
     document.body.classList.remove('sly-fallback');
 
     console.log('[sly-scavenger] Deep CSS Scavenge complete:', { ...window.SPOTIFY_CLASSES });
+    
+    // Broadcast updated classes to the MAIN world (slyBridge.js)
+    window.postMessage({ type: 'SLY_UPDATE_CLASSES', classes: window.SPOTIFY_CLASSES }, window.location.origin);
+    
     hasDeepScavenged = true;
     lastDeepScavengeTime = Date.now();
   }).catch((err: any) => {

@@ -511,10 +511,18 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       (window as any).slyInternalState.forceFallback = false;
     }
 
-    // Synchronously destroy the custom takeover container instantly on track skip
-    // to eliminate the staggered unmount/delay for Takeover tracks.
-    document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
-    document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`)?.classList.remove('sly-active');
+    // SLY FIX (Magical Seamless Swap): If we have an L0 session cache hit, 
+    // do NOT destroy the takeover container or remove 'sly-active'.
+    // This allows the new lyrics to be injected into the existing container
+    // without a visible flash or HUD popup.
+    const l0Hit = (window as any).slyInternalState?.l0Cache?.get(newKey);
+
+    if (!l0Hit) {
+      // Synchronously destroy the custom takeover container instantly on track skip
+      // to eliminate the staggered unmount/delay for Takeover tracks.
+      document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
+      document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`)?.classList.remove('sly-active');
+    }
 
     // Revert the dual lyrics DOM to their single original native text
     // to ensure both lines disappear cleanly and simultaneously during track change.
@@ -679,36 +687,51 @@ export function setupSlyBridge(
       }
 
       const injectionSongKey = store.songKey;
+      const sly = window as any;
+
+      // SMOOTH TRANSITION FIX: Pre-Injection Mirroring.
+      // Before: All DOM construction and theme mirroring happened after an await requestAnimationFrame(r).
+      // After: slyPrepareContainer and slyMirrorNativeTheme are called synchronously BEFORE the yield.
+      // Why: By mirroring the background colors immediately, we ensure that as soon as Spotify's panel 
+      // opens, it has the correct extension theme colors. The lyrics themselves still wait for the 
+      // frame to stabilize, but the visible "background flash" is eliminated.
+      const root: HTMLElement | null = sly.slyPrepareContainer?.();
+      const nativeRef = document.querySelector(
+        `main.${sly.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${sly.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
+      ) as HTMLElement | null;
+      if (root) {
+        sly.slyMirrorNativeTheme?.(root, lyricsObj, nativeRef);
+      }
 
       // Wait for a frame to ensure React has finished any immediate DOM shuffling
       // from the track transition before we start our own injection.
       await new Promise(r => requestAnimationFrame(r));
 
-      const sly = window as any;
-
       // BUG-5 Fix: If the panel was closed during the async yield, abort injection.
-      if (!window.slyInternalState.currentLyrics) {
-        console.log('[sly-lifecycle] 🚫 sly:inject aborted: currentLyrics cleared (panel closed).');
+      // SLY FIX (REGRESSION): We must check panel state SYNCHRONOUSLY here.
+      // window.spotifyState is updated via a 600ms bridge poll; checking it here 
+      // creates a race where fast fetches abort because the bridge hasn't scanned yet.
+      const btn = document.querySelector('[data-testid="lyrics-button"]');
+      const isReallyOpen = btn?.getAttribute('data-active') === 'true' || 
+                           btn?.getAttribute('aria-pressed') === 'true' || 
+                           location.pathname.includes('/lyrics');
+
+      if (!isReallyOpen) {
+        console.log('[sly-lifecycle] 🚫 sly:inject aborted: Panel closed during yield.');
         return;
       }
 
-      // 1. Prepare the #lyrics-root-sync container (create or clear existing).
-      const root: HTMLElement | null = sly.slyPrepareContainer?.();
       if (!root) return;
 
+      // 2. Inject core CSS once (sync button styles, custom transitions).
+      sly.slyInjectCoreStyles?.();
 
-    // 2. Inject core CSS once (sync button styles, custom transitions).
-    sly.slyInjectCoreStyles?.();
+      // 3. Theme already mirrored above.
 
-    // 3. Copy Spotify's CSS custom properties; hide the native lyrics container.
-    const nativeRef = document.querySelector(
-      `main.${sly.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${sly.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
-    ) as HTMLElement | null;
-    sly.slyMirrorNativeTheme?.(root, lyricsObj, nativeRef);
+      // 4. Build the lyrics DOM lines.
+      //    Also populates lyricsObj.lines and lyricsObj.domElements — required below.
+      sly.slyBuildLyricsList?.(root, lyricsObj);
 
-    // 4. Build the lyrics DOM lines.
-    //    Also populates lyricsObj.lines and lyricsObj.domElements — required below.
-    sly.slyBuildLyricsList?.(root, lyricsObj);
 
     // 5. Pipeline B dispatches sly:takeover — slyInjectLyrics no longer does this.
     //    lyricsObj.lines is now populated by slyBuildLyricsList, so lrcLines is correct.

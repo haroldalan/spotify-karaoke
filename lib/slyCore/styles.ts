@@ -46,15 +46,18 @@ export function slyGetCoreStyles(): string {
             box-sizing: border-box;
             flex: 1;
         }
-        /* Lock main parent scrolling ONLY when HUD (Loading/Error) is active */
+        /* Base sly-active state: minimum interference with Spotify's main layout */
         main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active {
+            /* Inherit native layout unless HUD is active */
+        }
+
+        /* Lock main parent scrolling and force layout ONLY when HUD (Loading/Error) is active */
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active:has(#sly-status-hud) {
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;
             min-height: 500px !important;
             height: 100% !important;
-        }
-        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active:has(#sly-status-hud) {
             overflow: hidden !important;
         }
 

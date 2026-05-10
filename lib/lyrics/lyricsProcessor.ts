@@ -45,6 +45,8 @@ export async function processLines(
 
   result.romanized = result.romanized.map((rom, i) => {
     const casePreserved = preserveCasing(lines[i], rom);
+    // OPTICS: We intentionally strip diacritics (macrons, etc.) to produce a cleaner,
+    // "texting-style" Latin output, even if it is phonetically lossy for some scripts.
     return stripDiacritics(casePreserved);
   });
   

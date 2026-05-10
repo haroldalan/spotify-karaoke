@@ -24,6 +24,11 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
   if (message.type === 'LYRICS_UPGRADED') {
     const fresh = (message.payload as Record<string, unknown>)?.data;
     if (!fresh) return;
+    
+    // SLY FIX: Populate L0 Session Cache for instant synchronous restoration on next play.
+    const uri = (message.payload as Record<string, unknown>)?.uri as string;
+    if (uri) window.slyInternalState.l0Cache.set(uri, fresh);
+
     window.slyInternalState.pendingLyricsData = fresh;
     console.log('[sly-dom] Background fetch succeeded. Pending lyrics data updated for automatic injection.');
   }
@@ -97,12 +102,14 @@ window.addEventListener('message', (event) => {
         artist: (track?.artists as Record<string, string>[])?.[0]?.name,
       };
     }
-    window.slyPreFetchRegistry.register(trackId, state, {
-      ...(metadata ?? {}),
-      nativeStatus,
-      source: 'native',
-      reason: state === 'MISSING' ? 'Network Intercept (404)' : 'Network Intercept'
-    });
+    if (trackId) {
+      window.slyPreFetchRegistry.register(trackId, state, {
+        ...(metadata ?? {}),
+        nativeStatus,
+        source: 'native',
+        reason: state === 'MISSING' ? 'Network Intercept (404)' : 'Network Intercept'
+      });
+    }
 
     // SLY FIX: Persist interceptor discovery to Background so it survives sessions.
     if (nativeStatus && metadata) {
@@ -128,11 +135,12 @@ window.addEventListener('message', (event) => {
       console.log(`[sly-dom] 🤝 BRIDGE: Layer 1 (Network) successfully upgraded track ${trackId}. External fallback not required.`);
     }
 
-    // Update registry so we don't try to fetch Layer 2 unnecessarily
-    window.slyPreFetchRegistry.register(trackId, 'NATIVE_OK', { 
-      source: 'native', 
-      reason: isRomanizedUpgrade ? 'De-Romanization Success' : 'Network Upgrade Success' 
-    });
+    if (trackId) {
+      window.slyPreFetchRegistry.register(trackId, 'NATIVE_OK', { 
+        source: 'native', 
+        reason: isRomanizedUpgrade ? 'De-Romanization Success' : 'Network Upgrade Success' 
+      });
+    }
 
     // Optional: Store native lines in internal state for UI tagging
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
@@ -184,6 +192,20 @@ function safeSendMessage(msg: Record<string, unknown>, callback?: (r: Record<str
 // --- FETCH TRIGGER ---
 window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false): void {
   if (window.slyInternalState.fetchingForUri === uri && !forceRefresh) return;
+
+  // 0. L0 SESSION CACHE CHECK (Magical Seamless Swap)
+  // If we've already played this song in the current session, the lyrics are in RAM.
+  // Restore them synchronously to eliminate the 2-3 frame async stutter.
+  const l0Hit = window.slyInternalState.l0Cache.get(uri);
+  if (l0Hit && !forceRefresh) {
+    console.log(`[sly-msg] ⚡ L0 CACHE HIT: Seamlessly restoring lyrics for "${title}" [${uri}]`);
+    window.slyInternalState.pendingLyricsData = l0Hit;
+    window.slyInternalState.fetchingForTitle = ''; // Prevents HUD from firing
+    window.slyInternalState.fetchingForUri = uri;
+    if (window.slyCheckNowPlaying) setTimeout(window.slyCheckNowPlaying, 0);
+    return;
+  }
+
   window.slyInternalState.fetchingForTitle = title;
   window.slyInternalState.fetchingForUri = uri;
 
@@ -193,15 +215,29 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
 
   const pinnedMetadata: Record<string, unknown> = { title, artist, albumArtUrl };
 
-  // 1. L0 SESSION CACHE CHECK (Instant)
+  // 1. L0 SESSION CACHE CHECK (Theme/Colors Only)
   const sessionKey = `sly_theme_${albumArtUrl}`;
   const l0Color = albumArtUrl ? sessionStorage.getItem(sessionKey) : null;
   if (l0Color) {
     pinnedMetadata.extractedColor = l0Color;
   }
 
-  // Show initial Status HUD immediately. If L0 hit, background is vibrant from Frame 1.
-  window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
+  // 2. HUD GRACE PERIOD (Seamless Persistent Hits)
+  // Even if not in L0 yet, the persistent cache warming in content.ts might return 
+  // in 1-2 frames. We wait 150ms before showing the HUD to give it a head-start.
+  const hudGracePeriod = 150;
+  setTimeout(() => {
+    // ABORT CONDITIONS:
+    // 1. Track changed during the grace period
+    if (window.slyInternalState.fetchingForUri !== myUri) return;
+    // 2. Lyrics were found (L1/L2 success) during the grace period
+    if ((window.slyInternalState.pendingLyricsData as any)?._slyUri === myUri || 
+        (window.slyInternalState.currentLyrics as any)?._slyUri === myUri) return;
+    // 3. User closed the panel during the grace period
+    if (!window.slyInternalState.fetchingForTitle) return;
+
+    window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
+  }, hudGracePeriod);
 
   // Fast-track color extraction to upgrade the HUD asynchronously
   if (albumArtUrl) {

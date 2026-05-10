@@ -23,8 +23,8 @@ export default defineUnlistedScript(() => {
             });
         },
         async fetchNativeLines(providerLyricsId: string | null, trackId: string, hexGid: string, interceptId: number): Promise<any[] | null> {
-            // Safety: Ensure the ID is a number (handles accidental double-promise passing)
-            const id = await interceptId;
+            // Safety: Ensure the ID is a number
+            const id = interceptId;
             return new Promise((resolve) => {
                 const requestId = Math.random().toString(36).slice(2);
                 const handler = (event: MessageEvent) => {

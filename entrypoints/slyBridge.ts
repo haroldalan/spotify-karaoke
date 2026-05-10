@@ -39,6 +39,7 @@ declare global {
     slyActivateShield: () => void;
     cachedToggleLyrics: ((...args: unknown[]) => unknown) | null;
     slyConfigPool: Set<unknown>;
+    SPOTIFY_CLASSES?: Record<string, string>;
   }
 }
 
@@ -53,6 +54,10 @@ window.slyGetFiber = function (el: Element | null): unknown {
   if (!el) return null;
   const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
   return key ? (el as unknown as Record<string, unknown>)[key] : null;
+};
+
+window.SPOTIFY_CLASSES = {
+  errorContainer: 'hfTlyhd7WCIk9xmP',
 };
 
 window.slyApplyGeneticLock = function (obj: unknown, prop: string, targetVal: unknown): void {
@@ -142,10 +147,13 @@ window.slyOmniscientSearch = function (
   }
 
   window.slyScanSpotifyState = function () {
+    window.cachedToggleLyrics = null;
     const lineNode = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
       .find(el => !el.closest('#lyrics-root-sync'));
-    // We cannot use SPOTIFY_CLASSES here since this runs in the MAIN world. Use structural queries.
-    const failNode = document.querySelector('.hfTlyhd7WCIk9xmP') || 
+    
+    const errorCls = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
+
+    const failNode = document.querySelector('.' + errorCls) || 
                      document.querySelector('.bRNotDNzO2suN6vM') || 
                      Array.from(document.querySelectorAll('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync) > div'))
                        .find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
@@ -196,7 +204,7 @@ window.slyOmniscientSearch = function (
       isDenseTypeface: aggregateState.isDenseTypeface,
       language: aggregateState.language || null,
       isPanelActive: activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true',
-      nativeHasLyrics: window.__sly_native_has_lyrics ?? true,
+      nativeHasLyrics: window.__sly_native_has_lyrics ?? false, // BUG-31.1 Fix: Default to false to avoid standing down on tracks without lyrics
       detectionMethod: inGrace ? 'Grace Period (Default)' : 'Fiber Prop (Definitive)',
       lastBridgeChangeTime: Date.now(),
     };
@@ -478,6 +486,12 @@ window.slyOmniscientSearch = function (
   // --- NATIVE TRIGGER HANDLER ---
   window.addEventListener('message', (event) => {
     const data = event.data as Record<string, any>;
+    
+    if (data?.type === 'SLY_UPDATE_CLASSES') {
+      window.SPOTIFY_CLASSES = { ...window.SPOTIFY_CLASSES, ...data.classes };
+      return;
+    }
+
     if (data?.source === 'SLY_TRIGGER_NATIVE_OPEN') {
       console.log('>>> [sly] Bridge: Requesting Native Panel Open');
 
@@ -485,7 +499,12 @@ window.slyOmniscientSearch = function (
         console.log('>>> [sly] Bridge: Invoking Native toggleLyrics()');
         window.cachedToggleLyrics();
 
-        // Flicker Guard with detailed logging
+        // SMOOTH TRANSITION FIX: Tapered Flicker Guard from 300ms to 100ms.
+        // Before: Waited 300ms to verify if the native toggleLyrics() call succeeded.
+        // After: Waits 100ms.
+        // Why: 300ms is too close to the human reaction time for a double-click; reducing it to 100ms
+        // ensures that if Spotify's UI misses the first call, we catch it faster without
+        // fighting the user's manual attempts to close the panel.
         setTimeout(() => {
           const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
           const isPressed = activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true';
@@ -494,7 +513,7 @@ window.slyOmniscientSearch = function (
             console.warn('>>> [sly-audit] 🚨 Flicker Guard: Button state is not pressed. Re-invoking native toggleLyrics().');
             (window.cachedToggleLyrics as () => void)();
           }
-        }, 300);
+        }, 100);
       } else {
         console.error('>>> [sly] Bridge: toggleLyrics not found. Safe-routing to /lyrics');
         history.pushState(null, '', '/lyrics');

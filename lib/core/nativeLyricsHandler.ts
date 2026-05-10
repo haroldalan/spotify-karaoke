@@ -54,13 +54,12 @@ export async function handleNativeLyrics(
 
   state.pendingNativeLines.delete(trackId);
 
-  state.cache.original = nativeLines;
-
-  state.cache.processed.clear();
-
   onCancelInflight();
 
   await loadSongCache(state.songKey, state.cache, state.runtimeCache);
+
+  state.cache.original = nativeLines;
+  state.cache.processed.clear();
 
   if (state.mode === 'original') {
     getLyricsLines().forEach((el, i) => {

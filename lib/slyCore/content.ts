@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { slyAdManager } from './adManager';
-import { getLyricsLines } from '../dom/domQueries';
+import { getLyricsLines, getLyricsViewRoot } from '../dom/domQueries';
 
 declare global {
   interface Window {
@@ -23,8 +23,27 @@ document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles').forEach(node 
 // Note: Internal extension state is now managed by window.slyInternalState in modules/state-manager.js
 window.slyCheckNowPlaying = slyCheckNowPlaying;
 
-window.addEventListener('sly_state_update', () => {
+window.addEventListener('sly_state_update', (e) => {
   window.slyCheckNowPlaying();
+
+  // SLY FIX (Magical Seamless Swap): Queue Pre-warming.
+  // Proactively fetch lyrics for the next 2 songs in the queue so they are in L0
+  // before the user even clicks "Next".
+  const queue = (e as CustomEvent).detail?.queue as any[];
+  if (Array.isArray(queue) && queue.length > 0) {
+    const nextTracks = queue.slice(0, 2);
+    nextTracks.forEach(track => {
+      const { title, artist, albumArtUrl, id, uri } = track;
+      const fullUri = uri || `spotify:track:${id}`;
+      // Only pre-fetch if not already in L0 or currently fetching
+      if (!window.slyInternalState.l0Cache.has(fullUri) && window.slyInternalState.fetchingForUri !== fullUri) {
+        // console.log(`[sly-queue] Pre-warming next track: ${title} [${fullUri}]`);
+        if (window.slyTriggerLyricsFetch) {
+          window.slyTriggerLyricsFetch(title, artist, albumArtUrl, fullUri);
+        }
+      }
+    });
+  }
 });
 
 // BUG-31 Fix: Listen for results from the bridge (Extension world)
@@ -44,6 +63,13 @@ window.addEventListener('message', (event) => {
 
     if (result?.found) {
        console.log(`[sly] 🧠 Proactive Cache Hit: Native=${result.nativeStatus || 'N/A'}, Custom=${result.prefetchState || 'N/A'}`);
+       
+       // SLY FIX: Hydrate L0 session cache from the persistent result.
+       // This allows the next "skip" to this song to be a synchronous 0ms swap.
+       if (result.data) {
+         window.slyInternalState.l0Cache.set(uri, result.data);
+       }
+
        const trackId = uri.split(':').pop();
         if (trackId) {
           const targetState = (result.nativeStatus === 'SYNCED' || result.nativeStatus === 'NATIVE_OK')
@@ -63,8 +89,8 @@ window.addEventListener('message', (event) => {
 });
 
 // Note: Pipeline B's lifecycleController.ts onSongChange detects track changes reactively
-// via aria-label mutation and dispatches 'sly:song_change'. We no longer listen to it
-// here to avoid double-reset races; our own 500ms poll (Step 1.5) handles it reliably.
+// via aria-label mutation and dispatches 'sly:song_change'. Our own 500ms poll (Step 1.5)
+// and the 'sly_state_update' bridge listener (line 26) ensure redundant coverage.
 
 // Pipeline B's syncSetup() dispatches this when native lyrics are in the DOM.
 // Triggers the injection gate immediately for the common case where the fetch
@@ -83,43 +109,52 @@ document.addEventListener('sly:lyrics_injected', () => {
 // its data-active="true" attribute. Handles panel close cleanup immediately instead
 // of waiting up to 500ms for the poll.
 document.addEventListener('sly:panel_close', () => {
-  // Clear any failed states or manual overrides on panel close so users can recover
-  if (window.slyInternalState.currentLyrics) {
-    const cl = window.slyInternalState.currentLyrics as Record<string, unknown>;
-    cl.failed = false;
-  }
   
-  // BUG-38 Fix: Always clear currentLyrics and fetching status to prevent persistence-loop Blank Panels
-  // if a takeover was aborted before the #lyrics-root-sync was injected.
-  window.slyInternalState.currentLyrics = null;
+  // BUG-38 Fix (REGRESSION FIX): We no longer clear currentLyrics here.
+  // Before: Clearing currentLyrics on panel close broke the "Recovery" feature, 
+  // forcing a re-fetch and causing synced lyrics to revert to unsynced on reopen.
+  // After: currentLyrics is preserved; only pending metadata is cleared.
   window.slyInternalState.forceFallback = false;
   // BUG-38 Fix: Only clear pendingLyricsData on panel close to prevent stale injections.
   // We PRESERVE fetchingForTitle/Uri and isFetchingHUD so that reopening the panel
   // can "continue" an in-flight fetch visually (HUD recovery).
   window.slyInternalState.pendingLyricsData = null;
 
-  // SLY FIX (BUG-C9): Dispatch release BEFORE removing root so Pipeline B can rescue the pill.
-  document.dispatchEvent(new CustomEvent('sly:release'));
+  // SLY FIX (BUG-36): Always clear the status HUD on panel close to prevent orphaned overlays.
+  if (window.slyClearStatus) window.slyClearStatus();
 
   const root = document.getElementById('lyrics-root-sync');
   if (root) {
     console.log('[sly-lifecycle] 🧹 Cleaning up injected #lyrics-root-sync and restoring native UI.');
-    if (window.slyClearStatus) window.slyClearStatus();
+    
+    // SLY FIX (BUG-35): Manually rescue the mode pill to document.body before removing the root.
+    // This prevents the pill from being destroyed while allowing us to dispatch 'sly:release'
+    // AFTER the DOM has settled, avoiding stale layout reads in Pipeline B.
+    const pill = document.getElementById('sly-mode-pill');
+    if (pill) document.body.appendChild(pill);
+
     root.remove();
   }
+
+  // SLY FIX (BUG-35): Dispatch release AFTER removing root so listeners see the final DOM state.
+  document.dispatchEvent(new CustomEvent('sly:release'));
 
   const syncBtn = document.getElementById('sly-sync-button');
   if (syncBtn) syncBtn.remove();
   
-  const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
+  const main = getLyricsViewRoot() as HTMLElement | null;
   if (main) { main.classList.remove('sly-active'); main.style.display = ''; }
   
-  document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`)
+  const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
+  const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';
+  document.querySelectorAll(`.${errCls1}, .${errCls2}`)
     .forEach(n => ((n as HTMLElement).style.display = ''));
-  const nativeContainer = document.querySelector(
-    `main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
-  ) as HTMLElement | null;
-  if (nativeContainer) nativeContainer.style.display = '';
+
+  const nativeContainerClass = window.SPOTIFY_CLASSES?.container;
+  if (main && nativeContainerClass) {
+    const nativeContainer = main.querySelector(`.${nativeContainerClass}:not(#lyrics-root-sync)`) as HTMLElement | null;
+    if (nativeContainer) nativeContainer.style.display = '';
+  }
 });
 
 // slyCore records the incoming lyrics object when Pipeline B signals injection.
@@ -139,12 +174,15 @@ document.addEventListener('sly:takeover', () => {
   window.slyInternalState.fetchingForTitle = '';
 });
 
-let checkTimeout: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Checks the current playback state and triggers lyrics injection if necessary.
+ * SMOOTH TRANSITION FIX: Removed 50ms debounce.
+ * Before: Used a setTimeout(() => ..., 50) to aggregate multiple state updates.
+ * After: Calls slyCheckNowPlayingInternal() synchronously.
+ * Why: To eliminate the ~3-frame delay when opening the lyrics panel, reducing visible "pop-in" flicker.
+ */
 function slyCheckNowPlaying(): void {
-  if (checkTimeout) clearTimeout(checkTimeout);
-  checkTimeout = setTimeout(() => {
-    slyCheckNowPlayingInternal();
-  }, 50);
+  slyCheckNowPlayingInternal();
 }
 
 function slyCheckNowPlayingInternal(): void {
@@ -166,10 +204,11 @@ function slyCheckNowPlayingInternal(): void {
 
       // BUG-31 Fix: browser.runtime is undefined in MAIN world in Chrome.
       // Route via window.postMessage to slyBridge.ts (Extension world).
+      // SLY FIX (BUG-38): Use window.location.origin instead of '*' for better security.
       window.postMessage({ 
         type: 'SLY_CHECK_CACHE', 
         payload: { title, artist, uri: fullUri } 
-      }, '*');
+      }, window.location.origin);
     }
 
     // 0. UNIVERSAL ORPHAN GUARD

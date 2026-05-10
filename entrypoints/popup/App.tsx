@@ -11,10 +11,10 @@ export default function App() {
   const [isInitialHydrating, setIsInitialHydrating] = useState(true);
 
   // Synchronous initialization from localStorage (Zero-latency First Paint)
-  const [targetLang, setTargetLang] = useState('en');
-  const [dualLyrics, setDualLyrics] = useState(true);
-  const [showPill, setShowPill] = useState(true);
-  const [preferredMode, setPreferredMode] = useState<string>('original');
+  const [targetLang, setTargetLang] = useState(localStorage.getItem('sly_targetLang') || 'en');
+  const [dualLyrics, setDualLyrics] = useState(localStorage.getItem('sly_dualLyrics') !== 'false');
+  const [showPill, setShowPill] = useState(localStorage.getItem('sly_showPill') !== 'false');
+  const [preferredMode, setPreferredMode] = useState<string>(localStorage.getItem('sly_preferredMode') || 'original');
 
   const [syncInfo, setSyncInfo] = useState('Calculating...');
   const [localInfo, setLocalInfo] = useState('Calculating...');
@@ -28,6 +28,7 @@ export default function App() {
       if (!isMounted) return;
       if (data.targetLang) {
         setTargetLang(data.targetLang as string);
+        localStorage.setItem('sly_targetLang', data.targetLang as string);
       } else {
         // First install intuition: Auto-detect browser language
         const browserLocale = navigator.language.split('-')[0];
@@ -36,22 +37,28 @@ export default function App() {
         const finalDefault = matchedLang?.code || 'en';
 
         setTargetLang(finalDefault);
+        localStorage.setItem('sly_targetLang', finalDefault);
         browser.storage.sync.set({ targetLang: finalDefault });
       }
       if (data.preferredMode) {
         setPreferredMode(data.preferredMode as string);
+        localStorage.setItem('sly_preferredMode', data.preferredMode as string);
       }
 
       if (data.dualLyrics !== undefined) {
         setDualLyrics(data.dualLyrics as boolean);
+        localStorage.setItem('sly_dualLyrics', String(data.dualLyrics));
       } else {
         browser.storage.sync.set({ dualLyrics: true });
+        localStorage.setItem('sly_dualLyrics', 'true');
       }
 
       if (data.showPill !== undefined) {
         setShowPill(data.showPill as boolean);
+        localStorage.setItem('sly_showPill', String(data.showPill));
       } else {
         browser.storage.sync.set({ showPill: true });
+        localStorage.setItem('sly_showPill', 'true');
       }
 
       // Briefly keep transitions disabled to allow the state update to 'snap' instantly
@@ -118,11 +125,13 @@ export default function App() {
   async function handleLangChange(lang: string) {
     const prev = targetLang;
     setTargetLang(lang);
+    localStorage.setItem('sly_targetLang', lang);
     try {
       await browser.storage.sync.set({ targetLang: lang });
       flashSaved();
     } catch {
       setTargetLang(prev);
+      localStorage.setItem('sly_targetLang', prev);
     }
   }
 
@@ -130,11 +139,13 @@ export default function App() {
     const checked = (e.target as HTMLInputElement).checked;
     const prev = dualLyrics;
     setDualLyrics(checked);
+    localStorage.setItem('sly_dualLyrics', String(checked));
     try {
       await browser.storage.sync.set({ dualLyrics: checked });
       flashSaved();
     } catch {
       setDualLyrics(prev);
+      localStorage.setItem('sly_dualLyrics', String(prev));
     }
   }
 
@@ -142,21 +153,25 @@ export default function App() {
     const checked = (e.target as HTMLInputElement).checked;
     const prev = showPill;
     setShowPill(checked);
+    localStorage.setItem('sly_showPill', String(checked));
     try {
       await browser.storage.sync.set({ showPill: checked });
       flashSaved();
     } catch {
       setShowPill(prev);
+      localStorage.setItem('sly_showPill', String(prev));
     }
   }
 
   async function handleModeChange(mode: string) {
     const prev = preferredMode;
     setPreferredMode(mode);
+    localStorage.setItem('sly_preferredMode', mode);
     try {
       await browser.storage.sync.set({ preferredMode: mode });
     } catch {
       setPreferredMode(prev);
+      localStorage.setItem('sly_preferredMode', prev);
     }
   }
 
