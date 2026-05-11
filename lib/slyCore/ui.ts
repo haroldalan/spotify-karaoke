@@ -82,14 +82,16 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // 2. DOM Cleanup
   if (window.slyClearStatus) window.slyClearStatus();
 
-  // Notify Pipeline B that the custom container is about to be gone. 
-  // It will "rescue" the mode pill to document.body before we destroy the root.
-  document.dispatchEvent(new CustomEvent('sly:release'));
-
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
   // UNLESS we have an L0 hit, in which case we preserve them for a seamless swap.
   const l0Hit = window.slyInternalState.l0Cache.get(uri);
+
+  // Notify Pipeline B that the custom container is about to be gone. 
+  // It will "rescue" the mode pill to document.body before we destroy the root.
+  // SLY FIX: If we have an L0 hit, don't release/rescue the pill yet — Song B 
+  // will take over the existing pill synchronously, avoiding a hide/show flash.
   if (!l0Hit) {
+    document.dispatchEvent(new CustomEvent('sly:release'));
     document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
     window.slyInternalState.customRoot = null;
   }

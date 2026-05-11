@@ -58,23 +58,15 @@ document.addEventListener('pointerdown', (e: Event) => {
 
     // Only hijack if Spotify has no lyrics provider, or if the button is in its default state
     if (provider === null || label === 'Lyrics') {
-      // If the panel is already open (active), let Spotify handle the close naturally
-      if (isPressed) {
-        console.log('[sly-audit] Button is already pressed. Letting Spotify handle close naturally.');
-        return;
-      }
-
-      console.log(`[sly-audit] 🚀 Hijacking Pointerdown to request native open.`);
-
-      // Post a message to the Main World (bridge.js) to trigger the native toggle
-      window.postMessage({ source: 'SLY_TRIGGER_NATIVE_OPEN' }, '*');
-
-      // Prevent the default React event which might lead to a blank page or error boundary
+      // SLY FIX: Even if the button is already pressed, we MUST hijack the event.
+      // Letting Spotify handle the "close" naturally is what triggers the New Tab Page redirect
+      // because Spotify's native DOM click handler crashes when our Genetic Lock is active.
       e.preventDefault();
       e.stopPropagation();
 
-      // Trigger a navigation event to force our decision engine to re-evaluate immediately
-      window.dispatchEvent(new Event('sly_nav_change'));
+      const intent = isPressed ? 'SLY_TRIGGER_NATIVE_CLOSE' : 'SLY_TRIGGER_NATIVE_OPEN';
+      console.log(`[sly-audit] Hijacking event to prevent Spotify navigation hijack. Intent: ${intent}`);
+      window.postMessage({ source: intent }, '*');
     } else {
       console.log('[sly-audit] Bypassing hijack because provider is not null and label is not "Lyrics".');
     }
@@ -140,12 +132,12 @@ function initButtonFinder(): void {
     document.addEventListener('DOMContentLoaded', initButtonFinder);
     return;
   }
-  const target = document.querySelector('.main-nowPlayingBar-container') || 
-                 document.querySelector('[data-testid="now-playing-bar"]') || 
-                 document.querySelector('.Root__now-playing-bar') ||
-                 document.querySelector('.Root') ||
-                 document.body;
-  
+  const target = document.querySelector('.main-nowPlayingBar-container') ||
+    document.querySelector('[data-testid="now-playing-bar"]') ||
+    document.querySelector('.Root__now-playing-bar') ||
+    document.querySelector('.Root') ||
+    document.body;
+
   // Performance: Only use subtree: true if we have a narrow target. 
   // If we fall back to .Root or body, we use a less aggressive observation.
   const isBroadTarget = target === document.body || target?.classList.contains('Root');
@@ -166,7 +158,7 @@ const errorObserver = new MutationObserver((mutations) => {
           const el = node as HTMLElement;
           const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
           const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';
-          
+
           const match1 = el.classList.contains(errCls1) || el.querySelector('.' + errCls1);
           const match2 = el.classList.contains(errCls2) || el.querySelector('.' + errCls2);
           const text = (el.textContent || '').trim().toLowerCase();

@@ -198,7 +198,26 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   // Restore them synchronously to eliminate the 2-3 frame async stutter.
   const l0Hit = window.slyInternalState.l0Cache.get(uri);
   if (l0Hit && !forceRefresh) {
-    console.log(`[sly-msg] ⚡ L0 CACHE HIT: Seamlessly restoring lyrics for "${title}" [${uri}]`);
+    console.log(`[sly-msg] ⚡ L0 CACHE HIT: Seamlessly restoring state for "${title}" [${uri}]`);
+    
+    if (l0Hit.failed) {
+      window.slyInternalState.currentLyrics = { failed: true, _slyUri: uri, extractedColor: l0Hit.extractedColor };
+      window.slyInternalState.pendingLyricsData = null; // SLY FIX: Clear pending to prevent stale takeover
+      window.slyInternalState.fetchingForTitle = '';
+      window.slyInternalState.fetchingForUri = uri;
+      
+      const btn = document.querySelector('[data-testid="lyrics-button"]');
+      if (btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true') {
+        window.slyShowStatus(
+          "Even Spotify Karaoke couldn't find the lyrics for this song.",
+          'You can help the community by adding them to the open-source database.',
+          true,
+          { title, artist, albumArtUrl, extractedColor: l0Hit.extractedColor }
+        );
+      }
+      return;
+    }
+
     window.slyInternalState.pendingLyricsData = l0Hit;
     window.slyInternalState.fetchingForTitle = ''; // Prevents HUD from firing
     window.slyInternalState.fetchingForUri = uri;
@@ -331,12 +350,22 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       const mode = (r.data as Record<string, unknown>)?.isSynced ? 'synced (LRC)' : 'unsynced (plain)';
       console.log(`[sly] Fetch succeeded for "${title}" — got ${mode} lyrics.`);
 
+      // SLY FIX: Populate L0 Session Cache for instant synchronous restoration on next play.
+      if (uri) {
+        (r.data as any)._slyUri = uri; // Ensure URI is stamped for L0 consistency
+        window.slyInternalState.l0Cache.set(uri, r.data);
+      }
+
       // We DON'T clear status here; slyInjectLyrics will handle it for a smooth transition
       window.slyInternalState.pendingLyricsData = r.data as Record<string, unknown>;
       // Kick injection immediately if the panel is already open
       setTimeout(window.slyCheckNowPlaying, 0);
     } else {
       console.warn(`[sly] Fetch failed for "${title}" — no lyrics found.`);
+      
+      // SLY FIX: Populate L0 Session Cache with failure state.
+      if (uri) window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: (r?.data as any)?.extractedColor });
+
       window.slyInternalState.fetchingForTitle = '';
       window.slyInternalState.fetchingForUri = '';
 

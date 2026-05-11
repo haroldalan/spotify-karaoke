@@ -90,11 +90,11 @@ window.slyOmniscientSearch = function (
 
   const f = fiber as Record<string, unknown>;
   const props = f.memoizedProps as Record<string, unknown> | undefined;
-  if (props) {
-    const signatures = ['toggleLyrics', 'onToggle', 'onClick'];
-    for (const sig of signatures) {
-      if (typeof props[sig] === 'function') return props[sig] as (...args: unknown[]) => unknown;
-    }
+  
+  // SLY FIX: Actually use the targetKey instead of a hardcoded list.
+  // This prevents trapping generic bar-level onClick handlers that cause redirects.
+  if (props && typeof props[targetKey] === 'function') {
+    return props[targetKey] as (...args: unknown[]) => unknown;
   }
 
   if (f.dependencies) {
@@ -147,7 +147,12 @@ window.slyOmniscientSearch = function (
   }
 
   window.slyScanSpotifyState = function () {
-    window.cachedToggleLyrics = null;
+    // SLY FIX: Only reset cachedToggleLyrics if it's currently orphaned (no button in DOM).
+    // This prevents a race where the scanner wipes a handler just found by the shield.
+    if (!document.querySelector('[data-testid="lyrics-button"]')) {
+      window.cachedToggleLyrics = null;
+    }
+
     const lineNode = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
       .find(el => !el.closest('#lyrics-root-sync'));
     
@@ -267,7 +272,7 @@ window.slyOmniscientSearch = function (
   };
 
   // Scanner interval merged into shield loop (Section 3)
-})();
+  })();
 
 /* ============================================================
    SECTION 3 — Shield
@@ -396,7 +401,17 @@ window.slyOmniscientSearch = function (
                 }
               }
 
+              // SLY PATH-AWARENESS FIX: 
+              // We should only enforce "Active" locks if the user is actually on the lyrics route.
+              // If we lock 'isActive: true' while navigating away, Spotify's router crashes.
+              const isPathLyrics = window.location.pathname.startsWith('/lyrics');
+
               // Apply the Genetic Lock to this props object
+              if (isPathLyrics) {
+                window.slyApplyGeneticLock(p, 'isActive', true);
+                window.slyApplyGeneticLock(p, 'aria-pressed', true);
+              }
+              
               window.slyApplyGeneticLock(p, 'disabled', false);
               window.slyApplyGeneticLock(p, 'isEnabled', true);
               window.slyApplyGeneticLock(p, 'lyricsHub', true);
@@ -405,6 +420,8 @@ window.slyOmniscientSearch = function (
             }
 
             if (!foundInWalk) {
+              // SLY FIX: Added 'onToggle' to priority signatures based on diag2.txt.
+              // We also prioritize toggleLyrics/onToggle over onClick for better precision.
               const signatures = ['toggleLyrics', 'onToggle', 'onClick'];
               for (const sig of signatures) {
                 if (typeof p[sig] === 'function') {
@@ -429,6 +446,7 @@ window.slyOmniscientSearch = function (
         // Omniscient Discovery (Backup)
         if (!foundInWalk && navBar) {
           const barFiber = window.slyGetFiber(navBar);
+          // SLY FIX: Prioritize 'toggleLyrics' and 'onToggle' over generic 'onClick'
           const signatures = ['toggleLyrics', 'onToggle'];
           for (const sig of signatures) {
             const found = window.slyOmniscientSearch(barFiber, sig);
@@ -492,6 +510,76 @@ window.slyOmniscientSearch = function (
       return;
     }
 
+    if (data?.source === 'SLY_TRIGGER_NATIVE_CLOSE') {
+      console.log('>>> [sly] Bridge: Requesting Safe Native Panel Close');
+      
+      // 1. RELEASING GENETIC LOCKS
+      // We must stop the background sentries immediately. If they continue to 
+      // lock "isActive: true" while we are navigating away, Spotify's router 
+      // will throw a fatal state-panic error and redirect to the New Tab Page.
+      if (window.slyScannerInterval) clearInterval(window.slyScannerInterval);
+      if (window.slyShieldInterval) clearInterval(window.slyShieldInterval);
+      
+      // 2. PROP REVERSION
+      // Forcefully set properties back to 'false' so the router sees a consistent state.
+      const btn = document.querySelector('[data-testid="lyrics-button"]');
+      if (btn) {
+        const fiber = window.slyGetFiber(btn);
+        let curr = fiber;
+        while (curr) {
+          const props = (curr as any).memoizedProps;
+          if (props) {
+            if ('isActive' in props) props.isActive = false;
+            if ('aria-pressed' in props) props['aria-pressed'] = false;
+          }
+          curr = (curr as any).return;
+        }
+      }
+
+      // 3. SAFE NAVIGATION
+      // We use history.back() to return to the Artist/Album view smoothly.
+      console.log('>>> [sly] Bridge: Safe Release complete. Executing history.back().');
+      history.back();
+      return;
+    }
+
+    if (data?.source === 'SLY_TRIGGER_NATIVE_CLOSE') {
+      console.log('>>> [sly] Bridge: Requesting Safe Native Panel Close');
+      
+      // 1. RELEASING GENETIC LOCKS
+      // We must stop the background sentries immediately. If they continue to 
+      // lock "isActive: true" while we are navigating away, Spotify's router 
+      // will throw a fatal state-panic error and redirect to the New Tab Page.
+      if (window.slyScannerInterval) clearInterval(window.slyScannerInterval);
+      if (window.slyShieldInterval) clearInterval(window.slyShieldInterval);
+      window.slyScannerInterval = null;
+      window.slyShieldInterval = null;
+      
+      // 2. PROP REVERSION
+      // Forcefully set properties back to 'false' so the router sees a consistent state.
+      // This is crucial because a 'getter' lock persists until the object is destroyed.
+      const btn = document.querySelector('[data-testid="lyrics-button"]');
+      if (btn) {
+        const fiber = window.slyGetFiber(btn);
+        let curr = fiber as any;
+        while (curr) {
+          const props = curr.memoizedProps;
+          if (props) {
+            if ('isActive' in props) props.isActive = false;
+            if ('aria-pressed' in props) props['aria-pressed'] = false;
+          }
+          curr = curr.return;
+        }
+      }
+
+      // 3. SAFE NAVIGATION
+      // We use history.back() to return to the Artist/Album view smoothly.
+      // This replicates Spotify's native 'Close' behavior exactly.
+      console.log('>>> [sly] Bridge: Safe Release complete. Executing history.back().');
+      history.back();
+      return;
+    }
+
     if (data?.source === 'SLY_TRIGGER_NATIVE_OPEN') {
       console.log('>>> [sly] Bridge: Requesting Native Panel Open');
 
@@ -515,6 +603,13 @@ window.slyOmniscientSearch = function (
           }
         }, 100);
       } else {
+        // SLY FIX: If we are already on /lyrics, DO NOT pushState again.
+        // This prevents the weird NTP redirect if Spotify's router is in a fragile state.
+        if (window.location.pathname === '/lyrics') {
+          console.warn('>>> [sly] Bridge: toggleLyrics not found, but already on /lyrics. Aborting fallback navigation.');
+          return;
+        }
+
         console.error('>>> [sly] Bridge: toggleLyrics not found. Safe-routing to /lyrics');
         history.pushState(null, '', '/lyrics');
         window.dispatchEvent(new PopStateEvent('popstate'));

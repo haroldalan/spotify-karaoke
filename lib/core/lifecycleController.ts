@@ -701,6 +701,7 @@ export function setupSlyBridge(
       ) as HTMLElement | null;
       if (root) {
         sly.slyMirrorNativeTheme?.(root, lyricsObj, nativeRef);
+        syncPill('PIPELINE_A'); // SLY FIX: Relocate pill synchronously to eliminate "pop-in" glitch
       }
 
       // Wait for a frame to ensure React has finished any immediate DOM shuffling
@@ -806,6 +807,10 @@ export function setupSlyBridge(
     // container and cannot usefully fire while slyCore owns the lyrics DOM.
     lyricsObserver?.disconnect();
     lyricsObserver = null;
+
+    // SLY FIX: Relocate pill SYNCHRONOUSLY before the async cache load to eliminate
+    // the "glitch" where the pill is rescued to body and hidden during track switch.
+    syncPill('PIPELINE_A');
 
     // Load any previously cached translations before re-applying mode.
     const takeoverKey = store.songKey;

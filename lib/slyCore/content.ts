@@ -66,8 +66,13 @@ window.addEventListener('message', (event) => {
        
        // SLY FIX: Hydrate L0 session cache from the persistent result.
        // This allows the next "skip" to this song to be a synchronous 0ms swap.
-       if (result.data) {
+       // We now cache failures as well to eliminate the async flash.
+       if (result.ok && result.data) {
+         result.data._slyUri = uri; // Ensure URI is stamped for L0 consistency
          window.slyInternalState.l0Cache.set(uri, result.data);
+       } else {
+         // Even if result.data exists (e.g. for color), if ok is false, it's a failure.
+         window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: result.data?.extractedColor || result.extractedColor });
        }
 
        const trackId = uri.split(':').pop();
@@ -266,8 +271,12 @@ function slyCheckNowPlayingInternal(): void {
         // This covers backwards skips: fullUri is "new" vs lastUri but currentLyrics
         // may already be correct for it from a prior play in this session.
         const cl = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
-        if (cl?.lines && cl._slyUri === fullUri) {
-          // Already correct — just sync lastUri forward so this branch doesn't re-evaluate
+        // SLY FIX: Recognize both successful (lines) and failed states as valid loaded states.
+        // Also ensure _slyUri matches to prevent stale restores.
+        const isAlreadyCorrect = cl && (cl.lines || cl.failed) && cl._slyUri === fullUri;
+
+        if (isAlreadyCorrect) {
+          // Already correct — just sync lastUri forward
           window.slyInternalState.lastUri = fullUri;
           window.slyInternalState.panelOpenTime = 0;
         } else {
@@ -430,7 +439,7 @@ function slyCheckNowPlayingInternal(): void {
 
       console.log(`[sly] Taking over! | Takeover Reason: ${detection.lyricsState}`);
       // Safety: Only inject if the data actually has content.
-      const hasContent = !!(data.plainLyrics || data.syncedLyrics);
+      const hasContent = !!(data.plainLyrics || data.syncedLyrics) && (data.ok !== false);
 
       if (hasContent) {
         const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
@@ -443,16 +452,22 @@ function slyCheckNowPlayingInternal(): void {
           return;
         }
 
-        // Hand off execution to Pipeline B. Clearing of pendingLyricsData is now
-        // done immediately before dispatch to prevent double-injection races.
-        const data = window.slyInternalState.pendingLyricsData;
+        window.slyInternalState.currentLyrics = data;
         window.slyInternalState.pendingLyricsData = null;
+        window.slyInternalState.fetchingForTitle = '';
+        window.slyInternalState.fetchingForUri = '';
+        if (window.slyClearStatus) window.slyClearStatus();
 
+        console.log(`[sly] Takeover complete. Current Lyrics:`, window.slyInternalState.currentLyrics);
+        
         document.dispatchEvent(new CustomEvent('sly:inject', {
           detail: { lyricsObj: data },
         }));
       } else {
-        // If data is invalid (no content), clear it anyway to avoid looping
+        // SLY FIX: If we "took over" but have no content, we must mark as failed 
+        // to prevent the Decision Engine from re-triggering infinitely.
+        console.warn('[sly] Taking over but no content found. Marking as failed.');
+        window.slyInternalState.currentLyrics = { failed: true, _slyUri: window.slyInternalState.fetchingForUri };
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri = '';
