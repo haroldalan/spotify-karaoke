@@ -3,9 +3,16 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [3.1.2] — 2026-05-10
+## [3.1.2] — 2026-05-11
 
 ### Fixed
+- **Premature Shimmer Suppression**: Resolved a visual annoyance where skipping a song caused the *outgoing* track's lyrics to shimmer for a split second. The loading state is now decoupled; the UI pill enters a loading state immediately, while the lyrics shimmer is deferred until the new track's native text is visible in the DOM.
+- **Takeover Stutter (Skip Race Condition)**: Resolved a race condition where skipping tracks caused a momentary flash of native unsynced lyrics before the extension's synced lyrics could load. Implemented synchronous DOM-based track ID extraction in the song-change handler to eliminate the 600ms bridge-scanner latency.
+- **L0 Failure Caching**: Extended the session cache to store explicit "failed" lyric results. Repeated visits to tracks where lyrics are unavailable (even after fallbacks) are now instantaneous and flicker-free, skipping the fetch cycle entirely.
+- **Infinite Loop Remediation**: Introduced a dedicated `{ failed: true }` internal state to explicitly mark tracks with missing lyrics, preventing the Decision Engine from re-triggering the fetch cycle infinitely on repeated visits.
+- **Seamless Swap Optimization (Pill Glitch)**: Eliminated the "pop-in" effect of the mode selector pill during track swaps. The pill is now preserved in-place during seamless swaps, avoiding the redundant rescue-to-body cycle that caused it to briefly disappear and reappear.
+- **Synchronous Injection Guarding**: Hardened the injection pipeline with additional synchronous checks to ensure UI elements are correctly parented and visible before the first animation frame, preventing "ghost" lyrics or missing controls during fast navigation.
+- **Renderer Watchdog**: Implemented a self-termination safety net in the synced lyrics renderer. The sync loop now automatically shuts down after a 300-frame timeout if it cannot find its target DOM elements, preventing residual CPU drain during rapid track changes or background transitions.
 - **Malayalam Processing Restoration**: Resolved a critical bug where certain Malayalam lines (especially musical notation) were skipped or misaligned. Restored the robust "translation-as-fallback" logic from v3.0.5 and increased chunk context to prevent Google Translate misidentification.
 - **Romanization Normalization**: Standardized all romanized lyrics (Hindi, Chinese, Japanese, etc.) to "texting style" ASCII by implementing a global diacritic stripper. All macrons, tone marks, and dots are now removed for better readability.
 - **Instant Theme Architecture**: Eliminated the "one-second pop" in background colors for fetching and failure screens. Introduced a dual-layer theme cache (L0 Session + L2 Persistent) that allows vibrant backgrounds to appear synchronously from the very first frame for previously encountered tracks.

@@ -3,7 +3,7 @@ import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
 import { loadSongCache, saveSongCache } from './lyricsCache';
-import { injectControls, syncButtonStates, setLoadingState, CONTROLS_ID } from '../dom/lyricsControls';
+import { injectControls, syncButtonStates, setLoadingState, setButtonsDisabled, CONTROLS_ID } from '../dom/lyricsControls';
 import { createLyricsObserver } from '../dom/lyricsObserver';
 import { createSyncedLyricsRenderer, type LrcLine } from './syncedLyricsRenderer';
 import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
@@ -511,13 +511,21 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       (window as any).slyInternalState.forceFallback = false;
     }
 
-    // SLY FIX (Magical Seamless Swap): If we have an L0 session cache hit, 
+    // SLY FIX (Magical Seamless Swap): If we have a VALID L0 takeover hit, 
     // do NOT destroy the takeover container or remove 'sly-active'.
-    // This allows the new lyrics to be injected into the existing container
-    // without a visible flash or HUD popup.
-    const l0Hit = (window as any).slyInternalState?.l0Cache?.get(newKey);
+    // We lookup by URI (consistent with ui.ts) instead of the songKey string.
+    
+    // SLY FIX: Synchronously extract the track ID from the DOM to eliminate the 
+    // 0-600ms race condition where window.spotifyState still holds the PREVIOUS song's URI.
+    const currentTrackId = getNowPlayingTrackId();
+    const uri = currentTrackId ? `spotify:track:${currentTrackId}` : (window as any).spotifyState?.track?.uri;
+    const l0Hit = uri ? (window as any).slyInternalState?.l0Cache?.get(uri) : null;
+    const trackId = currentTrackId || uri?.split(':').pop();
+    const isNativeSynced = trackId ? (window as any).slyPreFetchRegistry?.getState(trackId)?.nativeStatus === 'SYNCED' : false;
 
-    if (!l0Hit) {
+    const isTakeoverHit = !!(l0Hit && !l0Hit.failed && !isNativeSynced && (l0Hit.lines || l0Hit.syncedLyrics || l0Hit.plainLyrics));
+
+    if (!isTakeoverHit) {
       // Synchronously destroy the custom takeover container instantly on track skip
       // to eliminate the staggered unmount/delay for Takeover tracks.
       document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
@@ -575,7 +583,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     }
 
     if (!hasHotCache && opts.store.preferredMode !== 'original') {
-      setLoadingState(true);
+      setButtonsDisabled(true);
     }
 
     const controls = document.getElementById(CONTROLS_ID);
@@ -597,7 +605,6 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // Notify slyCore of the track change reactively so it no longer needs to
     // detect this in its 500ms poll. URI is sourced from window.spotifyState
     // which slyCore's scanner already populates — no new coupling.
-    const uri = (window as any).spotifyState?.track?.uri as string | undefined;
     document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri } }));
   }
 
@@ -704,9 +711,11 @@ export function setupSlyBridge(
         syncPill('PIPELINE_A'); // SLY FIX: Relocate pill synchronously to eliminate "pop-in" glitch
       }
 
-      // Wait for a frame to ensure React has finished any immediate DOM shuffling
-      // from the track transition before we start our own injection.
-      await new Promise(r => requestAnimationFrame(r));
+      // Seamless Swap Optimization: If we are already active and have a root,
+      // skip the frame-yield to achieve 0ms transition.
+      if (!document.getElementById('lyrics-root-sync')) {
+        await new Promise(r => requestAnimationFrame(r));
+      }
 
       // BUG-5 Fix: If the panel was closed during the async yield, abort injection.
       // SLY FIX (REGRESSION): We must check panel state SYNCHRONOUSLY here.

@@ -52,11 +52,15 @@ export function syncButtonStates(mode: LyricsMode): void {
     .forEach((btn) => btn.classList.toggle('active', btn.dataset.mode === mode));
 }
 
-export function setLoadingState(loading: boolean): void {
+export function setButtonsDisabled(disabled: boolean): void {
   document
     .getElementById(CONTROLS_ID)
     ?.querySelectorAll<HTMLButtonElement>('.sly-lyrics-btn')
-    .forEach((b) => (b.disabled = loading));
+    .forEach((b) => (b.disabled = disabled));
+}
+
+export function setLoadingState(loading: boolean): void {
+  setButtonsDisabled(loading);
     
   const getTarget = () => {
     const customRoot = document.getElementById('lyrics-root-sync');

@@ -85,19 +85,22 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
   // UNLESS we have an L0 hit, in which case we preserve them for a seamless swap.
   const l0Hit = window.slyInternalState.l0Cache.get(uri);
+  const trackId = uri.split(':').pop();
+  const registryState = trackId ? window.slyPreFetchRegistry.getState(trackId) : null;
+  
+  // SLY FIX: Strict Takeover Validation. Only preserve the takeover UI if we have 
+  // successful synced/plain lyrics in the cache AND the track is not handled by Pipeline B.
+  const isNativeSynced = registryState?.nativeStatus === 'SYNCED';
+  const isTakeoverHit = !!(l0Hit && !l0Hit.failed && !isNativeSynced && (l0Hit.lines || l0Hit.syncedLyrics || l0Hit.plainLyrics));
 
-  // Notify Pipeline B that the custom container is about to be gone. 
-  // It will "rescue" the mode pill to document.body before we destroy the root.
-  // SLY FIX: If we have an L0 hit, don't release/rescue the pill yet — Song B 
-  // will take over the existing pill synchronously, avoiding a hide/show flash.
-  if (!l0Hit) {
+  if (!isTakeoverHit) {
     document.dispatchEvent(new CustomEvent('sly:release'));
     document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
     window.slyInternalState.customRoot = null;
   }
 
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
-  if (main && !l0Hit) {
+  if (main && !isTakeoverHit) {
     main.classList.remove('sly-active');
     main.style.display = '';
     main.style.position = '';
@@ -106,18 +109,20 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // 3. Restore Spotify Native UI visibility
   const containerClass = window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x';
   const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`) as HTMLElement | null;
-  if (nativeContainer) {
+  if (nativeContainer && !isTakeoverHit) {
     nativeContainer.style.display = '';
     nativeContainer.style.opacity = '';
     nativeContainer.style.pointerEvents = '';
   }
 
   // Restore native error messages/providers
-  document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}`).forEach(n => {
-    (n as HTMLElement).style.display = '';
-    (n as HTMLElement).style.opacity = '';
-    (n as HTMLElement).style.pointerEvents = '';
-  });
+  if (!l0Hit) {
+    document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}`).forEach(n => {
+      (n as HTMLElement).style.display = '';
+      (n as HTMLElement).style.opacity = '';
+      (n as HTMLElement).style.pointerEvents = '';
+    });
+  }
 
   // 4. Maintenance: Periodic Class Scavenge
   const now = Date.now();
@@ -131,7 +136,6 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // 5. PROACTIVE FETCH: If we already have confirmed MISSING/UNSYNCED/ROMANIZED evidence in the pre-fetch registry,
   // and the user is actively on the lyrics page, initiate the external fetch instantly at 0ms.
   // This bypasses the 500ms desync guard and the 600ms DOM settling delays!
-  const trackId = uri?.split(':').pop();
   if (trackId && trackId !== 'ad' && trackId !== 'N/A') {
     const preFetch = window.slyPreFetchRegistry?.getState(trackId);
     const isMissingOrUnsynced = preFetch && (

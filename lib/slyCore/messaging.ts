@@ -196,8 +196,11 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   // 0. L0 SESSION CACHE CHECK (Magical Seamless Swap)
   // If we've already played this song in the current session, the lyrics are in RAM.
   // Restore them synchronously to eliminate the 2-3 frame async stutter.
+  const trackId = uri?.split(':').pop();
+  const isNativeSynced = trackId ? window.slyPreFetchRegistry.getState(trackId)?.nativeStatus === 'SYNCED' : false;
+
   const l0Hit = window.slyInternalState.l0Cache.get(uri);
-  if (l0Hit && !forceRefresh) {
+  if (l0Hit && !forceRefresh && !isNativeSynced) {
     console.log(`[sly-msg] ⚡ L0 CACHE HIT: Seamlessly restoring state for "${title}" [${uri}]`);
     
     if (l0Hit.failed) {
@@ -221,7 +224,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
     window.slyInternalState.pendingLyricsData = l0Hit;
     window.slyInternalState.fetchingForTitle = ''; // Prevents HUD from firing
     window.slyInternalState.fetchingForUri = uri;
-    if (window.slyCheckNowPlaying) setTimeout(window.slyCheckNowPlaying, 0);
+    if (window.slyCheckNowPlaying) window.slyCheckNowPlaying();
     return;
   }
 
@@ -306,7 +309,6 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
 
   console.log(`[sly] Fetching lyrics for "${title}" by ${artist} (${uri || 'no-uri'}) — sending request to service worker...`);
 
-  const trackId = (uri || myUri)?.split(':').pop();
   const knownNativeStatus = trackId ? window.slyPreFetchRegistry.getState(trackId)?.nativeStatus : null;
 
   safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri, nativeStatus: knownNativeStatus, forceRefresh } }, (r) => {
