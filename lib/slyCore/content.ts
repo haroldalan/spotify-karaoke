@@ -47,6 +47,13 @@ window.addEventListener('sly_state_update', (e) => {
   }
 });
 
+// 1. Session & Entry Point Detection
+const isFirstLoad = !sessionStorage.getItem('sly_session_active');
+if (isFirstLoad) {
+  sessionStorage.setItem('sly_session_active', 'true');
+  browser.runtime.sendMessage({ type: 'SLY_MARK_ENTRY_POINT' }).catch(() => {});
+}
+
 // Relay messages from Bridge (MAIN world) to Background (Extension world)
 window.addEventListener('message', (event) => {
   if (event.data?.source === 'SLY_NAV_RELAY' && event.data?.type === 'SLY_NAV_BACK') {

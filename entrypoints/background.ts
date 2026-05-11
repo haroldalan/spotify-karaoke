@@ -285,14 +285,31 @@ export default defineBackground(() => {
       }
 
       // ----------------------------------------------------------------
-      // NEW: Stable Firefox Navigation Handler
+      // NEW: Stable Firefox Navigation Handler (with Safety Bounce)
       // ----------------------------------------------------------------
+      if (msg.type === 'SLY_MARK_ENTRY_POINT') {
+        if (sender.tab?.id) {
+          (globalThis as any).slyEntryPoints = (globalThis as any).slyEntryPoints || new Set();
+          (globalThis as any).slyEntryPoints.add(sender.tab.id);
+        }
+        return false;
+      }
+
       if (msg.type === 'SLY_NAV_BACK') {
         if (sender.tab?.id) {
-          browser.tabs.goBack(sender.tab.id).catch(() => {
-            // Fallback if goBack fails (e.g. no history)
-            console.warn('[sly-bg] tabs.goBack failed, ignoring.');
-          });
+          const isEntryPoint = (globalThis as any).slyEntryPoints?.has(sender.tab.id);
+          
+          if (isEntryPoint) {
+            console.log('[sly-bg] Safety Bounce: Tab is entry point. Redirecting to Spotify Home.');
+            browser.tabs.update(sender.tab.id, { url: 'https://open.spotify.com/' }).catch(() => {});
+            // Remove from entry points once we've navigated to Home
+            (globalThis as any).slyEntryPoints.delete(sender.tab.id);
+          } else {
+            browser.tabs.goBack(sender.tab.id).catch(() => {
+              // Fallback to Home if goBack fails
+              browser.tabs.update(sender.tab.id!, { url: 'https://open.spotify.com/' }).catch(() => {});
+            });
+          }
         }
         return false;
       }

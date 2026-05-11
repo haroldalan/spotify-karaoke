@@ -50,6 +50,35 @@ export default defineUnlistedScript(() => {
    Port of: lyric-test/modules/bridge/utils.js
    ============================================================ */
 
+/* ============================================================
+   SECTION 0 — History Shield (Safety Buffer)
+   Prevents direct-entry exits by poisoning the history stack.
+   ============================================================ */
+(function() {
+  const SLY_SHIELD_TAG = 'sly_shield_active';
+  
+  // If we arrived from elsewhere, create a history buffer
+  if (!sessionStorage.getItem(SLY_SHIELD_TAG) || history.length <= 2) {
+    console.log('>>> [sly-shield] Direct entry detected. Deploying History Buffer.');
+    sessionStorage.setItem(SLY_SHIELD_TAG, 'true');
+    
+    // We push the current state again to create a "Back" target that stays on this page
+    const currentState = { ...history.state, [SLY_SHIELD_TAG]: true };
+    history.replaceState(currentState, '');
+    history.pushState({ ...currentState, is_buffer: true }, '');
+  }
+
+  // Listen for when the user (or Spotify) hits 'Back'
+  window.addEventListener('popstate', (event) => {
+    // If we just fell back from our buffer to the original entry point,
+    // it means someone called back(). We intercept and go Home.
+    if (window.location.pathname === '/lyrics' && event.state && event.state[SLY_SHIELD_TAG] && !event.state.is_buffer) {
+      console.log('>>> [sly-shield] Buffer breached. Redirecting to Spotify Home.');
+      window.location.href = '/';
+    }
+  });
+})();
+
 window.slyGetFiber = function (el: Element | null): unknown {
   if (!el) return null;
   const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'));
@@ -129,6 +158,7 @@ window.slyOmniscientSearch = function (
     window.__sly_track_change_time = Date.now();
 
   let lastUri: string | null = null;
+  let lastPath = window.location.pathname;
 
   function findComponentProps(
     fiber: unknown,
@@ -266,6 +296,16 @@ window.slyOmniscientSearch = function (
       lastUri = track.uri as string;
       window.__sly_native_has_lyrics = undefined;
       window.__sly_track_change_time = Date.now();
+    }
+
+    // Context-Aware Return Memory
+    const currentPath = window.location.pathname;
+    if (currentPath !== lastPath) {
+      if (currentPath === '/lyrics' && lastPath !== '/lyrics' && lastPath !== '/') {
+        console.log(`>>> [sly] Return Memory: Saving "${lastPath}" as return point.`);
+        sessionStorage.setItem('sly_return_point', lastPath);
+      }
+      lastPath = currentPath;
     }
 
     window.postMessage({ source: 'SLY_BRIDGE', data: state }, window.location.origin);
@@ -554,11 +594,27 @@ window.slyOmniscientSearch = function (
         });
       }
 
-      // 5. Trigger Navigation via Background (Bypasses Firefox history.back crash)
-      console.log('>>> [sly] Bridge: Safe Release complete. Requesting Background Navigation.');
-      setTimeout(() => {
-        window.postMessage({ source: 'SLY_NAV_RELAY', type: 'SLY_NAV_BACK' }, '*');
-      }, 50);
+      // 5. Atomic Navigation (Guaranteed Spotify-Lock)
+      // Instead of calling back() or native handlers (which might call back()),
+      // we force a pushState to the previous context, current track, or Home.
+      const returnPoint = sessionStorage.getItem('sly_return_point');
+      const track = (window as any).spotifyState?.track;
+      const trackId = track?.uri?.split(':').pop() || track?.id;
+
+      if (returnPoint) {
+        console.log(`>>> [sly] Bridge: Atomic Nav to Memory Context: ${returnPoint}`);
+        history.pushState(null, '', returnPoint);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        sessionStorage.removeItem('sly_return_point');
+      } else if (trackId && trackId !== 'ad' && trackId !== 'N/A') {
+        console.log(`>>> [sly] Bridge: Atomic Nav to /track/${trackId}`);
+        history.pushState(null, '', `/track/${trackId}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      } else {
+        console.log('>>> [sly] Bridge: Atomic Nav Fallback to Home');
+        history.pushState(null, '', '/');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
       return;
     }
 
