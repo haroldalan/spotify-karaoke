@@ -365,6 +365,11 @@ window.slyOmniscientSearch = function (
       const btn = document.querySelector('[data-testid="lyrics-button"]');
       const navBar = document.querySelector('[data-testid="now-playing-bar"]');
 
+      if (navBar) {
+        const barFiber = window.slyGetFiber(navBar);
+        totalRecall(barFiber);
+      }
+
       if (btn) {
         const btnAny = btn as unknown as Record<string, unknown>;
         if (!btnAny.__sly_observed) {
@@ -505,7 +510,7 @@ window.slyOmniscientSearch = function (
   window.addEventListener('message', (event) => {
     const data = event.data as Record<string, any>;
     
-    if (data?.type === 'SLY_UPDATE_CLASSES') {
+    if (data?.source === 'SLY_UPDATE_CLASSES') {
       window.SPOTIFY_CLASSES = { ...window.SPOTIFY_CLASSES, ...data.classes };
       return;
     }
@@ -514,50 +519,12 @@ window.slyOmniscientSearch = function (
       console.log('>>> [sly] Bridge: Requesting Safe Native Panel Close');
       
       // 1. RELEASING GENETIC LOCKS
-      // We must stop the background sentries immediately. If they continue to 
-      // lock "isActive: true" while we are navigating away, Spotify's router 
-      // will throw a fatal state-panic error and redirect to the New Tab Page.
-      if (window.slyScannerInterval) clearInterval(window.slyScannerInterval);
-      if (window.slyShieldInterval) clearInterval(window.slyShieldInterval);
-      
-      // 2. PROP REVERSION
-      // Forcefully set properties back to 'false' so the router sees a consistent state.
-      const btn = document.querySelector('[data-testid="lyrics-button"]');
-      if (btn) {
-        const fiber = window.slyGetFiber(btn);
-        let curr = fiber;
-        while (curr) {
-          const props = (curr as any).memoizedProps;
-          if (props) {
-            if ('isActive' in props) props.isActive = false;
-            if ('aria-pressed' in props) props['aria-pressed'] = false;
-          }
-          curr = (curr as any).return;
-        }
-      }
-
-      // 3. SAFE NAVIGATION
-      // We use history.back() to return to the Artist/Album view smoothly.
-      console.log('>>> [sly] Bridge: Safe Release complete. Executing history.back().');
-      history.back();
-      return;
-    }
-
-    if (data?.source === 'SLY_TRIGGER_NATIVE_CLOSE') {
-      console.log('>>> [sly] Bridge: Requesting Safe Native Panel Close');
-      
-      // 1. RELEASING GENETIC LOCKS
-      // We must stop the background sentries immediately. If they continue to 
-      // lock "isActive: true" while we are navigating away, Spotify's router 
-      // will throw a fatal state-panic error and redirect to the New Tab Page.
       if (window.slyScannerInterval) clearInterval(window.slyScannerInterval);
       if (window.slyShieldInterval) clearInterval(window.slyShieldInterval);
       window.slyScannerInterval = null;
       window.slyShieldInterval = null;
       
-      // 2. PROP REVERSION
-      // Forcefully set properties back to 'false' so the router sees a consistent state.
-      // This is crucial because a 'getter' lock persists until the object is destroyed.
+      // 4. Safe State Release (Genetic Lock Reversion)
       const btn = document.querySelector('[data-testid="lyrics-button"]');
       if (btn) {
         const fiber = window.slyGetFiber(btn);
@@ -565,18 +532,33 @@ window.slyOmniscientSearch = function (
         while (curr) {
           const props = curr.memoizedProps;
           if (props) {
-            if ('isActive' in props) props.isActive = false;
-            if ('aria-pressed' in props) props['aria-pressed'] = false;
+            if ('isActive' in props) {
+              Object.defineProperty(props, 'isActive', { value: false, configurable: true, enumerable: true });
+            }
+            if ('aria-pressed' in props) {
+              Object.defineProperty(props, 'aria-pressed', { value: false, configurable: true, enumerable: true });
+            }
           }
           curr = curr.return;
         }
       }
 
-      // 3. SAFE NAVIGATION
-      // We use history.back() to return to the Artist/Album view smoothly.
-      // This replicates Spotify's native 'Close' behavior exactly.
-      console.log('>>> [sly] Bridge: Safe Release complete. Executing history.back().');
-      history.back();
+      // Deep Nuke for pooled objects (Now Playing Bar / Hub state)
+      if ((window as any).slyConfigPool) {
+        (window as any).slyConfigPool.forEach((obj: any) => {
+          ['isActive', 'aria-pressed', 'lyricsHub'].forEach(key => {
+            if (key in obj) {
+              Object.defineProperty(obj, key, { value: false, configurable: true, enumerable: true });
+            }
+          });
+        });
+      }
+
+      // 5. Trigger Navigation via Background (Bypasses Firefox history.back crash)
+      console.log('>>> [sly] Bridge: Safe Release complete. Requesting Background Navigation.');
+      setTimeout(() => {
+        window.postMessage({ source: 'SLY_NAV_RELAY', type: 'SLY_NAV_BACK' }, '*');
+      }, 50);
       return;
     }
 

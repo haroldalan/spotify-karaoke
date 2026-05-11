@@ -25,3 +25,17 @@ export async function getTargetLang(): Promise<string> {
   const data = await safeBrowserCall(() => browser.storage.sync.get('targetLang'));
   return (data?.targetLang as string) ?? 'en';
 }
+
+/**
+ * Deep clones an object to strip Xray wrappers (Firefox) and ensure mutability.
+ * Uses a robust JSON-based approach for maximum compatibility with cross-world objects.
+ */
+export function safeClone<T>(obj: T): T {
+  if (!obj || typeof obj !== 'object') return obj;
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch (e) {
+    console.warn('[sly-utils] safeClone failed, returning original:', e);
+    return obj;
+  }
+}

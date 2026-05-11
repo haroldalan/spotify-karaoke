@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { isContextValid, safeClone } from '../utils/browserUtils';
 import { slyAdManager } from './adManager';
 import { getLyricsLines, getLyricsViewRoot } from '../dom/domQueries';
 
@@ -46,6 +47,13 @@ window.addEventListener('sly_state_update', (e) => {
   }
 });
 
+// Relay messages from Bridge (MAIN world) to Background (Extension world)
+window.addEventListener('message', (event) => {
+  if (event.data?.source === 'SLY_NAV_RELAY' && event.data?.type === 'SLY_NAV_BACK') {
+    browser.runtime.sendMessage({ type: 'SLY_NAV_BACK' }).catch(() => {});
+  }
+});
+
 // BUG-31 Fix: Listen for results from the bridge (Extension world)
 window.addEventListener('message', (event) => {
   const data = event.data as Record<string, any>;
@@ -68,8 +76,9 @@ window.addEventListener('message', (event) => {
        // This allows the next "skip" to this song to be a synchronous 0ms swap.
        // We now cache failures as well to eliminate the async flash.
        if (result.ok && result.data) {
-         result.data._slyUri = uri; // Ensure URI is stamped for L0 consistency
-         window.slyInternalState.l0Cache.set(uri, result.data);
+         const mutableData = safeClone(result.data);
+         mutableData._slyUri = uri; // Ensure URI is stamped for L0 consistency
+         window.slyInternalState.l0Cache.set(uri, mutableData);
        } else {
          // Even if result.data exists (e.g. for color), if ok is false, it's a failure.
          window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: result.data?.extractedColor || result.extractedColor });
@@ -461,7 +470,7 @@ function slyCheckNowPlayingInternal(): void {
         console.log(`[sly] Takeover complete. Current Lyrics:`, window.slyInternalState.currentLyrics);
         
         document.dispatchEvent(new CustomEvent('sly:inject', {
-          detail: { lyricsObj: data },
+          detail: { lyricsObj: safeClone(data) },
         }));
       } else {
         // SLY FIX: If we "took over" but have no content, we must mark as failed 
@@ -497,7 +506,7 @@ function slyCheckNowPlayingInternal(): void {
           // Route through Pipeline B's unified injection path (sly:inject → setupSlyBridge).
           // slyInjectLyrics is no longer the executor — sly:inject is the contract.
           document.dispatchEvent(new CustomEvent('sly:inject', {
-            detail: { lyricsObj: cl },
+            detail: { lyricsObj: safeClone(cl) },
           }));
         }
       } else {

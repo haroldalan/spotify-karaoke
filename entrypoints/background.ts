@@ -283,6 +283,19 @@ export default defineBackground(() => {
         });
         return true;
       }
+
+      // ----------------------------------------------------------------
+      // NEW: Stable Firefox Navigation Handler
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_NAV_BACK') {
+        if (sender.tab?.id) {
+          browser.tabs.goBack(sender.tab.id).catch(() => {
+            // Fallback if goBack fails (e.g. no history)
+            console.warn('[sly-bg] tabs.goBack failed, ignoring.');
+          });
+        }
+        return false;
+      }
     },
   );
 });

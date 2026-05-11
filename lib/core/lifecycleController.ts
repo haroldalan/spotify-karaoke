@@ -844,7 +844,11 @@ export function setupSlyBridge(
       // slySyncedRendererActive flag so slyCore's own loop yields immediately.
       if (isSynced && lrcLines.length > 0) {
         slyInternalState.slySyncedRendererActive = true;
-        renderer.start(lrcLines, slyInternalState.lastActiveIndex);
+        // SLY FIX: Force an initial sync update on re-injection by passing -1.
+        // This ensures the renderer instantly highlights the active line and 
+        // scrolls into view behavior: 'instant', rather than waiting for 
+        // the next time transition.
+        renderer.start(lrcLines, -1);
       }
       auditOriginalLyrics(store.songKey, store.cache, store.preferredMode);
       autoSwitchIfNeeded(true);

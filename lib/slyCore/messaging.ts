@@ -1,6 +1,6 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/messaging.js
-export {};
+import { safeClone } from '../utils/browserUtils';
 // modules/content-messaging.js
 // Handles cross-script communication and fetch triggering
 //
@@ -27,9 +27,9 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
     
     // SLY FIX: Populate L0 Session Cache for instant synchronous restoration on next play.
     const uri = (message.payload as Record<string, unknown>)?.uri as string;
-    if (uri) window.slyInternalState.l0Cache.set(uri, fresh);
+    if (uri) window.slyInternalState.l0Cache.set(uri, safeClone(fresh));
 
-    window.slyInternalState.pendingLyricsData = fresh;
+    window.slyInternalState.pendingLyricsData = safeClone(fresh);
     console.log('[sly-dom] Background fetch succeeded. Pending lyrics data updated for automatic injection.');
   }
 });
@@ -354,12 +354,13 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
 
       // SLY FIX: Populate L0 Session Cache for instant synchronous restoration on next play.
       if (uri) {
-        (r.data as any)._slyUri = uri; // Ensure URI is stamped for L0 consistency
-        window.slyInternalState.l0Cache.set(uri, r.data);
+        const mutableData = safeClone(r.data);
+        mutableData._slyUri = uri; // Ensure URI is stamped for L0 consistency
+        window.slyInternalState.l0Cache.set(uri, mutableData);
       }
 
       // We DON'T clear status here; slyInjectLyrics will handle it for a smooth transition
-      window.slyInternalState.pendingLyricsData = r.data as Record<string, unknown>;
+      window.slyInternalState.pendingLyricsData = safeClone(window.slyInternalState.l0Cache.get(uri) || r.data);
       // Kick injection immediately if the panel is already open
       setTimeout(window.slyCheckNowPlaying, 0);
     } else {

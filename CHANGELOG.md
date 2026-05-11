@@ -6,6 +6,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [3.1.2] — 2026-05-11
 
 ### Fixed
+- **Firefox "Blank Panel" Resolution**: Resolved a critical regression in Firefox where playing a previously cached song in a new session resulted in a blank lyrics panel. Implemented a `safeClone` utility to strip restricted Xray proxies from cross-world objects, ensuring the injection engine can safely enrich them with DOM metadata without crashing.
+- **Re-open Sync Restoration**: Fixed a bug where closing and re-opening the lyrics panel for an active song would leave the active line un-highlighted and un-scrolled until the next transition. The renderer now performs an instant sync jump on the first frame of a new DOM.
 - **Premature Shimmer Suppression**: Resolved a visual annoyance where skipping a song caused the *outgoing* track's lyrics to shimmer for a split second. The loading state is now decoupled; the UI pill enters a loading state immediately, while the lyrics shimmer is deferred until the new track's native text is visible in the DOM.
 - **Takeover Stutter (Skip Race Condition)**: Resolved a race condition where skipping tracks caused a momentary flash of native unsynced lyrics before the extension's synced lyrics could load. Implemented synchronous DOM-based track ID extraction in the song-change handler to eliminate the 600ms bridge-scanner latency.
 - **L0 Failure Caching**: Extended the session cache to store explicit "failed" lyric results. Repeated visits to tracks where lyrics are unavailable (even after fallbacks) are now instantaneous and flicker-free, skipping the fetch cycle entirely.
