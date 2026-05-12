@@ -43,6 +43,12 @@ declare global {
   }
 }
 
+import { 
+  deployHistoryShield, 
+  captureReturnPoint, 
+  performAtomicRelease 
+} from '../lib/core/navigationController';
+
 export default defineUnlistedScript(() => {
 
 /* ============================================================
@@ -51,33 +57,9 @@ export default defineUnlistedScript(() => {
    ============================================================ */
 
 /* ============================================================
-   SECTION 0 — History Shield (Safety Buffer)
-   Prevents direct-entry exits by poisoning the history stack.
+   SECTION 0 — History Hijack (Safety Guard)
    ============================================================ */
-(function() {
-  const SLY_SHIELD_TAG = 'sly_shield_active';
-  
-  // If we arrived from elsewhere, create a history buffer
-  if (!sessionStorage.getItem(SLY_SHIELD_TAG) || history.length <= 2) {
-    console.log('>>> [sly-shield] Direct entry detected. Deploying History Buffer.');
-    sessionStorage.setItem(SLY_SHIELD_TAG, 'true');
-    
-    // We push the current state again to create a "Back" target that stays on this page
-    const currentState = { ...history.state, [SLY_SHIELD_TAG]: true };
-    history.replaceState(currentState, '');
-    history.pushState({ ...currentState, is_buffer: true }, '');
-  }
-
-  // Listen for when the user (or Spotify) hits 'Back'
-  window.addEventListener('popstate', (event) => {
-    // If we just fell back from our buffer to the original entry point,
-    // it means someone called back(). We intercept and go Home.
-    if (window.location.pathname === '/lyrics' && event.state && event.state[SLY_SHIELD_TAG] && !event.state.is_buffer) {
-      console.log('>>> [sly-shield] Buffer breached. Redirecting to Spotify Home.');
-      window.location.href = '/';
-    }
-  });
-})();
+deployHistoryShield();
 
 window.slyGetFiber = function (el: Element | null): unknown {
   if (!el) return null;
@@ -301,10 +283,7 @@ window.slyOmniscientSearch = function (
     // Context-Aware Return Memory
     const currentPath = window.location.pathname;
     if (currentPath !== lastPath) {
-      if (currentPath === '/lyrics' && lastPath !== '/lyrics' && lastPath !== '/') {
-        console.log(`>>> [sly] Return Memory: Saving "${lastPath}" as return point.`);
-        sessionStorage.setItem('sly_return_point', lastPath);
-      }
+      captureReturnPoint(currentPath, lastPath);
       lastPath = currentPath;
     }
 
@@ -558,63 +537,14 @@ window.slyOmniscientSearch = function (
     if (data?.source === 'SLY_TRIGGER_NATIVE_CLOSE') {
       console.log('>>> [sly] Bridge: Requesting Safe Native Panel Close');
       
-      // 1. RELEASING GENETIC LOCKS
+      // 1. Kill Intervals
       if (window.slyScannerInterval) clearInterval(window.slyScannerInterval);
       if (window.slyShieldInterval) clearInterval(window.slyShieldInterval);
       window.slyScannerInterval = null;
       window.slyShieldInterval = null;
-      
-      // 4. Safe State Release (Genetic Lock Reversion)
-      const btn = document.querySelector('[data-testid="lyrics-button"]');
-      if (btn) {
-        const fiber = window.slyGetFiber(btn);
-        let curr = fiber as any;
-        while (curr) {
-          const props = curr.memoizedProps;
-          if (props) {
-            if ('isActive' in props) {
-              Object.defineProperty(props, 'isActive', { value: false, configurable: true, enumerable: true });
-            }
-            if ('aria-pressed' in props) {
-              Object.defineProperty(props, 'aria-pressed', { value: false, configurable: true, enumerable: true });
-            }
-          }
-          curr = curr.return;
-        }
-      }
 
-      // Deep Nuke for pooled objects (Now Playing Bar / Hub state)
-      if ((window as any).slyConfigPool) {
-        (window as any).slyConfigPool.forEach((obj: any) => {
-          ['isActive', 'aria-pressed', 'lyricsHub'].forEach(key => {
-            if (key in obj) {
-              Object.defineProperty(obj, key, { value: false, configurable: true, enumerable: true });
-            }
-          });
-        });
-      }
-
-      // 5. Atomic Navigation (Guaranteed Spotify-Lock)
-      // Instead of calling back() or native handlers (which might call back()),
-      // we force a pushState to the previous context, current track, or Home.
-      const returnPoint = sessionStorage.getItem('sly_return_point');
-      const track = (window as any).spotifyState?.track;
-      const trackId = track?.uri?.split(':').pop() || track?.id;
-
-      if (returnPoint) {
-        console.log(`>>> [sly] Bridge: Atomic Nav to Memory Context: ${returnPoint}`);
-        history.pushState(null, '', returnPoint);
-        window.dispatchEvent(new PopStateEvent('popstate'));
-        sessionStorage.removeItem('sly_return_point');
-      } else if (trackId && trackId !== 'ad' && trackId !== 'N/A') {
-        console.log(`>>> [sly] Bridge: Atomic Nav to /track/${trackId}`);
-        history.pushState(null, '', `/track/${trackId}`);
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      } else {
-        console.log('>>> [sly] Bridge: Atomic Nav Fallback to Home');
-        history.pushState(null, '', '/');
-        window.dispatchEvent(new PopStateEvent('popstate'));
-      }
+      // 2. MODULAR RELEASE: Nukes locks and performs context-aware atomic navigation
+      performAtomicRelease(window.slyConfigPool);
       return;
     }
 
