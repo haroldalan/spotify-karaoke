@@ -4,29 +4,13 @@ import { getLyricsViewRoot } from '../dom/domQueries';
 /* modules/content-events.js: Global Event Observers (Navigation & Interactions) */
 
 // --- NAVIGATION INTERCEPTOR ---
-function wrapHistory(): void {
-  if (window.__sly_history_wrapped) return;
-  window.__sly_history_wrapped = true;
-
-  const pushState = history.pushState;
-  history.pushState = function (...args) {
-    pushState.apply(history, args);
+// SLY FIX (BUG-B1): The history patch has been moved to slyBridge.ts (MAIN world)
+// to correctly intercept Spotify's pushState. This listener bridges the signal 
+// back to the isolated world.
+window.addEventListener('message', (event) => {
+  if (event.data?.source === 'SLY_NAV_CHANGE') {
     window.dispatchEvent(new Event('sly_nav_change'));
-  };
-  window.addEventListener('popstate', () => {
-    window.dispatchEvent(new Event('sly_nav_change'));
-  });
-}
-wrapHistory();
-
-// Listen for navigation changes to trigger state checks
-window.addEventListener('sly_nav_change', () => {
-  // Small delay to allow Spotify's SPA router to update the DOM
-  setTimeout(() => {
-    if (typeof window.slyCheckNowPlaying === 'function') {
-      window.slyCheckNowPlaying();
-    }
-  }, 100);
+  }
 });
 
 // --- GLOBAL INTERACTION MONITORING ---
@@ -38,6 +22,16 @@ function handleUserInteraction(e: Event): void {
     ?? document.getElementById('lyrics-root-sync');
   if (lyricsRoot && e.target && lyricsRoot.contains(e.target as Node)) {
     window.slyInternalState.isUserScrolling = true;
+    
+    // SLY FIX (BUG-C21): Reset the 5-second inactivity timer on every interaction.
+    // If the user stops interacting for 5 seconds, auto-scroll is allowed to resume.
+    if (window.slyInternalState.userScrollTimeout) {
+      clearTimeout(window.slyInternalState.userScrollTimeout);
+    }
+    window.slyInternalState.userScrollTimeout = setTimeout(() => {
+      window.slyInternalState.isUserScrolling = false;
+      window.slyInternalState.userScrollTimeout = undefined;
+    }, 5000);
   }
 }
 
@@ -141,7 +135,7 @@ function initButtonFinder(): void {
   // Performance: Only use subtree: true if we have a narrow target. 
   // If we fall back to .Root or body, we use a less aggressive observation.
   const isBroadTarget = target === document.body || target?.classList.contains('Root');
-  buttonFinderObserver.observe(target, { childList: true, subtree: !isBroadTarget });
+  buttonFinderObserver.observe(target, { childList: true, subtree: true });
   // Also try right away in case the button already exists at script load time
   attachLyricsButtonObserver();
 }

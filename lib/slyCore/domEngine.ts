@@ -175,7 +175,7 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
     const isBgTooDark = bg && window.slyPerceivedLuminance(bg) < 0.22;
     
     if (!bg || isBgTooBright || isBgTooDark) {
-      const rawExtracted = (lyricsObj.extractedColor as string) || '#121212';
+      const rawExtracted = (lyricsObj?.extractedColor as string) || '#121212';
       const safeBg = window.slyPerceivedLuminance(rawExtracted) > 0.25 ? '#121212' : rawExtracted;
       root.style.setProperty('--lyrics-color-background', safeBg);
     }

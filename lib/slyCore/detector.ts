@@ -17,7 +17,7 @@ export interface DetectorState {
 
 declare global {
   interface Window {
-    slyDetectNativeState: () => DetectorState;
+    slyDetectNativeState: () => Promise<DetectorState>;
   }
 }
 
@@ -25,7 +25,7 @@ declare global {
  * Analyzes Spotify's current UI and internal state to determine
  * if our fallback lyrics are needed.
  */
-window.slyDetectNativeState = function (): DetectorState {
+window.slyDetectNativeState = async function (): Promise<DetectorState> {
   const { track } = window.spotifyState || {};
   const trackRecord = track as Record<string, unknown> | null;
 
@@ -36,11 +36,12 @@ window.slyDetectNativeState = function (): DetectorState {
     hasUnavailableMessage: false,
     lyricsState: 'LOADING', // LOADING, MISSING, UNSYNCED, SYNCED, NATIVE_OK
     currentTrackId: (trackRecord?.uri as string)?.split(':').pop(),
-    title: (trackRecord?.name as string) || 'Unknown',
-    artist: ((trackRecord?.artists as Record<string, string>[])?.[0]?.name) || 'Unknown Artist',
+    title: (trackRecord?.name as string) || '',
+    artist: (trackRecord?.metadata as any)?.artist_name || (trackRecord?.artists as any)?.[0]?.name || '',
     albumArtUrl: (trackRecord?.metadata as Record<string, string>)?.image_large_url ||
                  ((trackRecord?.images as Record<string, string>[])?.[0]?.url),
     preFetch: null,
+    currentUri: (trackRecord?.uri as string),
   };
 
   // 0. QUICK AD SCAN (Sovereign Check)
@@ -112,17 +113,33 @@ window.slyDetectNativeState = function (): DetectorState {
   const errorEl = document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP')) as HTMLElement | null;
   const errorElAlt = document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM')) as HTMLElement | null;
   
+  // SLY FIX (BUG-B15): Structural Fallback.
+  // If the class-based queries fail, we scan the lyrics container for "unavailable" text.
+  let structuralError: HTMLElement | null = null;
+  if (!errorEl && !errorElAlt) {
+    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
+    if (main) {
+      // Find elements with text matching common error patterns
+      const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+      let node;
+      while (node = walker.nextNode()) {
+        const txt = node.textContent?.toLowerCase() || '';
+        if (txt.includes('lyrics aren\'t available') || txt.includes('lyrics not available') || txt.includes('unavailable')) {
+          structuralError = node.parentElement;
+          break;
+        }
+      }
+    }
+  }
+
   const isRealError = (el: HTMLElement | null) => {
     if (!el) return false;
     const txt = (el.textContent || '').trim().toLowerCase();
     if (!txt || txt.includes('loading')) return false;
-    // SLY FIX: Must be BOTH visible and have text to be a "real" error.
-    // txt.length > 0 alone is insufficient because hidden nodes (under takeover) 
-    // still have text content, leading to a MISSING deadlock.
     return el.offsetParent !== null && txt.length > 0;
   };
 
-  state.hasUnavailableMessage = !isSettling && (isRealError(errorEl) || isRealError(errorElAlt));
+  state.hasUnavailableMessage = !isSettling && (isRealError(errorEl) || isRealError(errorElAlt) || isRealError(structuralError));
 
   if (state.hasUnavailableMessage) {
     if (errorEl && isRealError(errorEl)) {
@@ -150,7 +167,7 @@ window.slyDetectNativeState = function (): DetectorState {
 
   // 4. PRE-FETCH REGISTRY CHECK
   // Consult the registry populated by the Background script/Interceptor
-  state.preFetch = window.slyPreFetchRegistry.getState(state.currentTrackId ?? '') ?? null;
+  state.preFetch = window.slyPreFetchRegistry.getState(state.currentUri ?? '') ?? null;
 
   if (state.preFetch && (state.preFetch.nativeStatus === 'MISSING' || state.preFetch.nativeStatus === 'ROMANIZED' || state.preFetch.nativeStatus === 'UNSYNCED')) {
     const reason = `PERSISTED_NATIVE_${state.preFetch.nativeStatus}`;
@@ -188,7 +205,7 @@ window.slyDetectNativeState = function (): DetectorState {
       window.slyInternalState.forceFallback = true;
       // Report Romanization failure for persistent 0ms hijack next time
       if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'ROMANIZED') {
-        browser.runtime.sendMessage({
+        await browser.runtime.sendMessage({
           type: 'SLY_REPORT_NATIVE_STATUS',
           payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'ROMANIZED', source: 'native' }
         }).catch(() => {});
@@ -229,34 +246,66 @@ window.slyDetectNativeState = function (): DetectorState {
   // SLY FIX: Prioritize NATIVE_OK above all other states. If we have live lines, 
   // we must trust them even if the registry previously forced a fallback.
   // This allows for Self-Healing of incorrect MISSING records in the cache.
-  if (state.hasNativeLines) {
+  if (isNativeSynced) {
+    state.lyricsState = 'SYNCED';
+    // SLY FIX: Report SYNCED state so it's cached proactively for future plays
+    if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus !== 'SYNCED') {
+      const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'SYNCED' as const, source: 'native' };
+      if (typeof browser !== 'undefined' && browser.runtime?.id) {
+        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+      }
+      if (window.slyPreFetchRegistry) {
+        window.slyPreFetchRegistry.register(state.currentUri, 'SYNCED', { ...payload, nativeStatus: 'SYNCED', reason: 'DOM Evidence (Synced)' });
+      }
+    }
+  } else if (isNativeUnsynced) {
+    state.lyricsState = state.preFetch?.nativeStatus === 'UNSYNCED' ? 'PERSISTED_UNSYNCED' : 'NATIVE_UNSYNCED';
+    // SLY FIX: Always report native Unsynced state to Background to ensure persistent 0ms hijack next time,
+    // even if our LOCAL preFetch registry already knows it (e.g. from Interceptor report).
+    if (state.currentUri && !state.isAd) {
+      const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'UNSYNCED' as const, source: 'native' };
+      if (typeof browser !== 'undefined' && browser.runtime?.id) {
+        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+      }
+      // Also update local registry so concurrent fetches see it
+      if (window.slyPreFetchRegistry) {
+        window.slyPreFetchRegistry.register(state.currentUri, 'UNSYNCED', { ...payload, nativeStatus: 'UNSYNCED', reason: 'DOM Evidence (Unsynced)' });
+      }
+    }
+  } else if (state.hasNativeLines) {
     state.lyricsState = 'NATIVE_OK';
     
     // SELF-HEALING: If we see native lines but the registry thought it was MISSING or ROMANIZED,
     // we have proof the registry is stale/wrong. Fix it.
-    if (state.currentTrackId && !state.isAd && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.nativeStatus === 'ROMANIZED')) {
-      console.log(`[sly-detector] 🩹 SELF-HEAL: Native lines found for track ${state.currentTrackId} which was tagged ${state.preFetch.nativeStatus}. Updating registry to NATIVE_OK.`);
+    if (state.currentUri && !state.isAd && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.nativeStatus === 'ROMANIZED')) {
+      console.log(`[sly-detector] 🩹 SELF-HEAL: Native lines found for track ${state.currentUri} which was tagged ${state.preFetch.nativeStatus}. Updating registry to NATIVE_OK.`);
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'NATIVE_OK' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
       }
       if (window.slyPreFetchRegistry) {
-        window.slyPreFetchRegistry.register(state.currentTrackId, 'NATIVE_OK', { ...payload, nativeStatus: 'NATIVE_OK', reason: 'Self-Heal (DOM Evidence)' });
+        window.slyPreFetchRegistry.register(state.currentUri, 'NATIVE_OK', { ...payload, nativeStatus: 'NATIVE_OK', reason: 'Self-Heal (DOM Evidence)' });
       }
       // Also reset the forceFallback flag so the Bridge can take back control immediately
       window.slyInternalState.forceFallback = false;
+
+      // BUG-A7: Invalidate the L0 session cache so any stale "Failed" or ROMANIZED state 
+      // in memory doesn't block the native recovery verified by this DOM snapshot.
+      if (window.slyInternalState.l0Cache) {
+        window.slyInternalState.l0Cache.delete(state.currentUri);
+      }
     }
   } else if (state.hasUnavailableMessage && isSettled && !state.hasNativeLines && !isProtected) {
     state.lyricsState = 'MISSING_DOM';
     // Report this track as missing lyrics to the Background persistent cache
-    if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'MISSING') {
+    if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus !== 'MISSING') {
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'MISSING' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
       }
       // Also update local registry so concurrent fetches see it
       if (window.slyPreFetchRegistry) {
-        window.slyPreFetchRegistry.register(state.currentTrackId, 'MISSING', { ...payload, nativeStatus: 'MISSING', reason: 'DOM Evidence (Error Message)' });
+        window.slyPreFetchRegistry.register(state.currentUri, 'MISSING', { ...payload, nativeStatus: 'MISSING', reason: 'DOM Evidence (Error Message)' });
       }
     }
   } else if (!window.slyInternalState.forceFallback) {
@@ -265,40 +314,14 @@ window.slyDetectNativeState = function (): DetectorState {
       state.lyricsState = isTimeout ? 'MISSING_TIMEOUT' : 'PERSISTED_MISSING';
       
       // SLY FIX: Report timeout-based missing state to Background
-      if (isTimeout && state.currentTrackId && !state.isAd) {
+      if (isTimeout && state.currentUri && !state.isAd) {
         const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'MISSING' as const, source: 'native' };
         if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
       }
         // Also update local registry so concurrent fetches see it
         if (window.slyPreFetchRegistry) {
-          window.slyPreFetchRegistry.register(state.currentTrackId, 'MISSING', { ...payload, nativeStatus: 'MISSING', reason: 'Missing Timeout (2.5s)' });
-        }
-      }
-    } else if (isNativeUnsynced) {
-      state.lyricsState = state.preFetch?.nativeStatus === 'UNSYNCED' ? 'PERSISTED_UNSYNCED' : 'NATIVE_UNSYNCED';
-      // SLY FIX: Always report native Unsynced state to Background to ensure persistent 0ms hijack next time,
-      // even if our LOCAL preFetch registry already knows it (e.g. from Interceptor report).
-      if (state.currentTrackId && !state.isAd) {
-        const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'UNSYNCED' as const, source: 'native' };
-        if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
-      }
-        // Also update local registry so concurrent fetches see it
-        if (window.slyPreFetchRegistry) {
-          window.slyPreFetchRegistry.register(state.currentTrackId, 'UNSYNCED', { ...payload, nativeStatus: 'UNSYNCED', reason: 'DOM Evidence (Unsynced)' });
-        }
-      }
-    } else if (isNativeSynced) {
-      state.lyricsState = 'SYNCED';
-      // SLY FIX: Report SYNCED state so it's cached proactively for future plays
-      if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'SYNCED') {
-        const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'SYNCED' as const, source: 'native' };
-        if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
-      }
-        if (window.slyPreFetchRegistry) {
-          window.slyPreFetchRegistry.register(state.currentTrackId, 'SYNCED', { ...payload, nativeStatus: 'SYNCED', reason: 'DOM Evidence (Synced)' });
+          window.slyPreFetchRegistry.register(state.currentUri, 'MISSING', { ...payload, nativeStatus: 'MISSING', reason: 'Missing Timeout (2.5s)' });
         }
       }
     }

@@ -15,6 +15,7 @@ if (window.slyInjectCoreStyles) window.slyInjectCoreStyles();
 
 // --- HOT RELOAD CLEANUP PROTOCOL ---
 if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
+if (window.slyPreFetchInterval) clearInterval(window.slyPreFetchInterval);
 if (window.antigravitySyncAnimFrame) cancelAnimationFrame(window.antigravitySyncAnimFrame);
 document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles').forEach(node => node.remove());
 
@@ -24,8 +25,8 @@ document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles').forEach(node 
 // Note: Internal extension state is now managed by window.slyInternalState in modules/state-manager.js
 window.slyCheckNowPlaying = slyCheckNowPlaying;
 
-window.addEventListener('sly_state_update', (e) => {
-  window.slyCheckNowPlaying();
+window.addEventListener('sly_state_update', async (e) => {
+  await window.slyCheckNowPlaying();
 
   // SLY FIX (Magical Seamless Swap): Queue Pre-warming.
   // Proactively fetch lyrics for the next 2 songs in the queue so they are in L0
@@ -37,7 +38,7 @@ window.addEventListener('sly_state_update', (e) => {
       const { title, artist, albumArtUrl, id, uri } = track;
       const fullUri = uri || `spotify:track:${id}`;
       // Only pre-fetch if not already in L0 or currently fetching
-      if (!window.slyInternalState.l0Cache.has(fullUri) && window.slyInternalState.fetchingForUri !== fullUri) {
+      if (!window.slyInternalState.l0Cache.has(fullUri) && !window.slyInternalState.fetchingForUri.has(fullUri)) {
         // console.log(`[sly-queue] Pre-warming next track: ${title} [${fullUri}]`);
         if (window.slyTriggerLyricsFetch) {
           window.slyTriggerLyricsFetch(title, artist, albumArtUrl, fullUri);
@@ -54,8 +55,23 @@ if (isFirstLoad) {
   browser.runtime.sendMessage({ type: 'SLY_MARK_ENTRY_POINT' }).catch(() => {});
 }
 
+// BUG-B11: Interceptor Heartbeat
+// We wait 2 seconds for the MAIN world interceptor to signal readiness. 
+// If it fails (e.g. CSP block), we fall back to a safer native detection mode.
+setTimeout(() => {
+  if (!window.slyInternalState.interceptorActive) {
+    console.warn('[sly] Interceptor Heartbeat: FAILED. Falling back to passive native detection.');
+    window.slyInternalState.interceptorFailed = true;
+  }
+}, 2000);
+
 // Relay messages from Bridge (MAIN world) to Background (Extension world)
 window.addEventListener('message', (event) => {
+  if (event.data?.type === 'SLY_INTERCEPTOR_READY') {
+    window.slyInternalState.interceptorFailed = false;
+    window.slyInternalState.interceptorActive = true;
+    console.log('[sly] Interceptor Heartbeat: Confirmed Healthy.');
+  }
   if (event.data?.source === 'SLY_NAV_RELAY' && event.data?.type === 'SLY_NAV_BACK') {
     browser.runtime.sendMessage({ type: 'SLY_NAV_BACK' }).catch(() => {});
   }
@@ -68,11 +84,18 @@ window.addEventListener('message', (event) => {
     const { uri, result, error } = data;
     
     // Guard: Song changed while we were asking the background script
+    // Guard: Song changed while we were asking the background script
     const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
+    
+    // BUG-C10 Fix: Always clear the warming flag if we received a response for it,
+    // regardless of whether the track changed, to prevent stale blocking.
+    if (window.slyInternalState.warmingUri === uri) {
+      window.slyInternalState.warmingUri = undefined;
+    }
+
     if (currentUri !== uri) return;
 
     window.slyInternalState.warmedUri = uri; // Mark as settled
-    window.slyInternalState.warmingUri = undefined;
 
     if (error) return;
 
@@ -85,24 +108,29 @@ window.addEventListener('message', (event) => {
        if (result.ok && result.data) {
          const mutableData = safeClone(result.data);
          mutableData._slyUri = uri; // Ensure URI is stamped for L0 consistency
+         window.slyInternalState.l0Cache.delete(uri); // BUG-C2/C8: Refresh LRU
          window.slyInternalState.l0Cache.set(uri, mutableData);
        } else {
          // Even if result.data exists (e.g. for color), if ok is false, it's a failure.
+         window.slyInternalState.l0Cache.delete(uri);
          window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: result.data?.extractedColor || result.extractedColor });
        }
 
-       const trackId = uri.split(':').pop();
-        if (trackId) {
+       // BUG-C8: Cap l0Cache size to prevent memory leaks in long sessions
+       if (window.slyInternalState.l0Cache.size > 50) {
+         const oldestKey = window.slyInternalState.l0Cache.keys().next().value;
+         if (oldestKey) window.slyInternalState.l0Cache.delete(oldestKey);
+       }
+
           const targetState = (result.nativeStatus === 'SYNCED' || result.nativeStatus === 'NATIVE_OK')
             ? 'NATIVE_OK'
             : (result.prefetchState || 'MISSING');
-          window.slyPreFetchRegistry.register(trackId, targetState, {
+          window.slyPreFetchRegistry.register(uri, targetState, {
             title: data.title, 
             nativeStatus: result.nativeStatus,
             customStatus: result.prefetchState,
             reason: 'Persistent Cache Hit'
           });
-        }
     } else {
        console.log(`[sly] 🆕 First Play: No cache record found for ${data.title}.`);
     }
@@ -117,13 +145,13 @@ window.addEventListener('message', (event) => {
 // Triggers the injection gate immediately for the common case where the fetch
 // completed before the panel opened, saving up to 500ms of poll latency.
 // slyCheckNowPlaying() reuses all existing guards — no logic is duplicated.
-document.addEventListener('sly:lyrics_injected', () => {
+document.addEventListener('sly:lyrics_injected', async () => {
   // No guard — call slyCheckNowPlaying() unconditionally so it handles both:
   //   • Injection gate: pendingLyricsData ready, panel just opened (Case B)
   //   • Persistence: currentLyrics active, panel re-opened, #lyrics-root-sync missing
   // Cost for normal songs: one extra cheap call per panel open — negligible since
   // slyCheckNowPlaying() already runs every 500ms.
-  window.slyCheckNowPlaying();
+  await window.slyCheckNowPlaying();
 });
 
 // Pipeline B's domObserver dispatches this when [data-testid="lyrics-button"] loses
@@ -187,6 +215,19 @@ document.addEventListener('sly:inject', (e: Event) => {
   const currentUri = (window.spotifyState?.track as Record<string, unknown>)?.uri as string | undefined;
   if (currentUri) lyricsObj._slyUri = currentUri;
   window.slyInternalState.currentLyrics = lyricsObj;
+  window.slyInternalState.isTransitioning = false; // Transition complete
+});
+
+document.addEventListener('sly:song_change', async (e) => {
+  const { uri } = (e as CustomEvent).detail;
+  console.log(`[sly-lifecycle] ⚡ Reactive Song Change Detected: ${uri}. Re-evaluating state.`);
+  window.slyInternalState.isTransitioning = true;
+  
+  // Clear the HUD immediately on skip to prevent ghost error messages
+  if (window.slyClearStatus) window.slyClearStatus();
+  
+  // Reset the poll loop to start fresh for the new song
+  if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
 });
 
 // sly:takeover only fires when injection fully succeeded (all four DOM steps complete).
@@ -202,19 +243,29 @@ document.addEventListener('sly:takeover', () => {
  * After: Calls slyCheckNowPlayingInternal() synchronously.
  * Why: To eliminate the ~3-frame delay when opening the lyrics panel, reducing visible "pop-in" flicker.
  */
-function slyCheckNowPlaying(): void {
-  slyCheckNowPlayingInternal();
+async function slyCheckNowPlaying(): Promise<void> {
+  await slyCheckNowPlayingInternal();
 }
 
-function slyCheckNowPlayingInternal(): void {
+async function slyCheckNowPlayingInternal(): Promise<void> {
   // SLY FIX: If the extension was reloaded/updated, the context is invalidated.
   // Abort immediately to prevent "Extension context invalidated" errors.
   if (typeof browser === 'undefined' || !browser.runtime?.id) return;
 
   try {
-    const detection = window.slyDetectNativeState();
+    const detection = await window.slyDetectNativeState();
     const { title, artist, albumArtUrl } = detection;
     const fullUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
+
+    // BUG-C20 Fix: Desync Guard.
+    // detection.title comes from the DOM (sync); window.spotifyState comes from the Bridge (async).
+    // If they don't match, the Bridge is still on the PREVIOUS track. Abort this tick 
+    // to prevent paired operations (fetching, reporting) using mismatched URI/Title pairs.
+    const bridgeTitle = (window.spotifyState?.track as Record<string, unknown> | null)?.name as string | undefined;
+    if (bridgeTitle && title && bridgeTitle !== title && !detection.isAd) {
+      // console.log(`[sly-dom] ⏳ Desync Guard: DOM ("${title}") vs Bridge ("${bridgeTitle}"). Waiting for Bridge sync...`);
+      return;
+    }
 
     // 0. PROACTIVE CACHE WARMING
     // Try to seed the registry from the background database as soon as we have a URI.
@@ -289,7 +340,7 @@ function slyCheckNowPlayingInternal(): void {
         const cl = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
         // SLY FIX: Recognize both successful (lines) and failed states as valid loaded states.
         // Also ensure _slyUri matches to prevent stale restores.
-        const isAlreadyCorrect = cl && (cl.lines || cl.failed) && cl._slyUri === fullUri;
+        const isAlreadyCorrect = cl && cl.lines && cl._slyUri === fullUri;
 
         if (isAlreadyCorrect) {
           // Already correct — just sync lastUri forward
@@ -351,7 +402,20 @@ function slyCheckNowPlayingInternal(): void {
 
     // 3. NETWORK SAFETY
     if (window.slyInternalState.interceptorActive || window.slyInternalState.isSpotifyFetching) {
+      // SLY FIX: Reset the grace period clock while the interceptor is active so 
+      // the 2.5s timeout doesn't expire during slow network/token hydration.
+      window.slyInternalState.panelOpenTime = 0;
       return;
+    }
+
+    // BUG-B11 Fix: If the interceptor failed to load, we lose the isSpotifyFetching signal.
+    // We add an extra 1s safety buffer to the native detection grace period to prevent 
+    // redundant external fetches from racing against slow native fetches.
+    if (window.slyInternalState.interceptorFailed && lyricsState === 'LOADING') {
+      const timeSinceSongChange = Date.now() - window.slyInternalState.songChangeTime;
+      if (timeSinceSongChange < 3500) {
+        return;
+      }
     }
 
     // 4. DECISION ENGINE
@@ -379,7 +443,7 @@ function slyCheckNowPlayingInternal(): void {
         // Issue 2 Fix: Defer MISSING decision if we have weak evidence and just changed songs.
         // This prevents the extension from jumping to a "lyrics unavailable" display while
         // Spotify's own UI is still settling or loading.
-        const registryIsEmpty = !window.slyPreFetchRegistry.getState(detection.currentTrackId ?? '');
+        const registryIsEmpty = !window.slyPreFetchRegistry.getState(fullUri || '');
         const onlyDomEvidence = detection.hasUnavailableMessage && !detection.preFetch;
         const timeSinceSongChange = Date.now() - window.slyInternalState.songChangeTime;
 
@@ -393,10 +457,10 @@ function slyCheckNowPlayingInternal(): void {
           window.slyInternalState.lastDecision = decision;
         }
         window.slyTriggerLyricsFetch(title, artist, albumArtUrl || '', fullUri || '');
-      } else if (lyricsState === 'SYNCED') {
-        const decision = `synced:${title}`;
+      } else if (lyricsState === 'SYNCED' || lyricsState === 'NATIVE_OK') {
+        const decision = `synced_or_ok:${title}`;
         if (window.slyInternalState.lastDecision !== decision) {
-          console.log(`[sly-dom] ✅ DECISION: Native lyrics are synced for "${title}" [${fullUri?.split(':').pop() || 'N/A'}]. Engine standing down.`);
+          console.log(`[sly-dom] ✅ DECISION: Native lyrics are ${lyricsState} for "${title}" [${fullUri?.split(':').pop() || 'N/A'}]. Engine standing down.`);
           window.slyInternalState.lastDecision = decision;
           // Cleanup custom state if we were previously taking over
           if (window.slyInternalState.currentLyrics || window.slyInternalState.isFetchingHUD) {
@@ -438,7 +502,7 @@ function slyCheckNowPlayingInternal(): void {
         });
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri = '';
+        window.slyInternalState.fetchingForUri.clear();
         if (window.slyClearStatus) window.slyClearStatus();
         document.dispatchEvent(new CustomEvent('sly:panel_close'));
         return;
@@ -448,7 +512,7 @@ function slyCheckNowPlayingInternal(): void {
       if (lyricsState === 'UNSYNCED' && !data.isSynced && !hasExtraContent && !window.slyInternalState.forceFallback) {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri = '';
+        window.slyInternalState.fetchingForUri.clear();
         if (window.slyClearStatus) window.slyClearStatus();
         return;
       }
@@ -459,19 +523,19 @@ function slyCheckNowPlayingInternal(): void {
 
       if (hasContent) {
         const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
-        const fetchingUri = window.slyInternalState.fetchingForUri;
-        if (fetchingUri && currentUri && fetchingUri !== currentUri) {
-          console.warn(`[sly] Taking over aborted: pendingLyricsData URI (${fetchingUri}) does not match current track URI (${currentUri})`);
+        const payloadUri = (data as any)._slyUri;
+        if (payloadUri && currentUri && payloadUri !== currentUri) {
+          console.warn(`[sly] Taking over aborted: pendingLyricsData URI (${payloadUri}) does not match current track URI (${currentUri})`);
           window.slyInternalState.pendingLyricsData = null;
           window.slyInternalState.fetchingForTitle = '';
-          window.slyInternalState.fetchingForUri = '';
+          window.slyInternalState.fetchingForUri.clear();
           return;
         }
 
         window.slyInternalState.currentLyrics = data;
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri = '';
+        window.slyInternalState.fetchingForUri.clear();
         if (window.slyClearStatus) window.slyClearStatus();
 
         console.log(`[sly] Takeover complete. Current Lyrics:`, window.slyInternalState.currentLyrics);
@@ -483,22 +547,33 @@ function slyCheckNowPlayingInternal(): void {
         // SLY FIX: If we "took over" but have no content, we must mark as failed 
         // to prevent the Decision Engine from re-triggering infinitely.
         console.warn('[sly] Taking over but no content found. Marking as failed.');
-        window.slyInternalState.currentLyrics = { failed: true, _slyUri: window.slyInternalState.fetchingForUri };
+        const failedUri = (data as any)._slyUri || currentUri;
+        window.slyInternalState.currentLyrics = { failed: true, _slyUri: failedUri };
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri = '';
+        window.slyInternalState.fetchingForUri.clear();
         if (window.slyClearStatus) window.slyClearStatus();
       }
     }
 
-    // 6. PERSISTENCE & RE-INJECTION: We already have lyrics active, ensure they stay there.
-    if (detection.isOnLyricsPage && (window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
+    // 6. PERSISTENCE & RE-INJECTION: We already have lyrics active or a HUD, ensure they stay there.
+    const hasActiveTakeover = window.slyInternalState.currentLyrics || window.slyInternalState.statusHUDActive;
+    if (detection.isOnLyricsPage && hasActiveTakeover) {
       const root = document.getElementById('lyrics-root-sync');
       const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
       
-      // RECOVERY GUARD: If native lyrics become SYNCED (and we're not in forceFallback), release the takeover.
-      if (detection.lyricsState === 'SYNCED' && !window.slyInternalState.forceFallback) {
-        console.log('[sly-lifecycle] 🩹 Recovery: Native lyrics became synced while in Pipeline A. Releasing takeover.');
+      // RECOVERY GUARD: If native lyrics become SYNCED or NATIVE_OK (and we're not in forceFallback), release the takeover.
+      if ((detection.lyricsState === 'SYNCED' || detection.lyricsState === 'NATIVE_OK') && !window.slyInternalState.forceFallback) {
+        console.log(`[sly-lifecycle] 🩹 Recovery: Native lyrics became ${detection.lyricsState} while in Pipeline A. Releasing takeover.`);
+        
+        // SLY FIX: Explicitly clear the custom state so the Persistence Engine doesn't immediately 
+        // try to re-inject the abandoned DOM in the next poll frame (which causes an infinite loop).
+        window.slyInternalState.currentLyrics = null;
+        window.slyInternalState.fetchingForUri.clear();
+        window.slyInternalState.statusHUDActive = false;
+        window.slyInternalState.isFetchingHUD = false;
+        window.slyInternalState.isAdHUDActive = false;
+        
         document.dispatchEvent(new CustomEvent('sly:panel_close'));
         return;
       }
@@ -537,10 +612,10 @@ function slyCheckNowPlayingInternal(): void {
   }
 };
 
-function startThrottledPoll() {
+async function startThrottledPoll() {
   if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
   
-  window.slyCheckNowPlaying();
+  await window.slyCheckNowPlaying();
   
   // Determine standing-down interval using slyInternalState fields set by the
   // slyCheckNowPlaying() call above — no second slyDetectNativeState() DOM call needed.
@@ -555,6 +630,8 @@ function startThrottledPoll() {
   const interval = isStandingDown ? 5000 : 500;
   window.antigravityInterval = setTimeout(startThrottledPoll, interval) as unknown as number;
 }
+window.slyStartThrottledPoll = startThrottledPoll;
+
 if (!document.body) {
   document.addEventListener('DOMContentLoaded', startThrottledPoll);
 } else {

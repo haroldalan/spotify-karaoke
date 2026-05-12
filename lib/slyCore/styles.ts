@@ -41,7 +41,7 @@ export function slyGetCoreStyles(): string {
         #sly-status-hud {
             display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
             padding: 80px 64px; text-align: left; color: white; width: 100%; min-height: 500px; height: 100%;
-            position: absolute; inset: 0; z-index: 10;
+            position: absolute; inset: 0; z-index: 10000;
             overflow: hidden; background-color: #121212;
             box-sizing: border-box;
             flex: 1;

@@ -2,6 +2,9 @@
 
 import type { FetchedLyricsResult } from './lyricsCache';
 
+import { enqueueStorageOperation } from '../core/storageManager';
+import { safeBrowserCall } from '../utils/browserUtils';
+
 export class LyricsPersistence {
   constructor() {
     console.log('[LyricsPersistence] Initialized.');
@@ -10,16 +13,30 @@ export class LyricsPersistence {
   /**
    * Retrieves lyrics from persistent storage.
    * @param key - Spotify URI or title|artist
+   * @param fallbackKey - Optional fallback key (e.g. title|artist if key is URI)
    */
-  async get(key: string): Promise<FetchedLyricsResult | null> {
-    const result = await browser.storage.local.get([key]);
-    const entry = result[key] as FetchedLyricsResult | undefined;
+  async get(key: string, fallbackKey?: string): Promise<FetchedLyricsResult | null> {
+    const result = await safeBrowserCall(() => browser.storage.local.get([key]));
+    let entry = result?.[key] as FetchedLyricsResult | undefined;
+
+    if (!entry && fallbackKey && key !== fallbackKey) {
+      const fallbackResult = await safeBrowserCall(() => browser.storage.local.get([fallbackKey]));
+      entry = fallbackResult?.[fallbackKey] as FetchedLyricsResult | undefined;
+      
+      if (entry) {
+        // Migration logic (BUG-C3): Upgrade legacy title|artist key to URI
+        console.log(`[LyricsPersistence] MIGRATING legacy entry: ${fallbackKey} -> ${key}`);
+        await this.set(key, entry);
+        await safeBrowserCall(() => browser.storage.local.remove(fallbackKey));
+      }
+    }
+
     if (entry) {
       const age = Date.now() - (entry.persistedAt || 0);
       const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
       if (age > THIRTY_DAYS) {
         console.log(`[LyricsPersistence] EXPIRED (TTL): ${key}`);
-        await browser.storage.local.remove(key);
+        await safeBrowserCall(() => browser.storage.local.remove(key));
         return null;
       }
       console.log(`[LyricsPersistence] HIT: ${key}`);
@@ -29,7 +46,6 @@ export class LyricsPersistence {
     return null;
   }
 
-  private storageQueue: Promise<void> = Promise.resolve();
   /**
    * Stores lyrics in persistent storage.
    * @param key - Spotify URI or title|artist
@@ -43,31 +59,28 @@ export class LyricsPersistence {
       lastCheckedAt: Date.now(),
     };
 
-    // Serialize all storage writes to prevent l2_index race conditions
-    this.storageQueue = this.storageQueue.then(async () => {
+    // Serialize all storage writes via the central storageManager
+    return enqueueStorageOperation(async () => {
       try {
-        await browser.storage.local.set(entry);
+        await safeBrowserCall(() => browser.storage.local.set(entry));
 
         // Eviction Logic: Maintain an l2_index to track the 200 most recent fetches
-        const { l2_index } = await browser.storage.local.get({ l2_index: [] });
-        let index = (l2_index as string[]).filter(k => k !== key);
+        const d = await safeBrowserCall(() => browser.storage.local.get({ l2_index: [] }));
+        const l2_index = (d?.l2_index ?? []) as string[];
+        let index = l2_index.filter(k => k !== key);
         index.push(key);
 
         if (index.length > 200) {
           const toRemove = index.splice(0, 50);
-          await browser.storage.local.remove(toRemove);
+          await safeBrowserCall(() => browser.storage.local.remove(toRemove));
         }
-        await browser.storage.local.set({ l2_index: index });
+        await safeBrowserCall(() => browser.storage.local.set({ l2_index: index }));
         console.log(`[LyricsPersistence] SAVED: ${key}`);
       } catch (e) {
         console.warn('[LyricsPersistence] Index update failed:', e);
         throw e; // Propagate to caller
       }
-    }).catch(err => {
-      console.error('[LyricsPersistence] Critical storage queue error:', err);
     });
-
-    return this.storageQueue;
   }
 }
 

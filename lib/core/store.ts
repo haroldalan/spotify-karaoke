@@ -24,6 +24,12 @@ export class StateStore {
    *  Used by syncedLyricsRenderer instead of querySelectorAll to avoid the
    *  2-padding-div index offset that causes sync mismatch on mid-song skip. */
   slyActiveDomElements: HTMLElement[] = [];
+  
+  // Instance-level state moved from module level (BUG-C11)
+  godState: 'IDLE' | 'LOADING' | 'NATIVE_OK' | 'RELEASING' | 'PIPELINE_A' | 'FETCHING' | 'FAILED' | 'AD' = 'IDLE';
+  setupLock = false;
+  lockOwnerKey: string | null = null;
+  lastAuditedSongKey = '';
 
   async loadFromStorage(): Promise<void> {
     await safeBrowserCall(async () => {

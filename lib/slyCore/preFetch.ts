@@ -12,14 +12,15 @@ export interface PreFetchEntry {
 
 export interface SlyPreFetchRegistry {
   states: Map<string, PreFetchEntry>;
-  register(trackId: string, state: string, metadata?: Record<string, unknown>): void;
-  getState(trackId: string): PreFetchEntry | undefined;
+  register(uri: string, state: string, metadata?: Record<string, unknown>): void;
+  getState(uri: string): PreFetchEntry | undefined;
   clearOldEntries(): void;
 }
 
 declare global {
   interface Window {
     slyPreFetchRegistry: SlyPreFetchRegistry;
+    slyPreFetchInterval?: number;
   }
 }
 
@@ -30,12 +31,12 @@ declare global {
  * external lyrics fetch.
  */
 export const slyPreFetchRegistry: SlyPreFetchRegistry = {
-  states: new Map(), // trackId → { state: 'MISSING' | 'UNSYNCED' | 'ROMANIZED', title, artist }
+  states: new Map(), // uri → { state: 'MISSING' | 'UNSYNCED' | 'ROMANIZED', title, artist }
 
-  register(trackId: string, state: string, metadata: Record<string, unknown> = {}): void {
-    if (!trackId) return;
+  register(uri: string, state: string, metadata: Record<string, unknown> = {}): void {
+    if (!uri) return;
 
-    const existing = this.states.get(trackId) || { state: 'LOADING', timestamp: Date.now() };
+    const existing = this.states.get(uri) || { state: 'LOADING', timestamp: Date.now() };
     
     // Logic: If the new state is 'SYNCED' or 'UNSYNCED' coming from our fetch, 
     // we map it to customStatus. If it comes from the native report, it's nativeStatus.
@@ -63,12 +64,12 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
     }
 
     const reason = (metadata.reason as string) || (metadata.source === 'native' ? 'Network/DOM Discovery' : 'Cache/Fetch');
-    console.log(`[sly-prefetch] Merged ${state} for track ${trackId} | Native: ${updated.nativeStatus || 'N/A'} | Custom: ${updated.customStatus || 'N/A'} | Reason: ${reason}`);
-    this.states.set(trackId, updated);
+    console.log(`[sly-prefetch] Merged ${state} for track ${uri} | Native: ${updated.nativeStatus || 'N/A'} | Custom: ${updated.customStatus || 'N/A'} | Reason: ${reason}`);
+    this.states.set(uri, updated);
   },
 
-  getState(trackId: string): PreFetchEntry | undefined {
-    return this.states.get(trackId);
+  getState(uri: string): PreFetchEntry | undefined {
+    return this.states.get(uri);
   },
 
   clearOldEntries(): void {
@@ -85,4 +86,5 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
 window.slyPreFetchRegistry = slyPreFetchRegistry;
 
 // Periodic cleanup
-setInterval(() => window.slyPreFetchRegistry.clearOldEntries(), 60000);
+window.slyPreFetchInterval = window.setInterval(() => window.slyPreFetchRegistry.clearOldEntries(), 60000);
+console.log('[sly] Pre-fetch registry and background cleanup interval (60s) initialized.');

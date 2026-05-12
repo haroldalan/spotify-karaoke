@@ -44,7 +44,7 @@ window.addEventListener('message', (event) => {
   } else if (data?.type === 'SLY_FETCH_END') {
     window.slyInternalState.isSpotifyFetching = false;
     // Debounced retry covering slow React renders of the lyrics panel DOM.
-    setTimeout(window.slyCheckNowPlaying, 300);
+    if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
 
   } else if (data?.type === 'SLY_INTERCEPT_START') {
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
@@ -59,7 +59,7 @@ window.addEventListener('message', (event) => {
 
     console.log(`[sly-dom] ⏳ Interceptor finished. Resuming DOM Engine decisions.`);
     window.slyInternalState.interceptorActive = false;
-    setTimeout(window.slyCheckNowPlaying, 100); // Give React a moment to render the result
+    if (window.slyStartThrottledPoll) window.slyStartThrottledPoll(); // Give React a moment to render the result
 
   } else if (data?.type === 'SLY_FORCE_FALLBACK') {
     const trackId = data.trackId as string | undefined;
@@ -77,7 +77,8 @@ window.addEventListener('message', (event) => {
     }
 
     if (trackId) {
-      window.slyPreFetchRegistry.register(trackId, 'ROMANIZED', { ...(metadata ?? {}), source: 'native', reason: 'Network Intercept (Romanized)' });
+      const fullUri = `spotify:track:${trackId}`;
+      window.slyPreFetchRegistry.register(fullUri, 'ROMANIZED', { ...(metadata ?? {}), source: 'native', reason: 'Network Intercept (Romanized)' });
     }
 
     if (trackId && currentTrackId && trackId !== currentTrackId) {
@@ -103,7 +104,8 @@ window.addEventListener('message', (event) => {
       };
     }
     if (trackId) {
-      window.slyPreFetchRegistry.register(trackId, state, {
+      const fullUri = `spotify:track:${trackId}`;
+      window.slyPreFetchRegistry.register(fullUri, state, {
         ...(metadata ?? {}),
         nativeStatus,
         source: 'native',
@@ -155,7 +157,9 @@ window.addEventListener('message', (event) => {
 
       window.slyInternalState.pendingLyricsData = null;
       window.slyInternalState.fetchingForTitle = '';
-      window.slyInternalState.fetchingForUri = '';
+    if (window.slyInternalState.fetchingForUri.has(uri)) {
+      window.slyInternalState.fetchingForUri.delete(uri);
+    }
       if (window.slyClearStatus) window.slyClearStatus();
     }
   } else if (data?.type === 'SLY_MXM_WARMUP') {
@@ -178,20 +182,31 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// --- SAFE SEND (Promise-based browser.runtime wrapper) ---
-function safeSendMessage(msg: Record<string, unknown>, callback?: (r: Record<string, unknown>) => void): void {
+/**
+ * Promise-based wrapper for browser.runtime.sendMessage with built-in 
+ * context-invalidation safety.
+ */
+function safeSendMessage(msg: Record<string, unknown>, callback?: (r: any) => void): Promise<any> {
   if (browser.runtime?.id) {
-    browser.runtime.sendMessage(msg)
+    return browser.runtime.sendMessage(msg)
       .then((r: unknown) => {
-        if (callback) callback(r as Record<string, unknown>);
+        if (callback) callback(r);
+        return r;
       })
-      .catch(() => { /* Extension context invalidated or no listener */ });
+      .catch((err) => {
+        // Only log if it's NOT a context-invalidation error (which is expected on reload)
+        if (err?.message && !err.message.includes('context invalidated')) {
+          console.warn('[sly-msg] Message failed:', err.message);
+        }
+        return { ok: false, error: err?.message || 'Unknown error' };
+      });
   }
+  return Promise.resolve({ ok: false, error: 'Extension context missing' });
 }
 
 // --- FETCH TRIGGER ---
 window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false): void {
-  if (window.slyInternalState.fetchingForUri === uri && !forceRefresh) return;
+  if (window.slyInternalState.fetchingForUri.has(uri) && !forceRefresh) return;
 
   // 0. L0 SESSION CACHE CHECK (Magical Seamless Swap)
   // If we've already played this song in the current session, the lyrics are in RAM.
@@ -207,7 +222,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       window.slyInternalState.currentLyrics = { failed: true, _slyUri: uri, extractedColor: l0Hit.extractedColor };
       window.slyInternalState.pendingLyricsData = null; // SLY FIX: Clear pending to prevent stale takeover
       window.slyInternalState.fetchingForTitle = '';
-      window.slyInternalState.fetchingForUri = uri;
+    if (uri) window.slyInternalState.fetchingForUri.add(uri);
       
       const btn = document.querySelector('[data-testid="lyrics-button"]');
       if (btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true') {
@@ -223,13 +238,13 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
 
     window.slyInternalState.pendingLyricsData = l0Hit;
     window.slyInternalState.fetchingForTitle = ''; // Prevents HUD from firing
-    window.slyInternalState.fetchingForUri = uri;
+    if (uri) window.slyInternalState.fetchingForUri.add(uri);
     if (window.slyCheckNowPlaying) window.slyCheckNowPlaying();
     return;
   }
 
   window.slyInternalState.fetchingForTitle = title;
-  window.slyInternalState.fetchingForUri = uri;
+  if (uri) window.slyInternalState.fetchingForUri.add(uri);
 
   // Capturing URI for stale check
   const myGeneration = window.slyInternalState.fetchGeneration;
@@ -251,7 +266,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   setTimeout(() => {
     // ABORT CONDITIONS:
     // 1. Track changed during the grace period
-    if (window.slyInternalState.fetchingForUri !== myUri) return;
+    if (!window.slyInternalState.fetchingForUri.has(myUri)) return;
     // 2. Lyrics were found (L1/L2 success) during the grace period
     if ((window.slyInternalState.pendingLyricsData as any)?._slyUri === myUri || 
         (window.slyInternalState.currentLyrics as any)?._slyUri === myUri) return;
@@ -337,7 +352,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
     }
 
     if (r?.prefetchState || r?.ok) {
-      const trackId = (uri || myUri)?.split(':').pop();
+      const trackId = myUri?.split(':').pop();
       if (trackId) {
         const state = r.prefetchState || ((r.data as any)?.isSynced ? 'SYNCED' : 'UNSYNCED');
         window.slyPreFetchRegistry.register(trackId, state, {
@@ -370,7 +385,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       if (uri) window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: (r?.data as any)?.extractedColor });
 
       window.slyInternalState.fetchingForTitle = '';
-      window.slyInternalState.fetchingForUri = '';
+      if (uri) window.slyInternalState.fetchingForUri.delete(uri);
 
       // Save failure state AND extracted color for immersive HUD
       window.slyInternalState.currentLyrics = {

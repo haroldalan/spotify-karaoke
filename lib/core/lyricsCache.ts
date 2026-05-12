@@ -3,7 +3,6 @@ import type { SongCache, LyricsCacheEntry, LyricsIndex } from './lyricsTypes';
 
 const RUNTIME_CACHE_MAX = 50; // BUG-15: Increased from 10
 const PERSISTED_CACHE_MAX = 200;
-let storageQueue: Promise<void> = Promise.resolve();
 
 /**
  * Robust string hash (53-bit safe integer).
@@ -11,9 +10,10 @@ let storageQueue: Promise<void> = Promise.resolve();
  * BUG-22 fix.
  */
 function hashString(str: string): number {
+  const normalized = str.replace(/\s+/g, '');
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
-  for (let i = 0, ch; i < str.length; i++) {
-    ch = str.charCodeAt(i);
+  for (let i = 0, ch; i < normalized.length; i++) {
+    ch = normalized.charCodeAt(i);
     h1 = Math.imul(h1 ^ ch, 2654435761);
     h2 = Math.imul(h2 ^ ch, 1597334677);
   }
@@ -21,7 +21,6 @@ function hashString(str: string): number {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
-
 /**
  * Retrieves a lyric entry from the runtime cache or persistent storage.
  * BUG-26: Lazy-load from persistent storage if missing from memory.
@@ -41,6 +40,7 @@ export async function loadSongCache(
       entry = data?.[storageKey] as LyricsCacheEntry | undefined;
       
       if (entry) {
+        runtimeCache.delete(key); // BUG-C2: Refresh position in Map for LRU
         runtimeCache.set(key, entry);
       }
     }
@@ -65,15 +65,11 @@ export async function loadSongCache(
         cache.processed.set(lang, processed);
     }
 
-    // Update index timestamp asynchronously via queue
-    storageQueue = storageQueue.then(async () => {
-      const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
-      const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
-      if (idx[key]) {
-        idx[key].lastAccessed = Date.now();
-        await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
-      }
-    }).catch(() => { });
+    // Update index timestamp via background to prevent races (BUG-A3)
+    browser.runtime.sendMessage({
+      type: 'SLY_UPDATE_L0_INDEX',
+      payload: { key }
+    }).catch(() => {});
 
   } catch (err) {
     console.warn('[SKaraoke:Content] loadSongCache failed:', err);
@@ -100,46 +96,35 @@ export async function saveSongCache(
     originalHash: hashString(cache.original.join('|')),
   };
 
-  // Manage runtime cache size
+  // Manage runtime cache size (BUG-C2: True LRU via delete-before-set)
+  runtimeCache.delete(key);
   runtimeCache.set(key, entry);
   if (runtimeCache.size > RUNTIME_CACHE_MAX) {
-    const oldestKey = Array.from(runtimeCache.keys())[0];
+    const oldestKey = runtimeCache.keys().next().value;
     if (oldestKey) runtimeCache.delete(oldestKey);
   }
 
-  const storageKey = `lc:${key}`;
-
-  // Manage persistent storage index and eviction via queue
-  storageQueue = storageQueue.then(async () => {
-    try {
-      const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
-      const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
-      idx[key] = { lastAccessed: entry.lastAccessed };
-
-      const keys = Object.keys(idx);
-      if (keys.length > PERSISTED_CACHE_MAX) {
-        const sorted = keys.sort((a, b) => (idx[a].lastAccessed ?? 0) - (idx[b].lastAccessed ?? 0));
-        const toEvict = sorted.slice(0, keys.length - PERSISTED_CACHE_MAX);
-        for (const k of toEvict) {
-          delete idx[k];
-          await safeBrowserCall(() => browser.storage.local.remove(`lc:${k}`));
-        }
-      }
-
-      await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
-    } catch (err: any) {
-      console.warn('[SKaraoke:Content] saveSongCache failed:', err);
-    }
-  }).catch((err) => { console.warn('[SKaraoke:Content] saveSongCache index queue failed:', err); });
+  // Delegate persistent storage write to background queue (BUG-A3)
+  browser.runtime.sendMessage({
+    type: 'SLY_SAVE_L0_CACHE',
+    payload: { key, entry, PERSISTED_CACHE_MAX }
+  }).catch((err) => {
+    console.warn('[SKaraoke:Content] saveSongCache background request failed:', err);
+    // BUG-C15: Roll back runtime cache if persistence fails to maintain coherence.
+    runtimeCache.delete(key);
+  });
 }
 
-export function deleteSongCache(key: string): void {
+export function deleteSongCache(key: string, runtimeCache: Map<string, any>): void {
   if (!key) return;
-  storageQueue = storageQueue.then(async () => {
-    const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
-    const idx = (d?.['lc_index'] ?? {}) as LyricsIndex;
-    delete idx[key];
-    await safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
-    await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
-  }).catch(() => { });
+  
+  // BUG-B14 Fix: Invalidate the in-memory cache immediately. 
+  // Before: Deletion only reached storage via background message; memory remained stale.
+  runtimeCache.delete(key);
+
+  // Delegate deletion to background queue (BUG-A3)
+  browser.runtime.sendMessage({
+    type: 'SLY_DELETE_L0_CACHE',
+    payload: { key }
+  }).catch(() => {});
 }

@@ -45,6 +45,7 @@ declare global {
 
 import { 
   deployHistoryShield, 
+  wrapHistoryForBridge,
   captureReturnPoint, 
   performAtomicRelease 
 } from '../lib/core/navigationController';
@@ -59,6 +60,7 @@ export default defineUnlistedScript(() => {
 /* ============================================================
    SECTION 0 — History Hijack (Safety Guard)
    ============================================================ */
+wrapHistoryForBridge();
 deployHistoryShield();
 
 window.slyGetFiber = function (el: Element | null): unknown {
@@ -355,20 +357,45 @@ window.slyOmniscientSearch = function (
     if (b.getAttribute('aria-label') !== 'Lyrics') {
       b.setAttribute('aria-label', 'Lyrics');
     }
+
+    // SLY FIX (BUG-C18): Re-apply Genetic Lock immediately on DOM mutation.
+    // React often replaces the memoizedProps object during reconciliation; linking re-locking
+    // to the MutationObserver microtask eliminates the "disabled flash" that occurs 
+    // when waiting for the 500ms setInterval macrotask.
+    let node = window.slyGetFiber(btn) as Record<string, unknown> | null;
+    let depth = 0;
+    while (node && depth < 35) {
+      const p = node.memoizedProps as Record<string, unknown> | undefined;
+      if (p && ('disabled' in p || 'isEnabled' in p || 'hasLyrics' in p)) {
+        window.slyApplyGeneticLock(p, 'disabled', false);
+        window.slyApplyGeneticLock(p, 'isEnabled', true);
+        window.slyApplyGeneticLock(p, 'hasLyrics', true);
+        break;
+      }
+      node = node.return as Record<string, unknown> | null;
+      depth++;
+    }
   }
 
   function setupObserver(btn: Element): void {
     if (btnObserver) btnObserver.disconnect();
     
-    // BUG FIX: Explicitly verify target is a Node to prevent "Failed to execute 'observe' on 'MutationObserver': parameter 1 is not of type 'Node'"
-    if (!(btn instanceof Node)) {
-      console.warn('[sly-shield] setupObserver aborted: target is not a valid Node.');
-      return;
-    }
+    // BUG-C18: Observe the Now Playing Bar or parent container to catch button replacements.
+    // React often replaces the entire element node; observing a stable parent ensures 
+    // we re-apply the shield as soon as a new button appears.
+    const target = btn.closest('[data-testid="now-playing-bar"]') || btn.parentElement || btn;
 
     try {
-      btnObserver = new MutationObserver(() => { enforceDOMState(btn); });
-      btnObserver.observe(btn, { attributes: true, attributeFilter: ['disabled', 'aria-label'] });
+      btnObserver = new MutationObserver(() => { 
+        const currentBtn = document.querySelector('[data-testid="lyrics-button"]');
+        if (currentBtn) enforceDOMState(currentBtn); 
+      });
+      btnObserver.observe(target, { 
+        childList: target !== btn, 
+        subtree: target !== btn,
+        attributes: true, 
+        attributeFilter: ['disabled', 'aria-label'] 
+      });
       enforceDOMState(btn);
     } catch (e) {
       console.error('[sly-shield] MutationObserver setup failed:', e);

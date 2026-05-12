@@ -44,6 +44,9 @@ export default defineUnlistedScript(() => {
 
     mxm.warmup();
 
+    // Signal that the interceptor is ready (BUG-B11)
+    window.postMessage({ type: 'SLY_INTERCEPTOR_READY' }, window.location.origin);
+
     const _fetch = window.fetch.bind(window);
     
     // ─── Fetch interceptor ────────────────────────────────────────────────────

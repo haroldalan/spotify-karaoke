@@ -12,6 +12,21 @@ const SLY_SHIELD_TAG = 'sly_shield_active';
  * Deploys the History Shield buffer if we arrived at Spotify 
  * directly at the /lyrics route.
  */
+export function wrapHistoryForBridge(): void {
+  if (typeof window === 'undefined' || (window as any).__sly_history_wrapped) return;
+  (window as any).__sly_history_wrapped = true;
+
+  const originalPushState = history.pushState;
+  history.pushState = function (...args) {
+    originalPushState.apply(this, args);
+    window.postMessage({ source: 'SLY_NAV_CHANGE' }, '*');
+  };
+
+  window.addEventListener('popstate', () => {
+    window.postMessage({ source: 'SLY_NAV_CHANGE' }, '*');
+  });
+}
+
 export function deployHistoryShield(): void {
   if (typeof window === 'undefined') return;
 

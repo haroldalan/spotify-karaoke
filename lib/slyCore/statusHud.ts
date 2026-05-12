@@ -142,7 +142,7 @@ declare global {
           console.log('[sly-hud] 🔄 Retry Fetch triggered with cache bypass...');
           
           window.slyInternalState.currentLyrics = null;
-          window.slyInternalState.fetchingForUri = '';
+          window.slyInternalState.fetchingForUri.clear();
           window.slyInternalState.warmedUri = undefined;
           
           const fullUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined || '';

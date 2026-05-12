@@ -57,12 +57,17 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.lastActiveIndex = -1;
   window.slyInternalState.currentLyrics = null;
   window.slyInternalState.fetchingForTitle = '';
-  window.slyInternalState.fetchingForUri = '';
+  window.slyInternalState.fetchingForUri.clear();
   window.slyInternalState.isUserScrolling = false;
+  if (window.slyInternalState.userScrollTimeout) {
+    clearTimeout(window.slyInternalState.userScrollTimeout);
+    window.slyInternalState.userScrollTimeout = undefined;
+  }
   window.slyInternalState.lastDecision = '';
   window.slyInternalState.songChangeTime = Date.now();
   window.slyInternalState.songSettlingUntil = Date.now() + 150;
   window.slyInternalState.panelOpenTime = 0;
+  window.slyInternalState.isTransitioning = false;
   window.slyInternalState.forceFallback = false;
   window.slyInternalState.fetchGeneration++;
   window.slyInternalState.warmedUri = undefined;
@@ -85,8 +90,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
   // UNLESS we have an L0 hit, in which case we preserve them for a seamless swap.
   const l0Hit = window.slyInternalState.l0Cache.get(uri);
-  const trackId = uri.split(':').pop();
-  const registryState = trackId ? window.slyPreFetchRegistry.getState(trackId) : null;
+  const registryState = window.slyPreFetchRegistry.getState(uri);
   
   // SLY FIX: Strict Takeover Validation. Only preserve the takeover UI if we have 
   // successful synced/plain lyrics in the cache AND the track is not handled by Pipeline B.
@@ -136,8 +140,8 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   // 5. PROACTIVE FETCH: If we already have confirmed MISSING/UNSYNCED/ROMANIZED evidence in the pre-fetch registry,
   // and the user is actively on the lyrics page, initiate the external fetch instantly at 0ms.
   // This bypasses the 500ms desync guard and the 600ms DOM settling delays!
-  if (trackId && trackId !== 'ad' && trackId !== 'N/A') {
-    const preFetch = window.slyPreFetchRegistry?.getState(trackId);
+  if (uri && uri !== 'ad' && uri !== 'N/A') {
+    const preFetch = window.slyPreFetchRegistry?.getState(uri);
     const isMissingOrUnsynced = preFetch && (
       preFetch.nativeStatus === 'MISSING' ||
       preFetch.nativeStatus === 'UNSYNCED' ||
@@ -153,7 +157,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
       const detection = typeof window.slyDetectNativeState === 'function' ? window.slyDetectNativeState() : {};
       const artist = detection.artist || window.spotifyState?.track?.artistName || '';
       const albumArtUrl = detection.albumArtUrl || window.spotifyState?.track?.image || '';
-      console.log(`[sly-ui] 🚀 PROACTIVE FETCH: Track ${newTitle} [${trackId}] is confirmed ${preFetch.nativeStatus || preFetch.state} in pre-fetch registry. Initiating instant fetch at 0ms...`);
+      console.log(`[sly-ui] 🚀 PROACTIVE FETCH: Track ${newTitle} [${uri}] is confirmed ${preFetch.nativeStatus || preFetch.state} in pre-fetch registry. Initiating instant fetch at 0ms...`);
       if (typeof window.slyTriggerLyricsFetch === 'function') {
         window.slyTriggerLyricsFetch(newTitle, artist, albumArtUrl, uri);
       }

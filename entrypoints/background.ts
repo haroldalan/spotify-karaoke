@@ -1,3 +1,5 @@
+import { enqueueStorageOperation } from '../lib/core/storageManager';
+import { safeBrowserCall } from '../lib/utils/browserUtils';
 import { processLines } from '../lib/lyrics/lyricsProcessor';
 import { lyricsCache } from '../lib/lyricsProviders/lyricsCache';
 import { lyricsPersistence } from '../lib/lyricsProviders/lyricsPersistence';
@@ -12,8 +14,11 @@ export default defineBackground(() => {
         // PROCESS fields
         lines?: string[];
         targetLang?: string;
-        // FETCH_LYRICS / PREFETCH_LYRICS fields
+        // FETCH_LYRICS / PREFETCH_LYRICS / SLY_SAVE_L0_CACHE fields
         payload?: { 
+          key?: string;
+          entry?: any;
+          PERSISTED_CACHE_MAX?: number;
           title?: string; 
           artist?: string; 
           albumArtUrl?: string; 
@@ -32,6 +37,81 @@ export default defineBackground(() => {
       sender,
       sendResponse,
     ) => {
+      // ----------------------------------------------------------------
+      // New handler: Centralized Storage Writes (BUG-A3)
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_SAVE_L0_CACHE') {
+        const { key, entry, PERSISTED_CACHE_MAX } = msg.payload ?? {};
+        if (!key || !entry) return false;
+
+        enqueueStorageOperation(async () => {
+          try {
+            const storageKey = `lc:${key}`;
+            const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
+            const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
+            idx[key] = { lastAccessed: entry.lastAccessed };
+
+            const keys = Object.keys(idx);
+            const max = PERSISTED_CACHE_MAX || 200;
+            if (keys.length > max) {
+              const sorted = keys.sort((a, b) => (idx[a].lastAccessed ?? 0) - (idx[b].lastAccessed ?? 0));
+              const toEvict = sorted.slice(0, keys.length - max);
+              for (const k of toEvict) {
+                delete idx[k];
+                await safeBrowserCall(() => browser.storage.local.remove(`lc:${k}`));
+              }
+            }
+
+            await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
+            sendResponse({ ok: true });
+          } catch (err) {
+            console.error('[SKaraoke:BG] SLY_SAVE_L0_CACHE failed:', err);
+            sendResponse({ ok: false, error: (err as Error).message });
+          }
+        });
+        return true;
+      }
+
+      if (msg.type === 'SLY_DELETE_L0_CACHE') {
+        const { key } = msg.payload ?? {};
+        if (!key) return false;
+
+        enqueueStorageOperation(async () => {
+          try {
+            const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
+            const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
+            delete idx[key];
+            await safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
+            await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+            sendResponse({ ok: true });
+          } catch (err) {
+            console.error('[SKaraoke:BG] SLY_DELETE_L0_CACHE failed:', err);
+            sendResponse({ ok: false, error: (err as Error).message });
+          }
+        });
+        return true;
+      }
+
+      if (msg.type === 'SLY_UPDATE_L0_INDEX') {
+        const { key } = msg.payload ?? {};
+        if (!key) return false;
+
+        enqueueStorageOperation(async () => {
+          try {
+            const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
+            const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
+            if (idx[key]) {
+              idx[key].lastAccessed = Date.now();
+              await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+            }
+            sendResponse({ ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: (err as Error).message });
+          }
+        });
+        return true;
+      }
+
       // ----------------------------------------------------------------
       // Existing handler: romanization + translation pipeline
       // ----------------------------------------------------------------
@@ -78,9 +158,10 @@ export default defineBackground(() => {
       if (msg.type === 'SLY_CHECK_CACHE') {
         const { title, artist, uri } = msg.payload ?? {} as any;
         const cacheKey = lyricsCache.getCacheKey(title!, artist!, uri);
+        const fallbackKey = uri ? lyricsCache.getCacheKey(title!, artist!) : undefined;
         
         (async () => {
-          const stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+          const stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
           if (stored) {
              console.log(`[sly-sw] Cache check for ${title}: Found. Native=${stored.nativeStatus || 'N/A'}, Custom=${stored.prefetchState || 'N/A'}`);
              sendResponse({ ok: true, found: true, ...stored });
@@ -121,7 +202,8 @@ export default defineBackground(() => {
           }
 
           // 2. L2: Persistent Storage Hit
-          const stored = forceRefresh ? null : await lyricsPersistence.get(cacheKey);
+          const fallbackKey = uri ? lyricsCache.getCacheKey(title, artist) : undefined;
+          const stored = forceRefresh ? null : await lyricsPersistence.get(cacheKey, fallbackKey);
           if (stored && !(stored as any).isPlaceholder) {
             console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
             
@@ -145,14 +227,16 @@ export default defineBackground(() => {
             // --- UPGRADE LOGIC ---
             const needsUpgrade = (!stored.ok && !stored.isPlaceholder) || (stored.data && stored.data.isSynced === false);
             const lastCheck = stored.lastCheckedAt || 0;
+            const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
             const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+            const retryThreshold = !stored.ok ? dayAgo : weekAgo;
  
-            if (needsUpgrade && lastCheck < weekAgo) {
+            if (needsUpgrade && lastCheck < retryThreshold) {
               console.log(`[ServiceWorker] Upgrade Check for ${title}`);
               getLyricsForTrack(title, artist, albumArtUrl, uri).then(async (fresh) => {
                 if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
                   // BUG-C3 Fix: Re-fetch current state to avoid overwriting late-arriving nativeStatus
-                  const current = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+                  const current = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
                   if (current?.nativeStatus && !fresh.nativeStatus) {
                     fresh.nativeStatus = current.nativeStatus;
                   }

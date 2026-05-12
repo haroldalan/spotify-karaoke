@@ -25,7 +25,7 @@ export interface SlyInternalState {
   isUserScrolling: boolean;
   lastActiveIndex: number;
   fetchingForTitle: string;
-  fetchingForUri: string;
+  fetchingForUri: Set<string>;
   pendingLyricsData: unknown | null;
   songChangeTime: number;
   songSettlingUntil: number;
@@ -38,12 +38,15 @@ export interface SlyInternalState {
   // Added dynamically by messaging:
   isSpotifyFetching?: boolean;
   interceptorActive?: boolean;
+  interceptorFailed?: boolean;
   nativeUpgradedLines?: string[];
   /** Set by setupSlyBridge when Pipeline B's syncedLyricsRenderer is running.
    *  slyUpdateSync reads this and yields immediately so both loops don't
    *  fight over className on the same elements. */
   slySyncedRendererActive?: boolean;
   nativeRecoveryPending?: boolean;
+  userScrollTimeout?: number;
+  isTransitioning?: boolean;
   /** L0 Session Cache: Synchronous in-memory store for lyrics objects.
    *  Eliminates async fetch delays for repeated tracks in the same session. */
   l0Cache: Map<string, any>;
@@ -55,6 +58,7 @@ declare global {
     slyInternalState?: any;
     antigravityInterval?: NodeJS.Timeout | number;
     antigravitySyncAnimFrame?: number;
+    slyStartThrottledPoll?: () => void;
   }
 }
 
@@ -93,7 +97,7 @@ export const slyInternalState: SlyInternalState = {
   isUserScrolling: false,
   lastActiveIndex: -1,
   fetchingForTitle: '',
-  fetchingForUri: '',
+  fetchingForUri: new Set<string>(),
   pendingLyricsData: null,
   songChangeTime: Date.now(),
   songSettlingUntil: 0,
@@ -102,6 +106,8 @@ export const slyInternalState: SlyInternalState = {
   isFetchingHUD: false,
   isAdHUDActive: false,
   l0Cache: new Map(),
+  interceptorActive: false,
+  interceptorFailed: false,
 };
 
 window.slyInternalState = slyInternalState;

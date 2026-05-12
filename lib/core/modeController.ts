@@ -109,7 +109,7 @@ export function createModeController(opts: ModeControllerOpts) {
           console.warn('[SKaraoke:Content] Alignment mismatch detected (Processed). DOM:', targets.length, 'Cache:', cache.original.length);
         }
         console.log(`[sly-audit] 🔮 Processed Lyrics ("${next}" mode, First 5 lines):\n`, lines.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
-        applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+        applyLinesToDOM(lines, cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
         setLoadingState(false);
       }
     } catch (err) {
