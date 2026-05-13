@@ -177,7 +177,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
-  } else if (state.preFetch?.nativeStatus === 'NATIVE_OK' || state.preFetch?.state === 'NATIVE_OK') {
+  } else if (state.preFetch?.nativeStatus === 'NATIVE_OK' || state.preFetch?.nativeStatus === 'SYNCED' || state.preFetch?.state === 'NATIVE_OK' || state.preFetch?.state === 'SYNCED') {
     // SLY FIX: If the interceptor successfully upgraded the track, stand down and reset fallback.
     if (window.slyInternalState.forceFallback) {
       console.log(`[sly-detector] ✅ EVIDENCE: Pre-fetch registry confirmed NATIVE_OK for track ${state.currentTrackId}. Resetting Fallback.`);

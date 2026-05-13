@@ -44,8 +44,6 @@ declare global {
 }
 
 import { 
-  deployHistoryShield, 
-  wrapHistoryForBridge,
   captureReturnPoint, 
   performAtomicRelease 
 } from '../lib/core/navigationController';
@@ -58,10 +56,11 @@ export default defineUnlistedScript(() => {
    ============================================================ */
 
 /* ============================================================
-   SECTION 0 — History Hijack (Safety Guard)
+   SECTION 0 — History Hijack (Safety Guard) - DISABLED
    ============================================================ */
-wrapHistoryForBridge();
-deployHistoryShield();
+// SLY FIX: History Hijack and Shield were removed to align with native Spotify behavior.
+// This ensures that Spotify's history keys (used for scroll restoration) are not corrupted.
+
 
 window.slyGetFiber = function (el: Element | null): unknown {
   if (!el) return null;

@@ -19,6 +19,7 @@ export interface LyricsCacheEntry {
   };
   lastAccessed: number;
   originalHash?: number;
+  persistedAt?: number;
 }
 
 export type LyricsIndex = {

@@ -1,4 +1,4 @@
-import { getLyricsContainer, getLyricsLines } from './domQueries';
+import { getLyricsViewRoot, getLyricsLines } from './domQueries';
 import { isContextValid } from '../utils/browserUtils';
 import { applyLinesToDOM } from './lyricsDOM';
 import type { SongCache, LyricsMode } from '../core/lyricsTypes';
@@ -14,7 +14,7 @@ export interface LyricsObserverOpts {
 }
 
 export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver | null {
-  const container = getLyricsContainer();
+  const container = getLyricsViewRoot();
   if (!container) return null;
 
   const observer = new MutationObserver(() => {

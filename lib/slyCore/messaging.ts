@@ -138,7 +138,8 @@ window.addEventListener('message', (event) => {
     }
 
     if (trackId) {
-      window.slyPreFetchRegistry.register(trackId, 'NATIVE_OK', { 
+      const fullUri = `spotify:track:${trackId}`;
+      window.slyPreFetchRegistry.register(fullUri, 'NATIVE_OK', { 
         source: 'native', 
         reason: isRomanizedUpgrade ? 'De-Romanization Success' : 'Network Upgrade Success' 
       });
@@ -157,9 +158,10 @@ window.addEventListener('message', (event) => {
 
       window.slyInternalState.pendingLyricsData = null;
       window.slyInternalState.fetchingForTitle = '';
-    if (window.slyInternalState.fetchingForUri.has(uri)) {
-      window.slyInternalState.fetchingForUri.delete(uri);
-    }
+      const uri = `spotify:track:${trackId}`;
+      if (window.slyInternalState.fetchingForUri.has(uri)) {
+        window.slyInternalState.fetchingForUri.delete(uri);
+      }
       if (window.slyClearStatus) window.slyClearStatus();
     }
   } else if (data?.type === 'SLY_MXM_WARMUP') {
@@ -212,7 +214,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
   // If we've already played this song in the current session, the lyrics are in RAM.
   // Restore them synchronously to eliminate the 2-3 frame async stutter.
   const trackId = uri?.split(':').pop();
-  const isNativeSynced = trackId ? window.slyPreFetchRegistry.getState(trackId)?.nativeStatus === 'SYNCED' : false;
+  const isNativeSynced = uri ? window.slyPreFetchRegistry.getState(uri)?.nativeStatus === 'SYNCED' : false;
 
   const l0Hit = window.slyInternalState.l0Cache.get(uri);
   if (l0Hit && !forceRefresh && !isNativeSynced) {
@@ -324,7 +326,7 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
 
   console.log(`[sly] Fetching lyrics for "${title}" by ${artist} (${uri || 'no-uri'}) — sending request to service worker...`);
 
-  const knownNativeStatus = trackId ? window.slyPreFetchRegistry.getState(trackId)?.nativeStatus : null;
+  const knownNativeStatus = uri ? window.slyPreFetchRegistry.getState(uri)?.nativeStatus : null;
 
   safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri, nativeStatus: knownNativeStatus, forceRefresh } }, (r) => {
     // STALE CHECK 1: Generation mismatch — native recovered or track changed mid-flight
@@ -352,10 +354,9 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
     }
 
     if (r?.prefetchState || r?.ok) {
-      const trackId = myUri?.split(':').pop();
-      if (trackId) {
+      if (myUri) {
         const state = r.prefetchState || ((r.data as any)?.isSynced ? 'SYNCED' : 'UNSYNCED');
-        window.slyPreFetchRegistry.register(trackId, state, {
+        window.slyPreFetchRegistry.register(myUri, state, {
           title, artist, nativeStatus: (r as any).nativeStatus,
           customStatus: state as any,
           reason: 'External Fetch Result'
@@ -371,6 +372,10 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
       if (uri) {
         const mutableData = safeClone(r.data);
         mutableData._slyUri = uri; // Ensure URI is stamped for L0 consistency
+        // BUG-16 Fix: Explicitly hydrate nativeStatus from the response root.
+        // Background upgrades (e.g. nativeMissing -> nativeStatus) are sent in the root,
+        // not inside r.data, and were previously dropped during L0 hydration.
+        if (r.nativeStatus) mutableData.nativeStatus = r.nativeStatus;
         window.slyInternalState.l0Cache.set(uri, mutableData);
       }
 
@@ -381,6 +386,19 @@ window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArt
     } else {
       console.warn(`[sly] Fetch failed for "${title}" — no lyrics found.`);
       
+      // SLY FIX: Stand-down logic. If Spotify has native unsynced/synced lyrics, 
+      // do NOT show a failure HUD. Reset forceFallback and let native take over.
+      const nativeStatus = myUri ? window.slyPreFetchRegistry.getState(myUri)?.nativeStatus : null;
+      if (nativeStatus === 'UNSYNCED' || nativeStatus === 'SYNCED' || nativeStatus === 'NATIVE_OK') {
+        console.log(`[sly] Stand-down: External fetch failed, but track has native ${nativeStatus} lyrics. Reverting to native.`);
+        window.slyInternalState.currentLyrics = null;
+        window.slyInternalState.forceFallback = false;
+        window.slyInternalState.fetchingForTitle = '';
+        if (myUri) window.slyInternalState.fetchingForUri.delete(myUri);
+        if (window.slyClearStatus) window.slyClearStatus();
+        return;
+      }
+
       // SLY FIX: Populate L0 Session Cache with failure state.
       if (uri) window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: (r?.data as any)?.extractedColor });
 

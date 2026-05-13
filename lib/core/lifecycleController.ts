@@ -56,7 +56,7 @@ export interface LifecycleControllerOpts {
   store: StateStore;
   switchMode: (m: LyricsMode, forceLang?: string, suppressLoading?: boolean) => Promise<void>;
   reapplyMode: () => Promise<void>;
-  autoSwitchIfNeeded: () => void;
+  autoSwitchIfNeeded: (forceRefresh?: boolean, cacheOverride?: SongCache) => void;
 }
 
 export function createLifecycleController(opts: LifecycleControllerOpts) {
@@ -242,7 +242,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
     const cache = opts.store.cache;
     verifyAndHealCache(cache);
-    auditOriginalLyrics(opts.store.songKey, cache, opts.store.preferredMode);
+    auditOriginalLyrics(opts.store);
 
     lyricsObserver?.disconnect();
     lyricsObserver = createLyricsObserver({
@@ -305,30 +305,29 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       }
 
       const currentUri = getTrackUri();
-      const cache = opts.store.cache;
 
       // Synchronously pre-warm from in-memory runtime cache to eliminate the async yield frame-flash (port of v3.0.6).
       const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
       if (runtimeEntry) {
-        if (cache.original.length === 0) cache.original = [...runtimeEntry.original];
+        if (opts.store.cache.original.length === 0) opts.store.cache.original = [...runtimeEntry.original];
         for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
-          if (!cache.processed.has(lang)) cache.processed.set(lang, res);
+          if (!opts.store.cache.processed.has(lang)) opts.store.cache.processed.set(lang, res);
         }
       }
 
       const syncPreferredMode = opts.store.preferredMode;
       if (syncPreferredMode !== 'original') {
         const currentActiveLang = opts.store.currentActiveLang;
-        let processed = cache.processed.get(currentActiveLang);
-        if (!processed && syncPreferredMode === 'romanized' && cache.processed.size > 0) {
-          const entries = Array.from(cache.processed.values());
+        let processed = opts.store.cache.processed.get(currentActiveLang);
+        if (!processed && syncPreferredMode === 'romanized' && opts.store.cache.processed.size > 0) {
+          const entries = Array.from(opts.store.cache.processed.values());
           processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
         }
 
         if (processed) {
-          verifyAndHealCache(cache);
-          auditOriginalLyrics(opts.store.songKey, cache, syncPreferredMode);
-          applyNativeOverride(opts.store.songKey, { cache, pendingNativeLines: opts.store.pendingNativeLines });
+          verifyAndHealCache(opts.store.cache);
+          auditOriginalLyrics(opts.store);
+          applyNativeOverride(opts.store.songKey, { cache: opts.store.cache, pendingNativeLines: opts.store.pendingNativeLines });
 
           lyricsObserver?.disconnect();
           lyricsObserver = createLyricsObserver({
@@ -344,7 +343,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           opts.store.mode = syncPreferredMode;
           const lines = syncPreferredMode === 'romanized' ? processed.romanized : processed.translated;
           const dualLyricsEnabled = opts.store.dualLyricsEnabled;
-          applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+          applyLinesToDOM(lines, dualLyricsEnabled ? opts.store.cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(syncPreferredMode);
           setLoadingState(false);
           
@@ -372,13 +371,39 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         return;
       }
 
-      verifyAndHealCache(cache);
-      auditOriginalLyrics(opts.store.songKey, cache, opts.store.preferredMode);
-      applyNativeOverride(opts.store.songKey, { cache, pendingNativeLines: opts.store.pendingNativeLines });
+      verifyAndHealCache(opts.store.cache);
+      auditOriginalLyrics(opts.store);
+      applyNativeOverride(opts.store.songKey, { cache: opts.store.cache, pendingNativeLines: opts.store.pendingNativeLines });
 
-      // Ensure the cache is warm (check runtime then storage) before proceeding.
-      // loadSongCache also performs a hash coherence check against the newly snapshotted originals.
-      await loadSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
+      // BUG-5 Fix: Only call loadSongCache if the processed map is still empty.
+      // The synchronous runtimeCache pre-warm above (lines ~311-317) or the first
+      // cacheReadyPromise call may have already populated cache. Calling loadSongCache
+      // again when data is warm is redundant and triggers an unnecessary
+      // SLY_UPDATE_L0_INDEX storage write on every panel reopen.
+      if (opts.store.cache.processed.size === 0) {
+        await loadSongCache(opts.store.songKey, opts.store.cache, opts.store.runtimeCache);
+      }
+
+      // BUG-10 Fix: If cache.original is still empty, snapshotOriginals returned
+      // early because the lyrics DOM had < 3 non-empty lines (still loading).
+      // Schedule a 500ms retry so the hash coherence gate is not bypassed on the
+      // next loadSongCache call with a populated DOM.
+      if (opts.store.cache.original.length === 0) {
+        const retryKey = opts.store.songKey;
+        setTimeout(() => {
+          // Abort if the song changed while we were waiting.
+          if (opts.store.songKey !== retryKey) return;
+          // Abort if Pipeline A has taken over.
+          if (opts.store.slyActiveContainer || document.getElementById('lyrics-root-sync')) return;
+          snapshotOriginals(opts.store.cache);
+          if (opts.store.cache.original.length > 0) {
+            console.log('[sly-lifecycle] BUG-10 retry: snapshot succeeded. Reloading cache with hash coherence.');
+            loadSongCache(retryKey, opts.store.cache, opts.store.runtimeCache).then(() => {
+              opts.reapplyMode();
+            });
+          }
+        }, 500);
+      }
 
       // State-driven pill injection: pill belongs in the native lyrics container.
       // syncPill() performs a global document search (covers document.body rescue
@@ -405,8 +430,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const preferredMode = opts.store.preferredMode;
       if (preferredMode !== 'original') {
         const currentActiveLang = opts.store.currentActiveLang;
-        let processed = cache.processed.get(currentActiveLang);
-        if (!processed && preferredMode === 'romanized' && cache.processed.size > 0) {
+        let processed = opts.store.cache.processed.get(currentActiveLang);
+        if (!processed && preferredMode === 'romanized' && opts.store.cache.processed.size > 0) {
           const entries = Array.from(cache.processed.values());
           processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
         }
@@ -415,7 +440,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           opts.store.mode = preferredMode;
           const lines = preferredMode === 'romanized' ? processed.romanized : processed.translated;
           const dualLyricsEnabled = opts.store.dualLyricsEnabled;
-          applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+          applyLinesToDOM(lines, dualLyricsEnabled ? opts.store.cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(preferredMode);
           setLoadingState(false);
           
@@ -496,6 +521,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     console.log(`[sly-lifecycle] 🔄 onSongChange triggered. Moving from "${songKey || 'None'}" ➡️ "${newKey}". Synchronously purging TAKEOVER elements.`);
     if (newKey === songKey) return;
 
+    // BUG-29 Fix: Interceptor Re-patch Check.
+    // If the interceptor heartbeat hasn't confirmed health, flag it as failed immediately 
+    // on track change to allow the DOM Engine to fall back to passive native detection.
+    if (!slyInternalState.interceptorActive) {
+      console.warn('[sly-lifecycle] Interceptor Heartbeat MISSING on track change. Flagging failure for fallback.');
+      slyInternalState.interceptorFailed = true;
+    }
+
     // Synchronously clear slyCore's currentLyrics to prevent stale restore/re-injection race conditions
     if (typeof (window as any).slyInternalState === 'object') {
       console.log('[sly-lifecycle] Synchronously clearing slyCore currentLyrics, lastDecision, fetchingForUri, and forceFallback to prevent stale restore and resolve decision engine deadlock.');
@@ -546,6 +579,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     store.isSwitchingMode = false;
     store.romanizedGenRef.value++;
     store.translatedGenRef.value++;
+    store.globalProcessGenRef.value++;
     store.switchGenRef.value++;
     lyricsObserver?.disconnect();
     lyricsObserver = null;
@@ -561,9 +595,13 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           opts.store.cache.processed.set(lang, res);
         }
       }
+      // BUG-7 Fix: Reset to null after resolution so subsequent panel reopens
+      // for the same song do not await a stale resolved promise.
       cacheReadyPromise = Promise.resolve();
+      cacheReadyPromise.finally(() => { cacheReadyPromise = null; });
     } else {
       cacheReadyPromise = loadSongCache(newKey, opts.store.cache, opts.store.runtimeCache);
+      cacheReadyPromise.finally(() => { cacheReadyPromise = null; });
     }
 
     // Clear stale container references immediately so autoSwitchIfNeeded
@@ -600,7 +638,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // Notify slyCore of the track change reactively so it no longer needs to
     // detect this in its 500ms poll. URI is sourced from window.spotifyState
     // which slyCore's scanner already populates — no new coupling.
-    document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri: getTrackUri() } }));
+    document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri } }));
   }
 
   function trySetupOrPoll(): void {
@@ -819,22 +857,23 @@ export function setupSlyBridge(
     syncPill('PIPELINE_A');
 
     // Load any previously cached translations before re-applying mode.
-    const takeoverKey = store.songKey;
-    loadSongCache(takeoverKey, store.cache, store.runtimeCache).then(() => {
-      // Race Condition Guard: If the track changed while we were waiting for the cache, abort.
-      if (store.songKey !== takeoverKey) {
-        console.warn('[sly] sly:takeover aborted: Track changed during cache wait.');
-        return;
-      }
+      const capturedCache = store.cache;
+      const takeoverKey = store.songKey;
+      loadSongCache(takeoverKey, capturedCache, store.runtimeCache).then(() => {
+        // Race Condition Guard: If the track changed while we were waiting for the cache, abort.
+        if (store.songKey !== takeoverKey) {
+          console.warn('[sly] sly:takeover aborted: Track changed during cache wait.');
+          return;
+        }
 
-      // State-driven pill injection: pill belongs in the Pipeline A container.
-      // syncPill() resolves the target deterministically from #lyrics-root-sync.
-      syncPill('PIPELINE_A');
+        // State-driven pill injection: pill belongs in the Pipeline A container.
+        // syncPill() resolves the target deterministically from #lyrics-root-sync.
+        syncPill('PIPELINE_A');
 
-      // SLY FIX: Trigger auto-switch logic immediately after takeover setup.
-      // If the cache was just healed/invalidated above, this ensures a fresh
-      // translation/romanization fetch is triggered for the correct lyrics.
-      autoSwitchIfNeeded(true);
+        // SLY FIX: Trigger auto-switch logic immediately after takeover setup.
+        // If the cache was just healed/invalidated above, this ensures a fresh
+        // translation/romanization fetch is triggered for the correct lyrics.
+        autoSwitchIfNeeded(true, capturedCache);
 
       // Start Pipeline B's RAF sync loop for synced tracks. Sets the
       // slySyncedRendererActive flag so slyCore's own loop yields immediately.

@@ -19,7 +19,7 @@ export interface FetchedLyricsResult {
   persistedAt?: number;
   lastCheckedAt?: number;
   lastAccessed?: number;
-  nativeStatus?: 'MISSING' | 'UNSYNCED' | 'ROMANIZED';
+  nativeStatus?: 'MISSING' | 'UNSYNCED' | 'ROMANIZED' | 'SYNCED' | 'NATIVE_OK';
 }
 
 export class LyricsCache {

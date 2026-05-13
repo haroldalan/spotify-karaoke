@@ -55,6 +55,10 @@ export function applyLinesToDOM(
   setApplying(true);
 
   (targetElements ?? getLyricsLines()).forEach((el, i) => {
+    // BUG-15 Fix: If the element is no longer connected to the DOM, skip it.
+    // This happens if a panel close -> reopen occurred during an async fetch.
+    // We allow 'lyrics-root-sync' even if not yet connected (during initial injection).
+    if (!el || (!el.isConnected && el.id !== 'lyrics-root-sync')) return;
     if (lines[i] === undefined) return;
 
     if (originals?.[i] !== undefined) {

@@ -19,6 +19,12 @@ export function injectControls(
   if (existing) {
     existing.classList.remove('sly-loading');
     existing.style.display = showPill ? '' : 'none';
+    
+    // BUG-19 Fix: Always sync button states even if element exists.
+    // If called twice (trySetup + syncSetup), the second call might find
+    // existing already in container but with a stale mode highlight.
+    syncButtonStates(mode);
+
     if (existing.parentElement !== container) {
       container.insertBefore(existing, container.firstChild);
     }

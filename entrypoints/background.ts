@@ -49,7 +49,7 @@ export default defineBackground(() => {
             const storageKey = `lc:${key}`;
             const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
             const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
-            idx[key] = { lastAccessed: entry.lastAccessed };
+            idx[key] = { lastAccessed: Date.now() };
 
             const keys = Object.keys(idx);
             const max = PERSISTED_CACHE_MAX || 200;
@@ -62,7 +62,9 @@ export default defineBackground(() => {
               }
             }
 
-            await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
+            const setRes = await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
+            if (setRes === null) throw new Error('Storage write failed (quota or context issue)');
+
             sendResponse({ ok: true });
           } catch (err) {
             console.error('[SKaraoke:BG] SLY_SAVE_L0_CACHE failed:', err);
@@ -81,8 +83,10 @@ export default defineBackground(() => {
             const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
             const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
             delete idx[key];
-            await safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
-            await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+            const rmRes = await safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
+            const setRes = await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+            if (rmRes === null || setRes === null) throw new Error('Storage delete failed');
+
             sendResponse({ ok: true });
           } catch (err) {
             console.error('[SKaraoke:BG] SLY_DELETE_L0_CACHE failed:', err);
@@ -102,7 +106,8 @@ export default defineBackground(() => {
             const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
             if (idx[key]) {
               idx[key].lastAccessed = Date.now();
-              await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+              const setRes = await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+              if (setRes === null) throw new Error('Index update failed');
             }
             sendResponse({ ok: true });
           } catch (err) {
@@ -381,16 +386,16 @@ export default defineBackground(() => {
 
       if (msg.type === 'SLY_NAV_BACK') {
         if (sender.tab?.id) {
-          const isEntryPoint = (globalThis as any).slyEntryPoints?.has(sender.tab.id);
+          const isEntryPoint = (msg as any).isEntryPoint || (globalThis as any).slyEntryPoints?.has(sender.tab.id);
           
           if (isEntryPoint) {
             console.log('[sly-bg] Safety Bounce: Tab is entry point. Redirecting to Spotify Home.');
             browser.tabs.update(sender.tab.id, { url: 'https://open.spotify.com/' }).catch(() => {});
-            // Remove from entry points once we've navigated to Home
-            (globalThis as any).slyEntryPoints.delete(sender.tab.id);
+            (globalThis as any).slyEntryPoints?.delete(sender.tab.id);
           } else {
-            browser.tabs.goBack(sender.tab.id).catch(() => {
-              // Fallback to Home if goBack fails
+            console.log('[sly-bg] Requesting tabs.goBack for non-entry-point navigation.');
+            browser.tabs.goBack(sender.tab.id).catch((err) => {
+              console.warn('[sly-bg] tabs.goBack failed, falling back to Home:', err.message);
               browser.tabs.update(sender.tab.id!, { url: 'https://open.spotify.com/' }).catch(() => {});
             });
           }

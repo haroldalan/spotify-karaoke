@@ -16,34 +16,54 @@ export class LyricsPersistence {
    * @param fallbackKey - Optional fallback key (e.g. title|artist if key is URI)
    */
   async get(key: string, fallbackKey?: string): Promise<FetchedLyricsResult | null> {
-    const result = await safeBrowserCall(() => browser.storage.local.get([key]));
-    let entry = result?.[key] as FetchedLyricsResult | undefined;
+    return enqueueStorageOperation(async () => {
+      const result = await safeBrowserCall(() => browser.storage.local.get([key]));
+      let entry = result?.[key] as FetchedLyricsResult | undefined;
 
-    if (!entry && fallbackKey && key !== fallbackKey) {
-      const fallbackResult = await safeBrowserCall(() => browser.storage.local.get([fallbackKey]));
-      entry = fallbackResult?.[fallbackKey] as FetchedLyricsResult | undefined;
-      
+      if (!entry && fallbackKey && key !== fallbackKey) {
+        const fallbackResult = await safeBrowserCall(() => browser.storage.local.get([fallbackKey]));
+        entry = fallbackResult?.[fallbackKey] as FetchedLyricsResult | undefined;
+        
+        if (entry) {
+          // Migration logic (BUG-C3): Upgrade legacy title|artist key to URI
+          console.log(`[LyricsPersistence] MIGRATING legacy entry: ${fallbackKey} -> ${key}`);
+          // Note: we can't call this.set() here as it would double-enqueue.
+          // Instead, we manually perform the storage logic for the migration.
+          const entryRecord: Record<string, FetchedLyricsResult> = {
+            [key]: {
+              ...entry,
+              persistedAt: entry.persistedAt || Date.now(),
+              lastCheckedAt: Date.now(),
+            }
+          };
+          await safeBrowserCall(() => browser.storage.local.set(entryRecord));
+          await safeBrowserCall(() => browser.storage.local.remove(fallbackKey));
+        }
+      }
+
       if (entry) {
-        // Migration logic (BUG-C3): Upgrade legacy title|artist key to URI
-        console.log(`[LyricsPersistence] MIGRATING legacy entry: ${fallbackKey} -> ${key}`);
-        await this.set(key, entry);
-        await safeBrowserCall(() => browser.storage.local.remove(fallbackKey));
-      }
-    }
+        const age = Date.now() - (entry.persistedAt || 0);
+        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+        if (age > THIRTY_DAYS) {
+          console.log(`[LyricsPersistence] EXPIRED (TTL): ${key}`);
+          await safeBrowserCall(() => browser.storage.local.remove(key));
+          
+          const d = await safeBrowserCall(() => browser.storage.local.get({ l2_index: [] }));
+          const l2_index = (d?.l2_index ?? []) as string[];
+          const idx = l2_index.indexOf(key);
+          if (idx !== -1) {
+            l2_index.splice(idx, 1);
+            await safeBrowserCall(() => browser.storage.local.set({ l2_index }));
+          }
 
-    if (entry) {
-      const age = Date.now() - (entry.persistedAt || 0);
-      const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-      if (age > THIRTY_DAYS) {
-        console.log(`[LyricsPersistence] EXPIRED (TTL): ${key}`);
-        await safeBrowserCall(() => browser.storage.local.remove(key));
-        return null;
+          return null;
+        }
+        console.log(`[LyricsPersistence] HIT: ${key}`);
+        return entry;
       }
-      console.log(`[LyricsPersistence] HIT: ${key}`);
-      return entry;
-    }
-    console.log(`[LyricsPersistence] MISS: ${key}`);
-    return null;
+      console.log(`[LyricsPersistence] MISS: ${key}`);
+      return null;
+    });
   }
 
   /**
@@ -67,8 +87,12 @@ export class LyricsPersistence {
         // Eviction Logic: Maintain an l2_index to track the 200 most recent fetches
         const d = await safeBrowserCall(() => browser.storage.local.get({ l2_index: [] }));
         const l2_index = (d?.l2_index ?? []) as string[];
-        let index = l2_index.filter(k => k !== key);
-        index.push(key);
+        
+        // BUG-13 Fix: Use indexOf + splice instead of O(n) filter for uniqueness.
+        const idx = l2_index.indexOf(key);
+        if (idx !== -1) l2_index.splice(idx, 1);
+        l2_index.push(key);
+        const index = l2_index;
 
         if (index.length > 200) {
           const toRemove = index.splice(0, 50);

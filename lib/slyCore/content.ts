@@ -50,9 +50,14 @@ window.addEventListener('sly_state_update', async (e) => {
 
 // 1. Session & Entry Point Detection
 const isFirstLoad = !sessionStorage.getItem('sly_session_active');
+const isLyricsEntryPoint = window.location.pathname.startsWith('/lyrics') && isFirstLoad;
+
 if (isFirstLoad) {
   sessionStorage.setItem('sly_session_active', 'true');
-  browser.runtime.sendMessage({ type: 'SLY_MARK_ENTRY_POINT' }).catch(() => {});
+  if (isLyricsEntryPoint) {
+    console.log('[sly] 🛡️ Entry Point detected on /lyrics. Marking for Safety Bounce.');
+    browser.runtime.sendMessage({ type: 'SLY_MARK_ENTRY_POINT' }).catch(() => {});
+  }
 }
 
 // BUG-B11: Interceptor Heartbeat
@@ -73,7 +78,12 @@ window.addEventListener('message', (event) => {
     console.log('[sly] Interceptor Heartbeat: Confirmed Healthy.');
   }
   if (event.data?.source === 'SLY_NAV_RELAY' && event.data?.type === 'SLY_NAV_BACK') {
-    browser.runtime.sendMessage({ type: 'SLY_NAV_BACK' }).catch(() => {});
+    // BUG-14 Fix: Include entry point flag in message. sessionStorage survives 
+    // tab reloads, while SW state (slyEntryPoints) is lost on restart.
+    browser.runtime.sendMessage({ 
+      type: 'SLY_NAV_BACK',
+      isEntryPoint: isLyricsEntryPoint
+    }).catch(() => {});
   }
 });
 
@@ -254,7 +264,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
 
   try {
     const detection = await window.slyDetectNativeState();
-    const { title, artist, albumArtUrl } = detection;
+    const { title, artist, albumArtUrl, lyricsState } = detection;
     const fullUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
 
     // BUG-C20 Fix: Desync Guard.
@@ -419,7 +429,6 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
     }
 
     // 4. DECISION ENGINE
-    const { lyricsState } = detection;
 
     // Abort if native recovered to synced mid-fetch
     if (lyricsState === 'SYNCED' && window.slyInternalState.fetchingForTitle === title && !window.slyInternalState.forceFallback) {

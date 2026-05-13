@@ -16,6 +16,12 @@ export function startStorageListener(opts: StorageListenerOpts): void {
       if (area === 'local') {
         if ('lc_index' in changes && changes.lc_index.newValue === undefined) {
           opts.store.runtimeCache.clear();
+          // BUG-12 Fix: If the cache is wiped, force-revert to original mode to
+          // maintain coherence. Otherwise, the DOM stays in a "ghost" translated
+          // state with no underlying data.
+          if (opts.store.mode !== 'original') {
+            opts.onSwitchMode('original');
+          }
         }
         return;
       }

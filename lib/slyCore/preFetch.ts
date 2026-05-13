@@ -44,21 +44,48 @@ export const slyPreFetchRegistry: SlyPreFetchRegistry = {
     
     const updated: PreFetchEntry = {
       ...existing,
-      state: state || existing.state,
       timestamp: Date.now(),
     };
+
+    const statePriority: Record<string, number> = {
+      'NATIVE_OK': 3,
+      'SYNCED': 3,
+      'UNSYNCED': 2,
+      'ROMANIZED': 1,
+      'MISSING': 0,
+      'LOADING': -1
+    };
+
+    const newPriority = statePriority[state] ?? 0;
+    const oldPriority = statePriority[existing.state] ?? 0;
+
+    if (newPriority >= oldPriority) {
+        updated.state = state;
+    } else {
+        updated.state = existing.state;
+    }
 
     // Merging Metadata: Only overwrite if the new values are actually defined
     if (metadata.title) updated.title = metadata.title as string;
     if (metadata.artist) updated.artist = metadata.artist as string;
     
     // Prioritize explicit status fields if provided in metadata
-    if (metadata.nativeStatus) updated.nativeStatus = metadata.nativeStatus as any;
+    if (metadata.nativeStatus) {
+        const newNativePriority = statePriority[metadata.nativeStatus as string] ?? 0;
+        const oldNativePriority = statePriority[existing.nativeStatus || ''] ?? -1;
+        if (newNativePriority >= oldNativePriority) {
+            updated.nativeStatus = metadata.nativeStatus as any;
+        }
+    }
     if (metadata.customStatus) updated.customStatus = metadata.customStatus as any;
 
     // Fallback: If no explicit status was provided, use the 'state' argument
     if (isNativeReport && !metadata.nativeStatus) {
-      updated.nativeStatus = state as any;
+      const newNativePriority = statePriority[state] ?? 0;
+      const oldNativePriority = statePriority[existing.nativeStatus || ''] ?? -1;
+      if (newNativePriority >= oldNativePriority) {
+        updated.nativeStatus = state as any;
+      }
     } else if (!isNativeReport && !metadata.customStatus && (state === 'SYNCED' || state === 'UNSYNCED')) {
       updated.customStatus = state as any;
     }

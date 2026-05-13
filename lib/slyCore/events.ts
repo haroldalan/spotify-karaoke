@@ -1,5 +1,6 @@
-// @ts-nocheck
 import { getLyricsViewRoot } from '../dom/domQueries';
+import { isContextValid } from '../utils/browserUtils';
+import { findActiveViewport } from '../core/navigationController';
 // Port of: lyric-test/modules/core/events.js
 /* modules/content-events.js: Global Event Observers (Navigation & Interactions) */
 
@@ -59,7 +60,16 @@ document.addEventListener('pointerdown', (e: Event) => {
       e.stopPropagation();
 
       const intent = isPressed ? 'SLY_TRIGGER_NATIVE_CLOSE' : 'SLY_TRIGGER_NATIVE_OPEN';
-      console.log(`[sly-audit] Hijacking event to prevent Spotify navigation hijack. Intent: ${intent}`);
+      const viewport = findActiveViewport();
+      const scrollPos = viewport ? viewport.scrollTop : 0;
+      
+      if (!isPressed) {
+        // Capture scroll BEFORE opening lyrics
+        console.log(`[sly-audit] Proactively saving scroll position: ${scrollPos}px`);
+        sessionStorage.setItem('sly_return_point_scroll', scrollPos.toString());
+      }
+
+      console.log(`[sly-audit] Hijacking event to prevent Spotify navigation hijack. Intent: ${intent} | Current Scroll: ${scrollPos}px`);
       window.postMessage({ source: intent }, '*');
     } else {
       console.log('[sly-audit] Bypassing hijack because provider is not null and label is not "Lyrics".');
@@ -113,6 +123,10 @@ function attachLyricsButtonObserver(): void {
 
 // Observe the DOM for the lyrics button's first appearance (or re-appearance after React reconciliation)
 const buttonFinderObserver = new MutationObserver(() => {
+  if (!isContextValid()) {
+    buttonFinderObserver.disconnect();
+    return;
+  }
   const btn = document.querySelector('[data-testid="lyrics-button"]');
   if (btn && btn !== observedButton) {
     attachLyricsButtonObserver();

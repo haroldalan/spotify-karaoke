@@ -1,51 +1,43 @@
 /**
  * navigationController.ts
  * 
- * Centralized logic for Spotify-locked navigation, History Shielding,
- * and Context-Aware "Safe Release" of the lyrics panel.
+ * Centralized logic for Spotify-locked navigation and 
+ * Context-Aware "Safe Release" of the lyrics panel.
  */
 
 const SLY_RETURN_POINT = 'sly_return_point';
-const SLY_SHIELD_TAG = 'sly_shield_active';
 
-/**
- * Deploys the History Shield buffer if we arrived at Spotify 
- * directly at the /lyrics route.
- */
-export function wrapHistoryForBridge(): void {
-  if (typeof window === 'undefined' || (window as any).__sly_history_wrapped) return;
-  (window as any).__sly_history_wrapped = true;
+export function findActiveViewport(): HTMLElement | null {
+  // 1. Search for ANY element with scroll in the entire document.
+  // This is the most reliable way in a complex SPA like Spotify.
+  const all = document.querySelectorAll('*');
+  let best = null;
+  let maxScroll = 0;
+  
+  const scrollCandidates: string[] = [];
 
-  const originalPushState = history.pushState;
-  history.pushState = function (...args) {
-    originalPushState.apply(this, args);
-    window.postMessage({ source: 'SLY_NAV_CHANGE' }, '*');
-  };
-
-  window.addEventListener('popstate', () => {
-    window.postMessage({ source: 'SLY_NAV_CHANGE' }, '*');
-  });
-}
-
-export function deployHistoryShield(): void {
-  if (typeof window === 'undefined') return;
-
-  if (!sessionStorage.getItem(SLY_SHIELD_TAG) || history.length <= 2) {
-    console.log('>>> [sly-nav] Direct entry detected. Deploying History Buffer.');
-    sessionStorage.setItem(SLY_SHIELD_TAG, 'true');
-    
-    const currentState = { ...history.state, [SLY_SHIELD_TAG]: true };
-    history.replaceState(currentState, '');
-    history.pushState({ ...currentState, is_buffer: true }, '');
+  for (let i = 0; i < all.length; i++) {
+    const el = all[i] as HTMLElement;
+    const s = el.scrollTop;
+    if (s > 0) {
+      scrollCandidates.push(`${el.tagName}.${el.className.split(' ').join('.')} (${s}px)`);
+      if (s > maxScroll) {
+        maxScroll = s;
+        best = el;
+      }
+    }
   }
 
-  // Intercept 'Back' events that breach the buffer
-  window.addEventListener('popstate', (event) => {
-    if (window.location.pathname === '/lyrics' && event.state && event.state[SLY_SHIELD_TAG] && !event.state.is_buffer) {
-      console.log('>>> [sly-nav] Shield breached. Redirecting to Spotify Home.');
-      window.location.href = '/';
-    }
-  });
+  if (scrollCandidates.length > 0) {
+    console.log(`>>> [sly-nav] Detected scrolling candidates:`, scrollCandidates);
+  }
+
+  if (best) return best;
+
+  // 2. Fallback to common Spotify containers if no active scroll is found (e.g. at the top)
+  return (document.querySelector('.os-viewport') as HTMLElement) || 
+         (document.querySelector('main') as HTMLElement) || 
+         document.documentElement;
 }
 
 /**
@@ -54,69 +46,133 @@ export function deployHistoryShield(): void {
  */
 export function captureReturnPoint(currentPath: string, lastPath: string): string {
   if (currentPath === '/lyrics' && lastPath !== '/lyrics' && lastPath !== '/') {
-    console.log(`>>> [sly-nav] Saving "${lastPath}" as return point.`);
+    // SLY FIX: Check if we have a proactively saved scroll from the click event first
+    let scrollPos = 0;
+    const proactiveScroll = sessionStorage.getItem(SLY_RETURN_POINT + '_scroll');
+    
+    if (proactiveScroll) {
+      scrollPos = parseInt(proactiveScroll);
+      console.log(`>>> [sly-nav] Using proactively saved scroll for "${lastPath}": ${scrollPos}px.`);
+    } else {
+      const viewport = findActiveViewport();
+      scrollPos = viewport ? viewport.scrollTop : 0;
+      console.log(`>>> [sly-nav] Saving "${lastPath}" as return point (Detected Scroll: ${scrollPos}px).`);
+    }
+
     sessionStorage.setItem(SLY_RETURN_POINT, lastPath);
+    sessionStorage.setItem(SLY_RETURN_POINT + '_scroll', scrollPos.toString());
+    
     return currentPath;
   }
   return currentPath;
 }
 
 /**
- * Performs a "Safe Release" by nuking Genetic Locks and executing 
- * an Atomic Navigation to the best available context.
+ * Performs a "Safe Release" by executing an Atomic Navigation 
+ * back to the original Spotify context.
  */
 export function performAtomicRelease(configPool?: Set<any>): void {
   console.log('>>> [sly-nav] Executing Atomic Safe Release...');
 
-  // 1. Fiber Nuke for the Lyrics Button
-  const btn = document.querySelector('[data-testid="lyrics-button"]');
-  if (btn) {
-    const fiberKey = Object.keys(btn).find(k => k.startsWith('__reactFiber$'));
-    let curr = (btn as any)[fiberKey!];
-    while (curr) {
-      const props = curr.memoizedProps;
-      if (props) {
-        if ('isActive' in props) {
-          Object.defineProperty(props, 'isActive', { value: false, configurable: true, enumerable: true });
+  // Helper: Nuclear Cleanup of Genetic Locks
+  const nuke = () => {
+    const btn = document.querySelector('[data-testid="lyrics-button"]');
+    if (btn) {
+      // SLY FIX: Also clear DOM attributes to prevent stale reads in events.ts
+      btn.removeAttribute('data-active');
+      btn.setAttribute('aria-pressed', 'false');
+
+      const fiberKey = Object.keys(btn).find(k => k.startsWith('__reactFiber$'));
+      let curr = (btn as any)[fiberKey!];
+      while (curr) {
+        const props = curr.memoizedProps;
+        if (props) {
+          if ('isActive' in props) {
+            Object.defineProperty(props, 'isActive', { value: false, configurable: true, enumerable: true });
+          }
+          if ('aria-pressed' in props) {
+            Object.defineProperty(props, 'aria-pressed', { value: false, configurable: true, enumerable: true });
+          }
         }
-        if ('aria-pressed' in props) {
-          Object.defineProperty(props, 'aria-pressed', { value: false, configurable: true, enumerable: true });
-        }
+        curr = curr.return;
       }
-      curr = curr.return;
     }
-  }
-
-  // 2. Deep Nuke for pooled objects (Now Playing Bar / Hub state)
-  if (configPool) {
-    configPool.forEach((obj: any) => {
-      ['isActive', 'aria-pressed', 'lyricsHub'].forEach(key => {
-        if (key in obj) {
-          Object.defineProperty(obj, key, { value: false, configurable: true, enumerable: true });
-        }
+    if (configPool) {
+      configPool.forEach((obj: any) => {
+        ['isActive', 'aria-pressed', 'lyricsHub'].forEach(key => {
+          if (key in obj) {
+            Object.defineProperty(obj, key, { value: false, configurable: true, enumerable: true });
+          }
+        });
       });
-    });
-  }
+    }
+  };
 
-  // 3. Navigation Logic
   const returnPoint = sessionStorage.getItem(SLY_RETURN_POINT);
   const track = (window as any).spotifyState?.track;
   const trackId = track?.uri?.split(':').pop() || track?.id;
 
-  if (returnPoint) {
-    console.log(`>>> [sly-nav] Navigating to Saved Context: ${returnPoint}`);
-    history.pushState(null, '', returnPoint);
-  } else if (trackId && trackId !== 'ad' && trackId !== 'N/A') {
-    console.log(`>>> [sly-nav] Navigating to Track Page: /track/${trackId}`);
-    history.pushState(null, '', `/track/${trackId}`);
-  } else {
-    console.log('>>> [sly-nav] Navigating to Home Fallback');
-    history.pushState(null, '', '/');
-  }
+  // SLY FIX: Natively, Spotify uses a 1-step push/pop history stack for lyrics.
+  // By using history.back() directly, we land on the EXACT history key that Spotify 
+  // generated when the user was scrolling, which triggers perfect native scroll restoration.
+  if (window.location.pathname.includes('/lyrics')) {
+    if (returnPoint) {
+      console.log(`>>> [sly-nav] Native-aligned Release: Returning to ${returnPoint}`);
+      history.back();
 
-  // Trigger the router update with a micro-tick to ensure the history stack has settled
-  setTimeout(() => {
-    window.dispatchEvent(new PopStateEvent('popstate'));
+      // SLY WATCHDOG: Cleanup AFTER navigation jump to ensure scroll restoration is not 
+      // interrupted by React layout shifts.
+      setTimeout(() => {
+        const path = window.location.pathname;
+        const viewport = findActiveViewport();
+        
+        if (path.includes('/lyrics')) {
+          console.warn(`>>> [sly-nav] Back-navigation stalled. Forcing pushState fallback.`);
+          history.pushState(null, '', returnPoint);
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        } else {
+          // SLY FIX: Verify scroll restoration after the 150ms window.
+          // If native history restoration drifted, we force a hard correction.
+          const savedScroll = sessionStorage.getItem(SLY_RETURN_POINT + '_scroll');
+          if (savedScroll && viewport) {
+            const targetScroll = parseInt(savedScroll);
+            const currentScroll = viewport.scrollTop;
+            if (Math.abs(currentScroll - targetScroll) > 5) {
+              console.log(`>>> [sly-nav] 🛠️ Drift detected (${currentScroll}px vs ${targetScroll}px). Correcting...`);
+              viewport.scrollTop = targetScroll;
+            } else {
+              console.log(`>>> [sly-nav] ✅ Scroll restored perfectly at ${currentScroll}px.`);
+            }
+          }
+        }
+        
+        nuke();
+        sessionStorage.removeItem(SLY_RETURN_POINT);
+        sessionStorage.removeItem(SLY_RETURN_POINT + '_scroll');
+      }, 150); // Safe margin beyond Spotify's 75ms snap window.
+      return;
+    } else if (trackId && trackId !== 'ad' && trackId !== 'N/A') {
+      console.log(`>>> [sly-nav] Fallback: Navigating to Track Page.`);
+      history.pushState(null, '', `/track/${trackId}`);
+      setTimeout(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        nuke();
+      }, 0);
+      return;
+    } else {
+      console.log('>>> [sly-nav] Fallback: Navigating to Home.');
+      history.pushState(null, '', '/');
+      setTimeout(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        nuke();
+      }, 0);
+      return;
+    }
+  } else {
+    console.log('>>> [sly-nav] Safe Release: Already outside /lyrics. Performing silent nuke.');
+    nuke();
     sessionStorage.removeItem(SLY_RETURN_POINT);
-  }, 0);
+    sessionStorage.removeItem(SLY_RETURN_POINT + '_scroll');
+  }
 }
+

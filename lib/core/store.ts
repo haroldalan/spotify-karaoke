@@ -10,6 +10,7 @@ export class StateStore {
   cache: SongCache = { original: [], processed: new Map() };
   romanizedGenRef = { value: 0 };
   translatedGenRef = { value: 0 };
+  globalProcessGenRef = { value: 0 };
   switchGenRef = { value: 0 };
   isApplying = false;
   isSwitchingMode = false;
@@ -46,11 +47,6 @@ export class StateStore {
       this.showPill = true;
     });
 
-    await safeBrowserCall(async () => {
-      // Note: We no longer bulk-load all 'lc:' keys here (BUG-26).
-      // runtimeCache is now populated on-demand by LyricsCache.get().
-    }).catch((err) => {
-      console.warn('[SKaraoke:Content] Failed to preload runtime cache from storage.local', err);
-    });
+
   }
 }

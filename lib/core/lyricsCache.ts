@@ -47,10 +47,22 @@ export async function loadSongCache(
 
     if (!entry) return;
 
-    // BUG-22: Improved hash coherence check
+    // BUG-2 Fix: 30-day TTL check on processed-lyrics cache entries.
+    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    if (entry.persistedAt && (Date.now() - entry.persistedAt) > THIRTY_DAYS) {
+      console.warn('[SKaraoke:Content] loadSongCache: Entry expired (30-day TTL). Deleting:', key);
+      runtimeCache.delete(key);
+      browser.runtime.sendMessage({ type: 'SLY_DELETE_L0_CACHE', payload: { key } }).catch(() => {});
+      return;
+    }
+
+    // BUG-1 Fix: Hash coherence check — discard + delete stale entry on mismatch.
     if (cache.original.length > 0) {
       const currentHash = hashString(cache.original.join('|'));
       if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
+        console.warn('[SKaraoke:Content] loadSongCache: Hash mismatch — discarding stale processed cache for key:', key);
+        runtimeCache.delete(key);
+        browser.runtime.sendMessage({ type: 'SLY_DELETE_L0_CACHE', payload: { key } }).catch(() => {});
         return;
       }
     }
@@ -94,6 +106,7 @@ export async function saveSongCache(
     processed: processedObj,
     lastAccessed: Date.now(),
     originalHash: hashString(cache.original.join('|')),
+    persistedAt: Date.now(), // BUG-2 Fix: Stamp write time for 30-day TTL enforcement.
   };
 
   // Manage runtime cache size (BUG-C2: True LRU via delete-before-set)
@@ -105,13 +118,20 @@ export async function saveSongCache(
   }
 
   // Delegate persistent storage write to background queue (BUG-A3)
+  // BUG-4 Fix: Inspect the background's response to catch storage failures
+  // (e.g. quota exceeded) that return { ok: false } via sendResponse — these
+  // were previously invisible because sendResponse resolves the message promise.
+  // We intentionally do NOT roll back runtimeCache or cache.processed on failure:
+  // the in-memory data is still valid for the current session; only persistence failed.
   browser.runtime.sendMessage({
     type: 'SLY_SAVE_L0_CACHE',
     payload: { key, entry, PERSISTED_CACHE_MAX }
+  }).then((resp) => {
+    if (resp && resp.ok === false) {
+      console.warn('[SKaraoke:Content] saveSongCache: background reported storage failure (quota exceeded?). Data lives in memory only for this session.', resp.error);
+    }
   }).catch((err) => {
-    console.warn('[SKaraoke:Content] saveSongCache background request failed:', err);
-    // BUG-C15: Roll back runtime cache if persistence fails to maintain coherence.
-    runtimeCache.delete(key);
+    console.warn('[SKaraoke:Content] saveSongCache: message send failed (background unavailable?):', err);
   });
 }
 

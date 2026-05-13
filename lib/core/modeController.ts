@@ -26,10 +26,10 @@ export function createModeController(opts: ModeControllerOpts) {
       .map(outer => outer.firstElementChild)
       .filter((el): el is Element => el !== null);
   };
-  async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false): Promise<void> {
+  async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false, cacheOverride?: SongCache): Promise<void> {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
-    const cache = opts.store.cache;
+    const cache = cacheOverride || opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
 
     if (next === mode && forceLang === undefined && !forceRefresh) return;
@@ -86,7 +86,7 @@ export function createModeController(opts: ModeControllerOpts) {
           processed = entries.find(e => !e.isLowQualityRomanization && e.romanized) ?? entries.find(e => e.romanized) ?? null;
         } 
         if (!processed) {
-          const genRef = next === 'romanized' ? opts.store.romanizedGenRef : opts.store.translatedGenRef;
+          const genRef = opts.store.globalProcessGenRef;
           processed = await fetchProcessed(cache.original, lang, cache, opts.store.songKey, opts.store.runtimeCache, genRef);
         }
 
@@ -166,12 +166,12 @@ export function createModeController(opts: ModeControllerOpts) {
     setLoadingState(false);
   }
 
-  function autoSwitchIfNeeded(forceRefresh = false): void {
+  function autoSwitchIfNeeded(forceRefresh = false, cacheOverride?: SongCache): void {
     if (opts.store.isSwitchingMode && !forceRefresh) return;
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     if ((mode === 'original' && preferredMode !== 'original') || forceRefresh) {
-      switchMode(preferredMode, undefined, false, forceRefresh);
+      switchMode(preferredMode, undefined, false, forceRefresh, cacheOverride);
     }
   }
 
