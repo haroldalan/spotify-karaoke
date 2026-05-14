@@ -74,7 +74,8 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   const mainBtnPressed = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
   const nativeFound = !!(mainClass && containerClass && document.querySelector(`main.${mainClass} .${containerClass}:not(#lyrics-root-sync)`));
 
-  state.isOnLyricsPage = onLyricsPath || mainBtnPressed || nativeFound;
+  const isInCooldown = Date.now() < (window.slyInternalState.panelIntentCooldown || 0);
+  state.isOnLyricsPage = !isInCooldown && (onLyricsPath || mainBtnPressed || nativeFound);
 
   if (state.isOnLyricsPage !== (window.slyInternalState as any).isOnLyricsPage) {
     console.log(`[sly-detector] 🗺️ Page Detection Change: ${state.isOnLyricsPage ? 'OPEN' : 'CLOSED'} | Path: ${onLyricsPath} | MainBtn: ${mainBtnPressed} | Native: ${nativeFound}`);

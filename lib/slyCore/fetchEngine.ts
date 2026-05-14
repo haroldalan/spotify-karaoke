@@ -33,8 +33,24 @@ export const FetchEngine = {
     // 2. L0 SESSION CACHE CHECK (Magical Seamless Swap)
     // If we've already fetched this song in the current session, restore it synchronously
     // to eliminate the "Fetching" HUD flicker entirely.
-    const isNativeSynced = slyPreFetchRegistry.getState(uri)?.nativeStatus === 'SYNCED';
-    const l0Hit = slyInternalState.l0Cache.get(uri);
+    const isNativeSynced = (window.slyPreFetchRegistry?.getState(uri)?.nativeStatus === 'SYNCED');
+    let l0Hit = slyInternalState.l0Cache.get(uri);
+
+    // SLY FIX: Bridge to persistent runtimeCache if session cache is empty
+    if (!l0Hit && window.slyRuntimeCache) {
+      const persistentHit = window.slyRuntimeCache.get(uri);
+      if (persistentHit) {
+        console.log(`[FetchEngine] ⚡ PERSISTENT CACHE HIT: Hydrating session cache for "${title}"`);
+        // Convert LyricsCacheEntry to the format expected by FetchEngine
+        l0Hit = {
+          lines: persistentHit.processed[window.slyPreferredMode || 'original'] || persistentHit.original,
+          isSynced: !!persistentHit.syncedLyrics,
+          _slyUri: uri,
+          extractedColor: persistentHit.extractedColor
+        };
+        slyInternalState.l0Cache.set(uri, l0Hit);
+      }
+    }
 
     if (l0Hit && !forceRefresh && !isNativeSynced) {
       console.log(`[FetchEngine] ⚡ L0 CACHE HIT: Seamlessly restoring state for "${title}" [${uri}]`);
@@ -134,6 +150,9 @@ export const FetchEngine = {
 
   _handleSuccess(r: any, context: any) {
     const { title, uri } = context;
+    slyInternalState.isFetchingHUD = false;
+    slyInternalState.fetchingForTitle = ''; // BUG-F1 Fix: Clear title flag immediately
+    slyInternalState.fetchingForUri.delete(uri);
     const mode = r.data?.isSynced ? 'synced (LRC)' : 'unsynced (plain)';
     console.log(`[FetchEngine] ✅ SUCCESS: "${title}" — got ${mode} lyrics.`);
 
@@ -162,13 +181,14 @@ export const FetchEngine = {
     
     // Clear HUD only if we don't have a pending injection
     // (slyCheckNowPlaying or the poll will handle the final HUD removal)
-    setTimeout(() => {
-      if (window.slyCheckNowPlaying) window.slyCheckNowPlaying();
-    }, 0);
+    if (window.slyCheckNowPlaying) window.slyCheckNowPlaying();
   },
 
   _handleFailure(r: any, context: any) {
     const { title, artist, uri } = context;
+    slyInternalState.isFetchingHUD = false;
+    slyInternalState.fetchingForTitle = ''; // BUG-F1 Fix: Clear title flag immediately
+    slyInternalState.fetchingForUri.delete(uri);
     console.warn(`[FetchEngine] ❌ FAILURE: "${title}" — no lyrics found.`);
 
     // Check for native stand-down

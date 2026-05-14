@@ -40,11 +40,14 @@ export function slyGetCoreStyles(): string {
 
         #sly-status-hud {
             display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
-            padding: 80px 64px; text-align: left; color: white; width: 100%; min-height: 500px; height: 100%;
+            padding: 80px 64px; text-align: left; 
+            color: var(--text-base, #ffffff); 
+            width: 100%; min-height: 500px; height: 100%;
             position: absolute; inset: 0; z-index: 10000;
-            overflow: hidden; background-color: #121212;
+            overflow: hidden; background-color: var(--background-base, #121212);
             box-sizing: border-box;
             flex: 1;
+            font-family: SpotifyMixUI, CircularSp-Arab, CircularSp-Hebr, CircularSp-Cyrl, CircularSp-Grek, CircularSp-Deva, sans-serif;
         }
         /* Base sly-active state: minimum interference with Spotify's main layout */
         main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active {
@@ -80,10 +83,23 @@ export function slyGetCoreStyles(): string {
             background: linear-gradient(180deg, rgba(18,18,18,0) 0%, rgba(18,18,18,0.8) 100%);
             z-index: 0;
         }
-        .sly-hud-container { position: relative; z-index: 1; box-sizing: border-box; }
-        .sly-hud-brand { text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.7; margin-bottom: 24px; font-weight: 700; }
-        .sly-hud-message { margin-bottom: 24px; line-height: 1.2; max-width: 600px; }
-        .sly-hud-subtext { opacity: 0.8; margin-bottom: 40px; max-width: 500px; }
+        .sly-hud-container { position: relative; z-index: 1; box-sizing: border-box; width: 100%; }
+        .sly-hud-brand { 
+            text-transform: uppercase; letter-spacing: 0.15em; 
+            color: var(--text-subdued, #b3b3b3);
+            margin-bottom: 24px; font-weight: 700; font-size: 12px;
+        }
+        .sly-hud-message { 
+            margin-bottom: 24px; line-height: 1.1; max-width: 800px; 
+            font-size: clamp(2rem, 4vw, 3.5rem); font-weight: 700;
+            letter-spacing: -0.04em;
+            color: var(--text-base, #ffffff);
+        }
+        .sly-hud-subtext { 
+            color: var(--text-subdued, #b3b3b3);
+            margin-bottom: 40px; max-width: 600px; font-size: 1rem;
+            line-height: 1.5;
+        }
         
         .sly-hud-cta-wrapper { display: flex; justify-content: flex-start; }
         .sly-hud-cta-wrapper a { text-decoration: none !important; }
@@ -122,38 +138,46 @@ export function slyGetCoreStyles(): string {
         }
 
         /* --- FALLBACK SPOTIFY CLONE STYLES --- */
-        /* These styles are ONLY active if the deep scavenger fails (i.e. body has .sly-fallback). 
+        /* These styles are ONLY active if the deep scavenger fails or is pending (i.e. body has .sly-fallback). 
            This prevents them from unconditionally overriding Spotify's actual native CSS. */
         
         body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
             font-family: SpotifyMixUITitle, CircularSp-Arab, CircularSp-Hebr, CircularSp-Cyrl, CircularSp-Grek, CircularSp-Deva, "Helvetica Neue", helvetica, arial, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, "MS Gothic", sans-serif;
             font-weight: 700;
-            font-size: 2.2rem;
-            line-height: 1.2;
+            /* DNA-Matched Responsive Scaling: 32px at 800px width -> 48px at 1200px width */
+            font-size: clamp(32px, 4vw, 48px);
+            line-height: normal;
+            letter-spacing: normal;
             padding: 8px 0;
             cursor: pointer;
             transform-origin: left center;
             transition: color 0.15s ease-out, transform 0.15s ease-out, opacity 0.15s ease-out !important;
-            color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
+            color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
         }
 
         body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.passedLine || 'XiH9KR6bhDwEFykV'} {
-            color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
+            color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
             opacity: 0.5;
         }
 
         body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.activeLine || 'RL7r4lsMHxMySdFr'} {
             color: var(--lyrics-color-active, #ffffff);
+            transform: scale(1.02); /* Subtle native highlight pop */
         }
 
         body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.futureLine || 'Mnf9PkrVHsX90BNf'} {
-            color: var(--lyrics-color-inactive, rgba(255, 255, 255, 0.5));
+            color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
+        }
+
+        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.unsynced || 'AQFBg9wNhDoKJHvS'} {
+            color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
+            cursor: default;
         }
 
         body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.attribution || 'NUBq_wlyuwoDUsSg'} {
-            color: var(--lyrics-color-inactive, #b3b3b3);
+            color: var(--lyrics-color-inactive, rgb(179, 179, 179));
             margin-top: 32px;
-            font-family: SpotifyMixUI, sans-serif;
+            font-family: SpotifyMixUI, CircularSp-Arab, CircularSp-Hebr, CircularSp-Cyrl, CircularSp-Grek, CircularSp-Deva, sans-serif;
             font-size: 0.88rem;
             font-weight: 400;
         }

@@ -50,6 +50,9 @@ export interface SlyInternalState {
   /** L0 Session Cache: Synchronous in-memory store for lyrics objects.
    *  Eliminates async fetch delays for repeated tracks in the same session. */
   l0Cache: Map<string, any>;
+  /** Timestamp until which automatic panel detection/takeover is suppressed.
+   *  Used to prevent "re-opening flicker" when closing panels. */
+  panelIntentCooldown: number;
 }
 
 declare global {
@@ -108,6 +111,7 @@ export const slyInternalState: SlyInternalState = {
   l0Cache: new Map(),
   interceptorActive: false,
   interceptorFailed: false,
+  panelIntentCooldown: 0,
 };
 
 window.slyInternalState = slyInternalState;

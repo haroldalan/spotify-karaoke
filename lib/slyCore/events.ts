@@ -44,6 +44,16 @@ document.addEventListener('pointerdown', (e: Event) => {
   const btn = (e.target as HTMLElement).closest('[data-testid="lyrics-button"]');
   if (btn) {
     const isPressed = btn.getAttribute('data-active') === 'true' || btn.getAttribute('aria-pressed') === 'true';
+    
+    // SLY FIX: Set intent cooldown to prevent "re-opening flicker" when closing panels.
+    // If we are CLOSING, set a 1000ms shield. If we are OPENING, clear it instantly.
+    if (isPressed) {
+      console.log('[sly-audit] Panel close intent → Setting 1000ms cooldown shield.');
+      window.slyInternalState.panelIntentCooldown = Date.now() + 1000;
+    } else {
+      window.slyInternalState.panelIntentCooldown = 0;
+    }
+
     const provider = window.spotifyState?.lyricsProvider;
     const label = btn.getAttribute('aria-label');
     console.log(`[sly-audit] 🖱️ Lyrics Button Pointerdown captured. IsPressed: ${isPressed}, Provider: ${provider}, Label: "${label}"`);

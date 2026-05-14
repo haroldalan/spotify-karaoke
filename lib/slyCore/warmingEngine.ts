@@ -47,6 +47,16 @@ export const WarmingEngine = {
         this.handleCacheResult(data);
       }
     });
+
+    // 4. Proactive Boot-time Check: Warm the currently playing song immediately
+    // We wait 100ms for Spotify's DOM and the Bridge to settle.
+    setTimeout(() => {
+      const meta = MetadataEngine.getNowPlaying();
+      if (meta.uri && meta.title && meta.artist) {
+        console.log(`[WarmingEngine] 🌊 BOOT-TIME WARMING: Triggering cache check for "${meta.title}"`);
+        this.warmTrack(meta.uri, meta.title, meta.artist);
+      }
+    }, 100);
   },
 
   /**

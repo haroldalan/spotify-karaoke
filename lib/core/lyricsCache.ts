@@ -91,6 +91,12 @@ export async function prewarmRuntimeCache(runtimeCache: Map<string, LyricsCacheE
   }
 }
 
+// SLY FIX: Expose the runtimeCache to window so FetchEngine can bridge to it
+if (typeof window !== 'undefined') {
+  (window as any).slyRuntimeCache = new Map();
+}
+export const runtimeCache: Map<string, LyricsCacheEntry> = (window as any).slyRuntimeCache;
+
 /**
  * Retrieves a lyric entry from the runtime cache or persistent storage.
  * BUG-26: Lazy-load from persistent storage if missing from memory.
