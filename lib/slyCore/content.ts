@@ -127,7 +127,11 @@ document.addEventListener('sly:panel_close', () => {
   if (syncBtn) syncBtn.remove();
   
   const main = getLyricsViewRoot() as HTMLElement | null;
-  if (main) { main.classList.remove('sly-active'); main.style.display = ''; }
+  if (main) { 
+    main.classList.remove('sly-active'); 
+    main.classList.remove('sly-hud-active');
+    main.style.display = ''; 
+  }
   
   const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
   const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';

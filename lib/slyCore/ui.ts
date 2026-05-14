@@ -100,6 +100,10 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   const isTakeoverHit = !!(l0Hit && !l0Hit.failed && !isNativeSynced && (l0Hit.lines || l0Hit.syncedLyrics || l0Hit.plainLyrics));
 
   if (!isTakeoverHit) {
+    // SLY FIX: Rescue the mode pill before nuking the container
+    const pill = document.getElementById('sly-mode-pill');
+    if (pill) document.body.appendChild(pill);
+
     document.dispatchEvent(new CustomEvent('sly:release'));
     document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
     window.slyInternalState.customRoot = null;
@@ -108,6 +112,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
   if (main && !isTakeoverHit) {
     main.classList.remove('sly-active');
+    main.classList.remove('sly-hud-active');
     main.style.display = '';
     main.style.position = '';
   }

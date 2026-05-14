@@ -55,7 +55,7 @@ export function slyGetCoreStyles(): string {
         }
 
         /* Lock main parent scrolling and force layout ONLY when HUD (Loading/Error) is active */
-        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-active:has(#sly-status-hud) {
+        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-hud-active {
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;

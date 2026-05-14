@@ -28,6 +28,11 @@ export const StatusEngine = {
                            (slyInternalState.currentLyrics as Record<string, any> | null)?.extractedColor;
 
     window.slyMirrorNativeTheme(root, { extractedColor }, nativeRef);
+    
+    // SLY FIX: Explicitly mark the main container as HUD-active to trigger layout locking.
+    // This replaces the finicky CSS :has() selector which was causing scroll-freeze in Firefox.
+    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
+    if (main) main.classList.add('sly-hud-active');
 
     // 2. HUD Construction
     let hud = document.getElementById('sly-status-hud');
@@ -90,13 +95,20 @@ export const StatusEngine = {
       if (nativeRef) nativeRef.style.display = '';
 
       const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
-      if (main) main.classList.remove('sly-active');
+      if (main) {
+        main.classList.remove('sly-active');
+        main.classList.remove('sly-hud-active');
+      }
 
       hud.remove();
 
       // Clean up empty sync shell
       const root = document.getElementById('lyrics-root-sync');
       if (root && !root.querySelector('[data-testid="lyrics-line"]')) {
+        // SLY FIX: Rescue the mode pill before nuking the container
+        const pill = document.getElementById('sly-mode-pill');
+        if (pill) document.body.appendChild(pill);
+        
         root.remove();
       }
     }
