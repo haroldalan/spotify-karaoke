@@ -32,6 +32,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Romanized Tab Casing**: Implemented an on-the-fly capitalization transform for processed lyrics, ensuring the first letter of each line is capitalized (e.g., "(dha-" -> "(Dha-") for both new and cached entries.
 - **Bridge Reliability (Flicker Guard)**: Tapered the bridge-level toggle timeout from 300ms to 100ms, improving responsiveness and preventing "double-toggle" races during rapid interactions.
 - **State Ownership Consolidation**: Fixed a state desync bug by unifying the `window` scope and module-import references under a single mutable object, ensuring all components see the same track metadata in real-time.
+- **Sync Button Restoration**: Surgically fixed a miswired activation call in the `TakeoverEngine` that prevented the floating "Sync" button from appearing on custom synced lyrics.
+- **Intentional Auto-Scroll Behavior**: Removed the 5-second inactivity timeout for auto-scrolling. Lyrics sync now remains paused indefinitely when the user scrolls away, allowing for uninterrupted reading.
+- **Context-Aware Auto-Resume**: Implemented auto-resume logic that intelligently snaps back to sync only when the user manually scrolls the active line back into view, or when the song naturally progresses into the user's current viewport.
 - **Systematic Audit Remediation**: Successfully completed a comprehensive 41-point technical audit and remediation, resolving all verified logic, security, and DOM stability findings.
 
 ## [3.1.1] — 2026-05-08
