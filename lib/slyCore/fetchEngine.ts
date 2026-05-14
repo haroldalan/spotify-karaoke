@@ -14,13 +14,13 @@ export const FetchEngine = {
   /**
    * Initiates a lyric fetch for a track.
    */
-  triggerFetch(title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false) {
+  triggerFetch(title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false, album?: string, duration?: number) {
     // 1. Validation & Throttle
     if (!uri || uri === 'ad' || uri === 'N/A') return;
     if (!forceRefresh && (slyInternalState.fetchingForUri.has(uri) || (slyInternalState.lastUri === uri && slyInternalState.currentLyrics?.lines))) return;
 
     // Use MetadataEngine to ensure we have valid fields
-    const meta = { title, artist, albumArtUrl, uri };
+    const meta = { title, artist, albumArtUrl, uri, album, duration };
     if (!MetadataEngine.isValidForFetch(meta)) return;
 
     const myGeneration = slyInternalState.fetchGeneration;
@@ -100,7 +100,7 @@ export const FetchEngine = {
       type: 'FETCH_LYRICS', 
       payload: { title, artist, albumArtUrl, uri, nativeStatus, forceRefresh } 
     }, (r) => {
-      this.handleFetchResult(r, { title, artist, albumArtUrl, uri, myGeneration, myUri });
+      this.handleFetchResult(r, { title, artist, albumArtUrl, uri, myGeneration, myUri, album, duration });
     });
   },
 

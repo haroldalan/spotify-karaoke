@@ -161,7 +161,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
       if (MetadataEngine.isValidForFetch(meta)) {
         console.log(`[sly-ui] 🚀 PROACTIVE FETCH: Track ${newTitle} [${uri}] is confirmed ${preFetch.nativeStatus || preFetch.state} in pre-fetch registry. Initiating instant fetch at 0ms...`);
         if (typeof window.slyTriggerLyricsFetch === 'function') {
-          window.slyTriggerLyricsFetch(newTitle, meta.artist, meta.albumArtUrl, uri);
+          window.slyTriggerLyricsFetch(newTitle, meta.artist, meta.albumArtUrl, uri, false, meta.album, meta.duration);
         }
       }
     }

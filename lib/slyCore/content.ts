@@ -309,11 +309,12 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
             StatusEngine.show(
               "Even Spotify Karaoke couldn't find the lyrics for this song.",
               'You can help the community by adding them to the open-source database.',
-              true
+              true,
+              { title, artist, album: detection.album, duration: detection.duration, albumArtUrl }
             );
           } else {
             console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
-            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, albumArtUrl });
+            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, album: detection.album, duration: detection.duration, albumArtUrl });
           }
           return;
         }
@@ -375,7 +376,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
           console.log(`[sly-dom] 🚨 DECISION: Fallback needed (${lyricsState}). Attempting fetch...`);
           window.slyInternalState.lastDecision = decision;
         }
-        window.slyTriggerLyricsFetch(title, artist, albumArtUrl || '', fullUri || '');
+        window.slyTriggerLyricsFetch(title, artist, albumArtUrl || '', fullUri || '', false, detection.album, detection.duration);
       } else if (lyricsState === 'SYNCED' || lyricsState === 'NATIVE_OK') {
         const decision = `synced_or_ok:${title}`;
         if (window.slyInternalState.lastDecision !== decision) {

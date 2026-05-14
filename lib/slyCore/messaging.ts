@@ -6,7 +6,7 @@ import { StatusEngine } from './statusEngine';
 
 declare global {
   interface Window {
-    slyTriggerLyricsFetch: (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh?: boolean) => void;
+    slyTriggerLyricsFetch: (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh?: boolean, album?: string, duration?: number) => void;
     slyCheckNowPlaying?: () => void;
     slyStartThrottledPoll?: () => void;
   }
@@ -129,6 +129,6 @@ export function safeSendMessage(msg: Record<string, unknown>, callback?: (r: any
 }
 
 // --- FETCH TRIGGER ---
-window.slyTriggerLyricsFetch = (title, artist, albumArtUrl, uri, forceRefresh = false) => {
-  FetchEngine.triggerFetch(title, artist, albumArtUrl, uri, forceRefresh);
+window.slyTriggerLyricsFetch = (title, artist, albumArtUrl, uri, forceRefresh = false, album?, duration?) => {
+  FetchEngine.triggerFetch(title, artist, albumArtUrl, uri, forceRefresh, album, duration);
 };

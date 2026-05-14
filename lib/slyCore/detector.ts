@@ -1,5 +1,6 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/detector.js
+import { getTrackDuration } from '../utils/spotifyUtils';
 /* modules/content-detector.js: Spotify DOM & State Scanner */
 
 export interface DetectorState {
@@ -11,6 +12,8 @@ export interface DetectorState {
   currentTrackId: string | undefined;
   title: string;
   artist: string;
+  album: string | undefined;
+  duration: number | undefined; // Duration in seconds
   albumArtUrl: string | undefined;
   preFetch: import('./preFetch').PreFetchEntry | null;
 }
@@ -38,6 +41,8 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     currentTrackId: (trackRecord?.uri as string)?.split(':').pop(),
     title: (trackRecord?.name as string) || '',
     artist: (trackRecord?.metadata as any)?.artist_name || (trackRecord?.artists as any)?.[0]?.name || '',
+    album: (trackRecord?.metadata as any)?.album_title || (trackRecord?.album as any)?.name || '',
+    duration: getTrackDuration(trackRecord),
     albumArtUrl: (trackRecord?.metadata as Record<string, string>)?.image_large_url ||
                  ((trackRecord?.images as Record<string, string>[])?.[0]?.url),
     preFetch: null,

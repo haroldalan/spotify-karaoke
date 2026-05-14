@@ -1,11 +1,14 @@
 // @ts-nocheck
 import { spotifyState } from './state';
 import { getNowPlayingTrackId } from '../dom/domQueries';
+import { getTrackDuration } from '../utils/spotifyUtils';
 
 export interface TrackMetadata {
   uri: string | undefined;
   title: string;
   artist: string;
+  album: string | undefined;
+  duration: number | undefined; // Duration in seconds
   albumArtUrl: string | undefined;
 }
 
@@ -37,13 +40,21 @@ export const MetadataEngine = {
                    track?.artistName || 
                    '';
 
-    // 4. Resolve Album Art
+    // 4. Resolve Album
+    const album = track?.metadata?.album_title || 
+                  track?.album?.name || 
+                  '';
+
+    // 5. Resolve Duration
+    const duration = getTrackDuration(track);
+
+    // 6. Resolve Album Art
     const albumArtUrl = track?.metadata?.image_large_url || 
                         track?.images?.[0]?.url || 
                         track?.image || 
                         undefined;
 
-    return { uri, title, artist, albumArtUrl };
+    return { uri, title, artist, album, duration, albumArtUrl };
   },
 
   /**

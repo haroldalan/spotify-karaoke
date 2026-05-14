@@ -63,7 +63,7 @@ export const StatusEngine = {
     content += `</div>`;
     hud.innerHTML = content;
 
-    if (isError) this._attachErrorListeners(hud, title, artist, artUrl, metadata?.uri);
+    if (isError) this._attachErrorListeners(hud, title, artist, artUrl, metadata?.uri, metadata);
 
     // 3. State Management
     slyInternalState.statusHUDActive = true;
@@ -109,10 +109,16 @@ export const StatusEngine = {
     const lrcLibUrl = new URL('https://lrclibup.boidu.dev/');
     lrcLibUrl.searchParams.set('title', title);
     lrcLibUrl.searchParams.set('artist', artist);
+    if (metadata?.album) lrcLibUrl.searchParams.set('album', metadata.album);
+    
+    // Duration Logic: Ensure we have a valid number
+    if (metadata?.duration) {
+      lrcLibUrl.searchParams.set('duration', metadata.duration.toString());
+    }
     
     return `
       <div class="sly-hud-cta-wrapper" style="display: flex; gap: 12px; margin-top: 16px; justify-content: flex-start; flex-wrap: wrap;">
-        <a href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnPrimary || 'e-10451-legacy-button e-10451-legacy-button-primary'}">
+        <a id="sly-hud-lrc-btn" href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnPrimary || 'e-10451-legacy-button e-10451-legacy-button-primary'}">
           <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnPrimaryInner || 'e-10451-button-primary__inner'} encore-inverted-light-set e-10451-legacy-button--medium">Add lyrics to LRCLIB</span>
         </a>
         <a id="sly-hud-retry-btn" href="#" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnSecondary || 'e-10451-legacy-button e-10451-legacy-button-secondary'}" style="cursor: pointer; transition: transform 0.2s ease; text-decoration: none;">
@@ -122,7 +128,21 @@ export const StatusEngine = {
     `;
   },
 
-  _attachErrorListeners(hud: HTMLElement, title: string, artist: string, artUrl: string, uri: string) {
+  _attachErrorListeners(hud: HTMLElement, title: string, artist: string, artUrl: string, uri: string, metadata: any) {
+    const lrcBtn = hud.querySelector('#sly-hud-lrc-btn');
+    if (lrcBtn) {
+      lrcBtn.addEventListener('click', () => {
+        console.log('[StatusEngine] 📊 LRCLIB contribution metadata:', {
+          title,
+          artist,
+          album: metadata?.album,
+          duration: metadata?.duration,
+          uri,
+          url: lrcBtn.getAttribute('href')
+        });
+      });
+    }
+
     const retryBtn = hud.querySelector('#sly-hud-retry-btn');
     if (retryBtn) {
       retryBtn.addEventListener('click', (e) => {
@@ -130,7 +150,7 @@ export const StatusEngine = {
         e.stopPropagation();
         console.log('[StatusEngine] 🔄 User triggered manual retry...');
         if (window.slyTriggerLyricsFetch) {
-          window.slyTriggerLyricsFetch(title, artist, artUrl, uri, true);
+          window.slyTriggerLyricsFetch(title, artist, artUrl, uri, true, metadata?.album, metadata?.duration);
         }
       });
     }
