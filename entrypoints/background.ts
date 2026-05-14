@@ -5,6 +5,7 @@ import { lyricsCache } from '../lib/lyricsProviders/lyricsCache';
 import { lyricsPersistence } from '../lib/lyricsProviders/lyricsPersistence';
 import { getLyricsForTrack, getColorOnly } from '../lib/lyricsProviders/lyricsEngine';
 import { mxmProvider } from '../lib/lyricsProviders/mxm';
+import { hashString } from '../lib/utils/hashUtils';
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
@@ -231,13 +232,25 @@ export default defineBackground(() => {
             
             // SLY FIX: Look ahead for a processed cache entry (lc: prefix) 
             // to eliminate the "shimmer" where original lyrics appear before romanized ones.
-            if (uri) {
+            // STALE DATA GUARD: Only merge if the hash of the stored original lines
+            // matches the plainLyrics of the current fetch result. This prevents
+            // Unsynced romanization from being applied to Synced LRC lines (index shift).
+            if (uri && stored.ok && stored.data?.plainLyrics) {
               const lcKey = `lc:${uri}`;
               const lcResult = await safeBrowserCall(() => browser.storage.local.get([lcKey]));
               const lcEntry = lcResult?.[lcKey];
-              if (lcEntry?.processed) {
-                console.log(`[ServiceWorker] L2 PROCESSED HIT: Merging romanization/translation for ${title}`);
-                stored.processed = lcEntry.processed;
+              
+              if (lcEntry?.processed && lcEntry.originalHash) {
+                // Compute hash of current plainLyrics to compare
+                const currentPlain = stored.data.plainLyrics;
+                const currentHash = hashString(currentPlain.split('\n').join('|'));
+                
+                if (lcEntry.originalHash === currentHash) {
+                  console.log(`[ServiceWorker] L2 PROCESSED HIT: Merging verified romanization for ${title}`);
+                  stored.processed = lcEntry.processed;
+                } else {
+                  console.warn(`[ServiceWorker] L2 PROCESSED IGNORED: Hash mismatch for ${title} (Source lyrics changed).`);
+                }
               }
             }
 

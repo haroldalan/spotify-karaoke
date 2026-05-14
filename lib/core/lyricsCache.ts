@@ -1,26 +1,9 @@
 import { isContextValid, safeBrowserCall } from '../utils/browserUtils';
+import { hashString } from '../utils/hashUtils';
 import type { SongCache, LyricsCacheEntry, LyricsIndex } from './lyricsTypes';
 
 const RUNTIME_CACHE_MAX = 50; // BUG-15: Increased from 10
 const PERSISTED_CACHE_MAX = 200;
-
-/**
- * Robust string hash (53-bit safe integer).
- * Improved version of DJB2 with better entropy for longer strings.
- * BUG-22 fix.
- */
-function hashString(str: string): number {
-  const normalized = str.replace(/\s+/g, '');
-  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
-  for (let i = 0, ch; i < normalized.length; i++) {
-    ch = normalized.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
-}
 
 // ---------------------------------------------------------------------------
 // Session-storage mirror
