@@ -216,9 +216,7 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   }
 
   const newLines = isSynced ? originalLines : texts.map((t: string) => ({ time: 0, text: t }));
-  if (!lyricsObj.lines || (lyricsObj.lines as any[]).length !== newLines.length) {
-    lyricsObj.lines = newLines;
-  }
+  lyricsObj.lines = newLines;
 
   const topSpacer = document.createElement('div');
   topSpacer.className = window.SPOTIFY_CLASSES.topSpacer;

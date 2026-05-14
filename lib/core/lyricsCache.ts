@@ -139,6 +139,7 @@ export async function loadSongCache(
     if (entry.persistedAt && (Date.now() - entry.persistedAt) > THIRTY_DAYS) {
       console.warn('[SKaraoke:Content] loadSongCache: Entry expired (30-day TTL). Deleting:', key);
       runtimeCache.delete(key);
+      try { sessionStorage.removeItem(SESSION_KEY(key)); } catch {}
       browser.runtime.sendMessage({ type: 'SLY_DELETE_L0_CACHE', payload: { key } }).catch(() => {});
       return;
     }
@@ -149,6 +150,7 @@ export async function loadSongCache(
       if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
         console.warn('[SKaraoke:Content] loadSongCache: Hash mismatch — discarding stale processed cache for key:', key);
         runtimeCache.delete(key);
+        try { sessionStorage.removeItem(SESSION_KEY(key)); } catch {}
         browser.runtime.sendMessage({ type: 'SLY_DELETE_L0_CACHE', payload: { key } }).catch(() => {});
         return;
       }
@@ -233,6 +235,7 @@ export function deleteSongCache(key: string, runtimeCache: Map<string, any>): vo
   // BUG-B14 Fix: Invalidate the in-memory cache immediately. 
   // Before: Deletion only reached storage via background message; memory remained stale.
   runtimeCache.delete(key);
+  try { sessionStorage.removeItem(SESSION_KEY(key)); } catch {}
 
   // Delegate deletion to background queue (BUG-A3)
   browser.runtime.sendMessage({

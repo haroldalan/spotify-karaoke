@@ -31,6 +31,17 @@ export const TakeoverEngine = {
     }
 
     const sly = window as any;
+
+    // Synced takeovers must be built from the current LRC source, never from a
+    // stale plain-lyrics snapshot captured before the upgrade completed.
+    if (lyricsObj.isSynced) {
+      const parsedLines = sly.slyParseLRC?.(String(lyricsObj.syncedLyrics || '')) || [];
+      if (parsedLines.length === 0) {
+        console.warn('[TakeoverEngine] ABORT: Synced takeover has no parsed LRC lines.');
+        return;
+      }
+      lyricsObj.lines = parsedLines;
+    }
     
     // 2. PRE-INJECTION MIRRORING (Sync)
     // We do this BEFORE any async yields to eliminate the "background flash".

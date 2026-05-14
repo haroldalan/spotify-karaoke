@@ -2,7 +2,7 @@ import { safeBrowserCall } from '../utils/browserUtils';
 import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
-import { loadSongCache, saveSongCache, warmRuntimeCacheFromSession } from './lyricsCache';
+import { deleteSongCache, loadSongCache, saveSongCache, warmRuntimeCacheFromSession } from './lyricsCache';
 import { injectControls, syncButtonStates, setLoadingState, setButtonsDisabled, CONTROLS_ID } from '../dom/lyricsControls';
 import { parkPill } from '../dom/pillStateManager';
 import { createLyricsObserver } from '../dom/lyricsObserver';
@@ -51,6 +51,20 @@ function getVerbalLines(lines: string[]): string[] {
         lower !== '(instrumental)'
       );
     });
+}
+
+function sameLines(a?: string[], b?: string[]): boolean {
+  return !!a && !!b && a.length === b.length && a.every((line, i) => line === b[i]);
+}
+
+function getTakeoverSourceLines(lyricsObj: Record<string, unknown>): string[] {
+  if (lyricsObj.isSynced) {
+    const parsed = (window as any).slyParseLRC?.(String(lyricsObj.syncedLyrics || '')) || [];
+    return parsed.map((line: { text: string }) => line.text);
+  }
+  if (typeof lyricsObj.plainLyrics === 'string') return lyricsObj.plainLyrics.split('\n');
+  if (Array.isArray(lyricsObj.lines)) return lyricsObj.lines.map((line: any) => String(line?.text ?? line ?? ''));
+  return [];
 }
 
 export interface LifecycleControllerOpts {
@@ -953,6 +967,10 @@ export function setupSlyBridge(
       slyInternalState.isFetchingHUD = false;
 
       const { lyricsObj, isInstant } = (e as CustomEvent<{ lyricsObj: Record<string, unknown>, isInstant?: boolean }>).detail;
+
+      if (lyricsObj.isSynced && lyricsObj.processed) {
+        delete lyricsObj.processed;
+      }
       
       // SLY FIX: "Pre-Inject Cache Hydration"
       // The background script's lc: key uses the Spotify URI, but the content script's
@@ -961,17 +979,18 @@ export function setupSlyBridge(
       // We fix this here, before TakeoverEngine renders, by looking up the correct key.
       if (store.preferredMode !== 'original' && !lyricsObj.processed) {
         const songKey = store.songKey || getNowPlayingKey();
+        const sourceLines = getTakeoverSourceLines(lyricsObj);
         if (songKey) {
           // Fast path: check in-memory runtime cache (zero latency)
           const runtimeEntry = store.runtimeCache.get(songKey);
-          if (runtimeEntry?.processed && Object.keys(runtimeEntry.processed).length > 0) {
+          if (runtimeEntry?.processed && Object.keys(runtimeEntry.processed).length > 0 && sameLines(runtimeEntry.original, sourceLines)) {
             lyricsObj.processed = runtimeEntry.processed;
           } else {
             // Slow path: read from persistent storage using the correct key
             const storageKey = `lc:${songKey}`;
             const data = await safeBrowserCall(() => browser.storage.local.get(storageKey));
             const entry = data?.[storageKey] as { processed?: Record<string, unknown> } | undefined;
-            if (entry?.processed && Object.keys(entry.processed).length > 0) {
+            if (entry?.processed && Object.keys(entry.processed).length > 0 && sameLines((entry as any).original, sourceLines)) {
               lyricsObj.processed = entry.processed;
             }
           }
@@ -1021,6 +1040,7 @@ export function setupSlyBridge(
       const plainSnippet = plainLines.slice(0, 3).join(' | ');
       console.log(`[sly-lifecycle] 🔄 Cache Invalidation: Takeover data differs from Native snapshot. Clearing processed map.\nOld: "${origSnippet}"\nNew: "${plainSnippet}"`);
       store.cache.processed.clear();
+      deleteSongCache(targetKey, store.runtimeCache);
     }
 
     store.cache.original = plainLines;

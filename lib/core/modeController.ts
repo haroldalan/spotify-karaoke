@@ -27,6 +27,12 @@ export function createModeController(opts: ModeControllerOpts) {
       .map(outer => outer.firstElementChild)
       .filter((el): el is Element => el !== null);
   };
+
+  const hasAlignedProcessedLines = (processed: ProcessedCache, mode: LyricsMode, expected: number): boolean => {
+    const lines = mode === 'romanized' ? processed.romanized : processed.translated;
+    return Array.isArray(lines) && lines.length === expected;
+  };
+
   async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false, cacheOverride?: SongCache): Promise<void> {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
@@ -88,6 +94,11 @@ export function createModeController(opts: ModeControllerOpts) {
           const entries = Array.from(cache.processed.values());
           processed = entries.find(e => !e.isLowQualityRomanization && e.romanized) ?? entries.find(e => e.romanized) ?? null;
         } 
+        if (processed && !hasAlignedProcessedLines(processed, next, cache.original.length)) {
+          console.warn('[SKaraoke:Content] Stale processed cache rejected. Mode:', next, 'Processed:', (next === 'romanized' ? processed.romanized : processed.translated)?.length, 'Original:', cache.original.length);
+          cache.processed.clear();
+          processed = null;
+        }
         if (!processed) {
           const genRef = opts.store.globalProcessGenRef;
           processed = await fetchProcessed(cache.original, lang, cache, opts.store.songKey, opts.store.runtimeCache, genRef);
@@ -158,6 +169,13 @@ export function createModeController(opts: ModeControllerOpts) {
         console.warn(`[SKaraoke:Mode] reapplyMode: Data missing for ${mode}. Triggering recovery fetch.`);
         await switchMode(mode, undefined, true, true);
       }
+      return;
+    }
+
+    if (!hasAlignedProcessedLines(processed, mode, cache.original.length)) {
+      console.warn('[SKaraoke:Mode] reapplyMode: stale processed cache rejected. Recomputing.');
+      cache.processed.clear();
+      await switchMode(mode, undefined, true, true);
       return;
     }
 
