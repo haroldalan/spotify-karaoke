@@ -908,6 +908,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   return { trySetup, syncSetup, pollForLyricsContainer, onSongChange, trySetupOrPoll, syncPill, quickApply };
 }
 
+
+
 /**
  * Registers listeners for the sly:takeover and sly:release events dispatched
  * by slyCore's domEngine/ui modules.
@@ -944,6 +946,7 @@ export function setupSlyBridge(
     passedClass: () => window.SPOTIFY_CLASSES?.passedLine ?? '',
     futureClass: () => window.SPOTIFY_CLASSES?.futureLine ?? '',
     isUserScrolling: () => slyInternalState.isUserScrolling,
+    setUserScrolling: (v: boolean) => { slyInternalState.isUserScrolling = v; },
     onActiveIndexChange: (index) => { slyInternalState.lastActiveIndex = index; },
   });
 

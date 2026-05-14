@@ -24,15 +24,12 @@ function handleUserInteraction(e: Event): void {
   if (lyricsRoot && e.target && lyricsRoot.contains(e.target as Node)) {
     window.slyInternalState.isUserScrolling = true;
     
-    // SLY FIX (BUG-C21): Reset the 5-second inactivity timer on every interaction.
-    // If the user stops interacting for 5 seconds, auto-scroll is allowed to resume.
+    // Auto-resume timeout removed as per new UX requirements. 
+    // Resume only on scroll-back-to-view or Sync button click.
     if (window.slyInternalState.userScrollTimeout) {
       clearTimeout(window.slyInternalState.userScrollTimeout);
-    }
-    window.slyInternalState.userScrollTimeout = setTimeout(() => {
-      window.slyInternalState.isUserScrolling = false;
       window.slyInternalState.userScrollTimeout = undefined;
-    }, 5000);
+    }
   }
 }
 

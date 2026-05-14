@@ -47,6 +47,12 @@ export interface SyncedRendererOpts {
   isUserScrolling: () => boolean;
 
   /**
+   * Sets the user scrolling state. Used to resume auto-scroll when the active
+   * line enters the viewport. Optional — no-op if not supplied.
+   */
+  setUserScrolling?: (val: boolean) => void;
+
+  /**
    * Called each time the active line index changes. The caller uses this to
    * keep external state (e.g. slyInternalState.lastActiveIndex) current for
    * the Sync button scroll handler. Optional — no-op if not supplied.
@@ -121,6 +127,22 @@ export function createSyncedLyricsRenderer(opts: SyncedRendererOpts) {
           behavior: isFirstActivation ? 'instant' : 'smooth',
           block: 'center',
         });
+      }
+    }
+
+    // SLY FIX: New UX Requirement - Auto-resume on scroll-into-view
+    // This allows the renderer to "snap" back to auto-scrolling if the user
+    // manually scrolls back to the active line, or if the active line
+    // naturally progresses into the user's current viewport.
+    if (opts.isUserScrolling() && outerEls[activeIndex]) {
+      const elRect = (outerEls[activeIndex] as HTMLElement).getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const topSafe = viewportHeight * 0.2;
+      const bottomSafe = viewportHeight * 0.8;
+      const isInView = (elRect.top >= topSafe) && (elRect.bottom <= bottomSafe);
+      
+      if (isInView) {
+        opts.setUserScrolling?.(false);
       }
     }
 

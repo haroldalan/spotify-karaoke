@@ -117,8 +117,8 @@ export const TakeoverEngine = {
     console.log(`[TakeoverEngine] ✅ SUCCESS: Custom lyrics are now live.`);
 
     // 7. SYNC BUTTON SETUP
-    if (lyricsObj.isSynced && typeof sly.slyUpdateSyncButton === 'function') {
-      sly.slyUpdateSyncButton();
+    if (lyricsObj.isSynced && typeof sly.slySetupSyncButton === 'function') {
+      sly.slySetupSyncButton(lyricsObj);
     }
   },
 
