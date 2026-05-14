@@ -79,30 +79,33 @@ export const StatusEngine = {
   /**
    * Clears the Status HUD and restores native UI visibility.
    */
-  clear(): void {
+  clear(preserveState = false): void {
     const hud = document.getElementById('sly-status-hud');
-    if (!hud) return;
+    
+    if (hud) {
+      console.log(`[StatusEngine] 🧹 Clearing HUD and restoring native visibility (Preserve State: ${preserveState}).`);
 
-    console.log('[StatusEngine] 🧹 Clearing HUD and restoring native visibility.');
+      // Restore native container
+      const nativeRef = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
+      if (nativeRef) nativeRef.style.display = '';
 
-    // Restore native container
-    const nativeRef = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
-    if (nativeRef) nativeRef.style.display = '';
+      const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
+      if (main) main.classList.remove('sly-active');
 
-    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
-    if (main) main.classList.remove('sly-active');
+      hud.remove();
 
-    hud.remove();
-
-    // Clean up empty sync shell
-    const root = document.getElementById('lyrics-root-sync');
-    if (root && !root.querySelector('[data-testid="lyrics-line"]')) {
-      root.remove();
+      // Clean up empty sync shell
+      const root = document.getElementById('lyrics-root-sync');
+      if (root && !root.querySelector('[data-testid="lyrics-line"]')) {
+        root.remove();
+      }
     }
 
-    slyInternalState.statusHUDActive = false;
-    slyInternalState.isFetchingHUD = false;
-    slyInternalState.isAdHUDActive = false;
+    if (!preserveState) {
+      slyInternalState.statusHUDActive = false;
+      slyInternalState.isFetchingHUD = false;
+      slyInternalState.isAdHUDActive = false;
+    }
   },
 
   _buildErrorCta(title: string, artist: string, metadata: any) {

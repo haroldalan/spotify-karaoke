@@ -104,7 +104,8 @@ document.addEventListener('sly:panel_close', () => {
   window.slyInternalState.pendingLyricsData = null;
 
   // SLY FIX (BUG-36): Always clear the status HUD on panel close to prevent orphaned overlays.
-  StatusEngine.clear();
+  // We use preserveState=true so that reopening the panel can recover the "Fetching" HUD.
+  StatusEngine.clear(true);
 
   const root = document.getElementById('lyrics-root-sync');
   if (root) {
@@ -289,7 +290,8 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
     if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed || 
         window.slyInternalState.isFetchingHUD || 
         window.slyInternalState.isAdHUDActive ||
-        window.slyInternalState.fetchingForTitle) {
+        window.slyInternalState.fetchingForTitle ||
+        window.slyInternalState.fetchingForUri.size > 0) {
       if (!document.getElementById('sly-status-hud')) {
         // Safety Exit: If we actually have valid lyrics in the state, do not restore a loading HUD.
         if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
@@ -310,11 +312,11 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
               "Even Spotify Karaoke couldn't find the lyrics for this song.",
               'You can help the community by adding them to the open-source database.',
               true,
-              { title, artist, album: detection.album, duration: detection.duration, albumArtUrl }
+              { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri }
             );
           } else {
             console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
-            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, album: detection.album, duration: detection.duration, albumArtUrl });
+            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri });
           }
           return;
         }

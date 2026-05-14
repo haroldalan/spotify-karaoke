@@ -23,6 +23,10 @@ export const FetchEngine = {
     const meta = { title, artist, albumArtUrl, uri, album, duration };
     if (!MetadataEngine.isValidForFetch(meta)) return;
 
+    if (forceRefresh) {
+      slyInternalState.fetchGeneration++;
+    }
+
     const myGeneration = slyInternalState.fetchGeneration;
     const myUri = uri;
 
@@ -59,6 +63,8 @@ export const FetchEngine = {
     }
 
     slyInternalState.fetchingForUri.add(uri);
+    slyInternalState.fetchingForTitle = title;
+    slyInternalState.currentLyrics = null; // Clear old results/failures for clean HUD recovery
     console.log(`[FetchEngine] 🚀 INITIATING FETCH: "${title}" by ${artist} [URI: ${uri}]`);
 
     // 3. HUD GRACE PERIOD (Seamless Hits)

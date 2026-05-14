@@ -33,6 +33,11 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
 
 window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
 
+// Helper to strip directional icon classes that cause asymmetrical padding
+const sanitizeBtn = (cls: string) => cls.split(' ')
+  .filter(c => !c.includes('--leading') && !c.includes('--trailing') && !c.includes('--icon'))
+  .join(' ');
+
 /**
  * DYNAMIC CLASS SCAVENGER
  * Inspects live Spotify elements to discover updated hashed classes.
@@ -117,9 +122,9 @@ export const slyScavengeClasses = function (): void {
     .find(el => (el.className.includes('bold') || el.className.includes('medium')) && !(el as HTMLElement).dataset.testid) ||
     document.querySelector('[data-encore-id="buttonPrimary"]'); // Safe fallback if strict matches fail
   if (btn) {
-    window.SPOTIFY_CLASSES.btnPrimary = btn.className;
+    window.SPOTIFY_CLASSES.btnPrimary = sanitizeBtn(btn.className);
     const inner = btn.querySelector('span');
-    if (inner) window.SPOTIFY_CLASSES.btnPrimaryInner = inner.className;
+    if (inner) window.SPOTIFY_CLASSES.btnPrimaryInner = sanitizeBtn(inner.className);
   }
 
   // Secondary Button (Surgically excludes small, text-only, or icon-only variants)
@@ -131,9 +136,9 @@ export const slyScavengeClasses = function (): void {
       return !(el as HTMLElement).dataset.testid && !isSmall && !isTextOnly;
     });
   if (btnSec) {
-    window.SPOTIFY_CLASSES.btnSecondary = btnSec.className;
+    window.SPOTIFY_CLASSES.btnSecondary = sanitizeBtn(btnSec.className);
     const inner = btnSec.querySelector('span');
-    if (inner) window.SPOTIFY_CLASSES.btnSecondaryInner = inner.className;
+    if (inner) window.SPOTIFY_CLASSES.btnSecondaryInner = sanitizeBtn(inner.className);
   }
   
   // 6. Deep CSS Scavenge (Background fetch to bypass CORS)
