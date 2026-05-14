@@ -36,7 +36,7 @@ export function snapshotOriginals(cache: SongCache): void {
  * Capitalizes the first alphabetic character in a string, preserving any leading
  * non-alphabetic characters (e.g., "(dha" -> "(Dha").
  */
-function capitalizeLine(line: string): string {
+export function capitalizeLine(line: string): string {
   if (!line) return line;
   return line.replace(/^([^a-zA-Z]*)([a-z])/, (match, prefix, firstChar) => {
     return prefix + firstChar.toUpperCase();

@@ -17,7 +17,10 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
       opts.onInvalidate();
       return;
     }
-    let songChangedInBatch = false;
+
+    let lyricsFoundInBatch = false;
+
+    // Pass 1: update active song state before any lyrics setup runs.
     for (const mut of mutations) {
       if (
         mut.type === 'attributes' &&
@@ -25,7 +28,6 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
         (mut.target as Element).matches('[data-testid="now-playing-widget"]')
       ) {
         opts.onSongChange(getNowPlayingKey());
-        songChangedInBatch = true;
       }
 
       if (
@@ -37,34 +39,48 @@ export function createDomObserver(opts: DomObserverOpts): MutationObserver {
       ) {
         opts.onLyricsPanelClosed?.();
       }
+
       if (mut.type === 'childList') {
-        let lyricsFound = false;
         for (const node of mut.addedNodes) {
           if (!(node instanceof Element)) continue;
-          if (
-            node.matches('[data-testid="lyrics-line"]') ||
-            node.querySelector('[data-testid="lyrics-line"]')
-          ) {
-            // Do not react to slyCore's own injected lines — they use the same
-            // testid but belong to a separate DOM strategy that Pipeline B must
-            // not touch. Same guard as detector.ts:93.
-            if ((node as Element).closest('#lyrics-root-sync')) continue;
-            lyricsFound = true;
-            break;
-          }
-        }
-        
-        if (lyricsFound && !songChangedInBatch) {
-          opts.onLyricsInjected();
-        }
-
-        for (const node of mut.removedNodes) {
-          if (node instanceof Element && node.id === CONTROLS_ID) {
-            opts.onControlsRemoved();
+          const widget = node.matches('[data-testid="now-playing-widget"]')
+            ? node
+            : node.querySelector('[data-testid="now-playing-widget"]');
+          if (widget) {
+            const key = widget.getAttribute('aria-label') ?? '';
+            if (key) opts.onSongChange(key);
             break;
           }
         }
       }
+    }
+
+    // Pass 2: now that song state/cache warmup has run, react to lyrics DOM.
+    for (const mut of mutations) {
+      if (mut.type !== 'childList') continue;
+
+      for (const node of mut.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (
+          node.matches('[data-testid="lyrics-line"]') ||
+          node.querySelector('[data-testid="lyrics-line"]')
+        ) {
+          if (node.closest('#lyrics-root-sync')) continue;
+          lyricsFoundInBatch = true;
+          break;
+        }
+      }
+
+      for (const node of mut.removedNodes) {
+        if (node instanceof Element && node.id === CONTROLS_ID) {
+          opts.onControlsRemoved();
+          break;
+        }
+      }
+    }
+
+    if (lyricsFoundInBatch) {
+      opts.onLyricsInjected();
     }
   });
 

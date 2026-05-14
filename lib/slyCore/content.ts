@@ -2,6 +2,8 @@
 import { isContextValid, safeClone } from '../utils/browserUtils';
 import { slyAdManager } from './adManager';
 import { getLyricsLines, getLyricsViewRoot } from '../dom/domQueries';
+import { WarmingEngine } from './warmingEngine';
+import { StatusEngine } from './statusEngine';
 
 declare global {
   interface Window {
@@ -25,28 +27,10 @@ document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles').forEach(node 
 // Note: Internal extension state is now managed by window.slyInternalState in modules/state-manager.js
 window.slyCheckNowPlaying = slyCheckNowPlaying;
 
-window.addEventListener('sly_state_update', async (e) => {
-  await window.slyCheckNowPlaying();
+// 0. Initialize Warming Engine (Proactive Hydration)
+WarmingEngine.init();
 
-  // SLY FIX (Magical Seamless Swap): Queue Pre-warming.
-  // Proactively fetch lyrics for the next 2 songs in the queue so they are in L0
-  // before the user even clicks "Next".
-  const queue = (e as CustomEvent).detail?.queue as any[];
-  if (Array.isArray(queue) && queue.length > 0) {
-    const nextTracks = queue.slice(0, 2);
-    nextTracks.forEach(track => {
-      const { title, artist, albumArtUrl, id, uri } = track;
-      const fullUri = uri || `spotify:track:${id}`;
-      // Only pre-fetch if not already in L0 or currently fetching
-      if (!window.slyInternalState.l0Cache.has(fullUri) && !window.slyInternalState.fetchingForUri.has(fullUri)) {
-        // console.log(`[sly-queue] Pre-warming next track: ${title} [${fullUri}]`);
-        if (window.slyTriggerLyricsFetch) {
-          window.slyTriggerLyricsFetch(title, artist, albumArtUrl, fullUri);
-        }
-      }
-    });
-  }
-});
+// (Formerly sly_state_update listener for queue warming - now handled by WarmingEngine)
 
 // 1. Session & Entry Point Detection
 const isFirstLoad = !sessionStorage.getItem('sly_session_active');
@@ -87,66 +71,6 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// BUG-31 Fix: Listen for results from the bridge (Extension world)
-window.addEventListener('message', (event) => {
-  const data = event.data as Record<string, any>;
-  if (data?.source === 'SLY_BRIDGE_CACHE_RESULT') {
-    const { uri, result, error } = data;
-    
-    // Guard: Song changed while we were asking the background script
-    // Guard: Song changed while we were asking the background script
-    const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
-    
-    // BUG-C10 Fix: Always clear the warming flag if we received a response for it,
-    // regardless of whether the track changed, to prevent stale blocking.
-    if (window.slyInternalState.warmingUri === uri) {
-      window.slyInternalState.warmingUri = undefined;
-    }
-
-    if (currentUri !== uri) return;
-
-    window.slyInternalState.warmedUri = uri; // Mark as settled
-
-    if (error) return;
-
-    if (result?.found) {
-       console.log(`[sly] 🧠 Proactive Cache Hit: Native=${result.nativeStatus || 'N/A'}, Custom=${result.prefetchState || 'N/A'}`);
-       
-       // SLY FIX: Hydrate L0 session cache from the persistent result.
-       // This allows the next "skip" to this song to be a synchronous 0ms swap.
-       // We now cache failures as well to eliminate the async flash.
-       if (result.ok && result.data) {
-         const mutableData = safeClone(result.data);
-         mutableData._slyUri = uri; // Ensure URI is stamped for L0 consistency
-         window.slyInternalState.l0Cache.delete(uri); // BUG-C2/C8: Refresh LRU
-         window.slyInternalState.l0Cache.set(uri, mutableData);
-       } else {
-         // Even if result.data exists (e.g. for color), if ok is false, it's a failure.
-         window.slyInternalState.l0Cache.delete(uri);
-         window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: result.data?.extractedColor || result.extractedColor });
-       }
-
-       // BUG-C8: Cap l0Cache size to prevent memory leaks in long sessions
-       if (window.slyInternalState.l0Cache.size > 50) {
-         const oldestKey = window.slyInternalState.l0Cache.keys().next().value;
-         if (oldestKey) window.slyInternalState.l0Cache.delete(oldestKey);
-       }
-
-          const targetState = (result.nativeStatus === 'SYNCED' || result.nativeStatus === 'NATIVE_OK')
-            ? 'NATIVE_OK'
-            : (result.prefetchState || 'MISSING');
-          window.slyPreFetchRegistry.register(uri, targetState, {
-            title: data.title, 
-            nativeStatus: result.nativeStatus,
-            customStatus: result.prefetchState,
-            reason: 'Persistent Cache Hit'
-          });
-    } else {
-       console.log(`[sly] 🆕 First Play: No cache record found for ${data.title}.`);
-    }
-  }
-});
-
 // Note: Pipeline B's lifecycleController.ts onSongChange detects track changes reactively
 // via aria-label mutation and dispatches 'sly:song_change'. Our own 500ms poll (Step 1.5)
 // and the 'sly_state_update' bridge listener (line 26) ensure redundant coverage.
@@ -180,7 +104,7 @@ document.addEventListener('sly:panel_close', () => {
   window.slyInternalState.pendingLyricsData = null;
 
   // SLY FIX (BUG-36): Always clear the status HUD on panel close to prevent orphaned overlays.
-  if (window.slyClearStatus) window.slyClearStatus();
+  StatusEngine.clear();
 
   const root = document.getElementById('lyrics-root-sync');
   if (root) {
@@ -234,7 +158,7 @@ document.addEventListener('sly:song_change', async (e) => {
   window.slyInternalState.isTransitioning = true;
   
   // Clear the HUD immediately on skip to prevent ghost error messages
-  if (window.slyClearStatus) window.slyClearStatus();
+  StatusEngine.clear();
   
   // Reset the poll loop to start fresh for the new song
   if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
@@ -277,21 +201,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       return;
     }
 
-    // 0. PROACTIVE CACHE WARMING
-    // Try to seed the registry from the background database as soon as we have a URI.
-    // This runs on every tick until warmedUri matches fullUri, covering cold starts.
-    if (fullUri && fullUri.startsWith('spotify:track:') && window.slyInternalState.warmedUri !== fullUri && window.slyInternalState.warmingUri !== fullUri) {
-      // SLY FIX: Set flag synchronously and use a separate 'warming' flag to prevent race conditions
-      window.slyInternalState.warmingUri = fullUri;
-
-      // BUG-31 Fix: browser.runtime is undefined in MAIN world in Chrome.
-      // Route via window.postMessage to slyBridge.ts (Extension world).
-      // SLY FIX (BUG-38): Use window.location.origin instead of '*' for better security.
-      window.postMessage({ 
-        type: 'SLY_CHECK_CACHE', 
-        payload: { title, artist, uri: fullUri } 
-      }, window.location.origin);
-    }
+    // (Formerly PROACTIVE CACHE WARMING - now handled by WarmingEngine)
 
     // 0. UNIVERSAL ORPHAN GUARD
     // Runs before the ad check so it catches the case where the button was
@@ -316,7 +226,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         // If it's missing or we haven't marked it active yet, show it.
         if (!hud || !window.slyInternalState.isAdHUDActive) {
           console.log('[sly] Ad HUD: Injecting/Restoring...');
-          window.slyShowStatus('Ad Break', slyAdManager.getAdMessage(), false, { isAd: true });
+          StatusEngine.show('Ad Break', slyAdManager.getAdMessage(), false, { isAd: true });
         }
       }
       return;
@@ -393,17 +303,17 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         } else {
           if (window.slyInternalState.isAdHUDActive) {
             console.log('[sly] Restore: Re-injecting Ad HUD...');
-            window.slyShowStatus('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
+            StatusEngine.show('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
           } else if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed) {
             console.log('[sly] Restore: Re-injecting failure HUD...');
-            window.slyShowStatus(
+            StatusEngine.show(
               "Even Spotify Karaoke couldn't find the lyrics for this song.",
               'You can help the community by adding them to the open-source database.',
               true
             );
           } else {
             console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
-            window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, albumArtUrl });
+            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, albumArtUrl });
           }
           return;
         }
@@ -436,7 +346,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       window.slyInternalState.fetchGeneration++;
       window.slyInternalState.fetchingForTitle = '';
       window.slyInternalState.nativeRecoveryPending = true;
-      if (window.slyClearStatus) window.slyClearStatus();
+      StatusEngine.clear();
       return;
     }
 
@@ -512,7 +422,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri.clear();
-        if (window.slyClearStatus) window.slyClearStatus();
+        StatusEngine.clear();
         document.dispatchEvent(new CustomEvent('sly:panel_close'));
         return;
       }
@@ -522,7 +432,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri.clear();
-        if (window.slyClearStatus) window.slyClearStatus();
+        StatusEngine.clear();
         return;
       }
 
@@ -545,12 +455,15 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri.clear();
-        if (window.slyClearStatus) window.slyClearStatus();
+        StatusEngine.clear();
 
         console.log(`[sly] Takeover complete. Current Lyrics:`, window.slyInternalState.currentLyrics);
         
         document.dispatchEvent(new CustomEvent('sly:inject', {
-          detail: { lyricsObj: safeClone(data) },
+          detail: { 
+            lyricsObj: safeClone(data),
+            isInstant: !!data.isInstant 
+          },
         }));
       } else {
         // SLY FIX: If we "took over" but have no content, we must mark as failed 
@@ -561,7 +474,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
         window.slyInternalState.fetchingForUri.clear();
-        if (window.slyClearStatus) window.slyClearStatus();
+        StatusEngine.clear();
       }
     }
 

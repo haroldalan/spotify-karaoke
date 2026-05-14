@@ -31,6 +31,8 @@ export class StateStore {
   setupLock = false;
   lockOwnerKey: string | null = null;
   lastAuditedSongKey = '';
+  /** Song key whose lyrics have actually been written into the DOM. */
+  lyricsAppliedForKey = '';
 
   async loadFromStorage(): Promise<void> {
     await safeBrowserCall(async () => {

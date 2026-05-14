@@ -17,14 +17,12 @@ export function injectControls(
 ): void {
   const existing = document.getElementById(CONTROLS_ID);
   if (existing) {
-    existing.classList.remove('sly-loading');
+    // injectControls is a PLACEMENT function — it positions the pill and
+    // updates button labels, but does NOT clear sly-loading.
+    // Shimmer state is exclusively managed by setLoadingState(false), called
+    // by whichever code path has confirmed the content is ready.
     existing.style.display = showPill ? '' : 'none';
-    
-    // BUG-19 Fix: Always sync button states even if element exists.
-    // If called twice (trySetup + syncSetup), the second call might find
-    // existing already in container but with a stale mode highlight.
     syncButtonStates(mode);
-
     if (existing.parentElement !== container) {
       container.insertBefore(existing, container.firstChild);
     }
@@ -36,6 +34,9 @@ export function injectControls(
   wrap.className = 'sly-lyrics-controls';
   if (!showPill) wrap.style.display = 'none';
 
+  // Visual fakeout: show preferredMode as active even when mode is still 'original'
+  // (during the loading window before processed lyrics arrive). This prevents
+  // the pill buttons from visually "resetting" to Original on every song change.
   const displayMode =
     mode === 'original' && preferredMode !== 'original' ? preferredMode : mode;
 
@@ -81,5 +82,7 @@ export function setLoadingState(loading: boolean): void {
     // Clear from BOTH possible containers to be safe against late-arriving results
     document.getElementById('lyrics-root-sync')?.classList.remove('sly-loading');
     getLyricsContainer()?.classList.remove('sly-loading');
+    // Also clear the loading marker from the pill element itself (added by parkPill).
+    document.getElementById(CONTROLS_ID)?.classList.remove('sly-loading');
   }
 }

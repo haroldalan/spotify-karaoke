@@ -1,16 +1,14 @@
 // @ts-nocheck
-// Port of: lyric-test/modules/core/messaging.js
 import { safeClone } from '../utils/browserUtils';
-// modules/content-messaging.js
-// Handles cross-script communication and fetch triggering
-//
-// Adaptation note: chrome.runtime → browser.runtime (WXT polyfill, Promise-based)
+import { FetchEngine } from './fetchEngine';
+
+import { StatusEngine } from './statusEngine';
 
 declare global {
   interface Window {
     slyTriggerLyricsFetch: (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh?: boolean) => void;
-    // Forward ref from content.js (not yet ported) — guarded in source via setTimeout
     slyCheckNowPlaying?: () => void;
+    slyStartThrottledPoll?: () => void;
   }
 }
 
@@ -25,7 +23,6 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
     const fresh = (message.payload as Record<string, unknown>)?.data;
     if (!fresh) return;
     
-    // SLY FIX: Populate L0 Session Cache for instant synchronous restoration on next play.
     const uri = (message.payload as Record<string, unknown>)?.uri as string;
     if (uri) window.slyInternalState.l0Cache.set(uri, safeClone(fresh));
 
@@ -36,6 +33,7 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
 
 // --- MAIN WORLD MESSAGE BRIDGE ---
 window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
   const data = event.data as Record<string, unknown> | undefined;
 
   if (data?.type === 'SLY_FETCH_START') {
@@ -43,66 +41,22 @@ window.addEventListener('message', (event) => {
 
   } else if (data?.type === 'SLY_FETCH_END') {
     window.slyInternalState.isSpotifyFetching = false;
-    // Debounced retry covering slow React renders of the lyrics panel DOM.
     if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
 
   } else if (data?.type === 'SLY_INTERCEPT_START') {
-    const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
-    if (data.trackId && currentTrackId && data.trackId !== currentTrackId) return;
-
-    console.log(`[sly-dom] ⏳ Interceptor is paused, waiting for Musixmatch. Suspending DOM Engine decisions.`);
     window.slyInternalState.interceptorActive = true;
 
   } else if (data?.type === 'SLY_INTERCEPT_END') {
-    const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
-    if (data.trackId && currentTrackId && data.trackId !== currentTrackId) return;
-
-    console.log(`[sly-dom] ⏳ Interceptor finished. Resuming DOM Engine decisions.`);
     window.slyInternalState.interceptorActive = false;
-    if (window.slyStartThrottledPoll) window.slyStartThrottledPoll(); // Give React a moment to render the result
+    if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
 
   } else if (data?.type === 'SLY_FORCE_FALLBACK') {
-    const trackId = data.trackId as string | undefined;
-    const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
-
-    let metadata: Record<string, unknown> | null = null;
-    if (trackId === currentTrackId) {
-      const track = window.spotifyState?.track as Record<string, unknown>;
-      metadata = {
-        title: track?.name,
-        artist: (track?.artists as Record<string, string>[])?.[0]?.name,
-        albumArtUrl: (track?.metadata as Record<string, string>)?.image_large_url ||
-                     (track?.images as Record<string, string>[])?.[0]?.url,
-      };
-    }
-
-    if (trackId) {
-      const fullUri = `spotify:track:${trackId}`;
-      window.slyPreFetchRegistry.register(fullUri, 'ROMANIZED', { ...(metadata ?? {}), source: 'native', reason: 'Network Intercept (Romanized)' });
-    }
-
-    if (trackId && currentTrackId && trackId !== currentTrackId) {
-      return;
-    }
-
     console.log(`[sly-dom] 🚨 Layer 1 failed to de-romanize track. Forcing Layer 2 (YTM) fallback...`);
     window.slyInternalState.forceFallback = true;
     setTimeout(window.slyCheckNowPlaying, 100);
 
   } else if (data?.type === 'SLY_PREFETCH_REPORT') {
-    const trackId = data.trackId as string;
-    const state = data.state as string;
-    const nativeStatus = data.nativeStatus as 'MISSING' | 'UNSYNCED' | 'ROMANIZED' | undefined;
-    const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
-
-    let metadata: Record<string, unknown> | null = null;
-    if (trackId === currentTrackId) {
-      const track = window.spotifyState?.track as Record<string, unknown>;
-      metadata = {
-        title: track?.name,
-        artist: (track?.artists as Record<string, string>[])?.[0]?.name,
-      };
-    }
+    const { trackId, state, nativeStatus, metadata } = data;
     if (trackId) {
       const fullUri = `spotify:track:${trackId}`;
       window.slyPreFetchRegistry.register(fullUri, state, {
@@ -113,30 +67,8 @@ window.addEventListener('message', (event) => {
       });
     }
 
-    // SLY FIX: Persist interceptor discovery to Background so it survives sessions.
-    if (nativeStatus && metadata) {
-      safeSendMessage({
-        type: 'SLY_REPORT_NATIVE_STATUS',
-        payload: {
-          title: metadata.title as string,
-          artist: metadata.artist as string,
-          uri: `spotify:track:${trackId}`,
-          status: nativeStatus
-        }
-      });
-    }
-
   } else if (data?.type === 'SKL_NATIVE_LYRICS') {
-    const trackId = data.trackId as string;
-    const nativeLines = data.nativeLines as string[];
-    const isRomanizedUpgrade = data.isRomanizedUpgrade as boolean;
-    
-    if (isRomanizedUpgrade) {
-      console.log(`[sly-dom] 🤝 BRIDGE: Layer 1 (Network) successfully de-romanized track ${trackId}.`);
-    } else {
-      console.log(`[sly-dom] 🤝 BRIDGE: Layer 1 (Network) successfully upgraded track ${trackId}. External fallback not required.`);
-    }
-
+    const { trackId, nativeLines, isRomanizedUpgrade } = data;
     if (trackId) {
       const fullUri = `spotify:track:${trackId}`;
       window.slyPreFetchRegistry.register(fullUri, 'NATIVE_OK', { 
@@ -145,24 +77,15 @@ window.addEventListener('message', (event) => {
       });
     }
 
-    // Optional: Store native lines in internal state for UI tagging
     const currentTrackId = (window.spotifyState?.track as Record<string, unknown>)?.uri?.toString()?.split(':').pop();
     if (trackId === currentTrackId) {
       window.slyInternalState.nativeUpgradedLines = nativeLines;
-      
-      // BUG-38 Fix: If a takeover was already in progress or active (e.g. from a cache hit),
-      // we MUST clean it up now that the network has recovered native lyrics.
       if (window.slyInternalState.currentLyrics || window.slyInternalState.isFetchingHUD) {
         document.dispatchEvent(new CustomEvent('sly:panel_close'));
       }
-
       window.slyInternalState.pendingLyricsData = null;
       window.slyInternalState.fetchingForTitle = '';
-      const uri = `spotify:track:${trackId}`;
-      if (window.slyInternalState.fetchingForUri.has(uri)) {
-        window.slyInternalState.fetchingForUri.delete(uri);
-      }
-      if (window.slyClearStatus) window.slyClearStatus();
+      StatusEngine.clear();
     }
   } else if (data?.type === 'SLY_MXM_WARMUP') {
     safeSendMessage({ type: 'SLY_MXM_WARMUP' });
@@ -188,7 +111,7 @@ window.addEventListener('message', (event) => {
  * Promise-based wrapper for browser.runtime.sendMessage with built-in 
  * context-invalidation safety.
  */
-function safeSendMessage(msg: Record<string, unknown>, callback?: (r: any) => void): Promise<any> {
+export function safeSendMessage(msg: Record<string, unknown>, callback?: (r: any) => void): Promise<any> {
   if (browser.runtime?.id) {
     return browser.runtime.sendMessage(msg)
       .then((r: unknown) => {
@@ -196,7 +119,6 @@ function safeSendMessage(msg: Record<string, unknown>, callback?: (r: any) => vo
         return r;
       })
       .catch((err) => {
-        // Only log if it's NOT a context-invalidation error (which is expected on reload)
         if (err?.message && !err.message.includes('context invalidated')) {
           console.warn('[sly-msg] Message failed:', err.message);
         }
@@ -207,220 +129,6 @@ function safeSendMessage(msg: Record<string, unknown>, callback?: (r: any) => vo
 }
 
 // --- FETCH TRIGGER ---
-window.slyTriggerLyricsFetch = function (title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false): void {
-  if (window.slyInternalState.fetchingForUri.has(uri) && !forceRefresh) return;
-
-  // 0. L0 SESSION CACHE CHECK (Magical Seamless Swap)
-  // If we've already played this song in the current session, the lyrics are in RAM.
-  // Restore them synchronously to eliminate the 2-3 frame async stutter.
-  const trackId = uri?.split(':').pop();
-  const isNativeSynced = uri ? window.slyPreFetchRegistry.getState(uri)?.nativeStatus === 'SYNCED' : false;
-
-  const l0Hit = window.slyInternalState.l0Cache.get(uri);
-  if (l0Hit && !forceRefresh && !isNativeSynced) {
-    console.log(`[sly-msg] ⚡ L0 CACHE HIT: Seamlessly restoring state for "${title}" [${uri}]`);
-    
-    if (l0Hit.failed) {
-      window.slyInternalState.currentLyrics = { failed: true, _slyUri: uri, extractedColor: l0Hit.extractedColor };
-      window.slyInternalState.pendingLyricsData = null; // SLY FIX: Clear pending to prevent stale takeover
-      window.slyInternalState.fetchingForTitle = '';
-    if (uri) window.slyInternalState.fetchingForUri.add(uri);
-      
-      const btn = document.querySelector('[data-testid="lyrics-button"]');
-      if (btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true') {
-        window.slyShowStatus(
-          "Even Spotify Karaoke couldn't find the lyrics for this song.",
-          'You can help the community by adding them to the open-source database.',
-          true,
-          { title, artist, albumArtUrl, extractedColor: l0Hit.extractedColor }
-        );
-      }
-      return;
-    }
-
-    window.slyInternalState.pendingLyricsData = l0Hit;
-    window.slyInternalState.fetchingForTitle = ''; // Prevents HUD from firing
-    if (uri) window.slyInternalState.fetchingForUri.add(uri);
-    if (window.slyCheckNowPlaying) window.slyCheckNowPlaying();
-    return;
-  }
-
-  window.slyInternalState.fetchingForTitle = title;
-  if (uri) window.slyInternalState.fetchingForUri.add(uri);
-
-  // Capturing URI for stale check
-  const myGeneration = window.slyInternalState.fetchGeneration;
-  const myUri = uri;
-
-  const pinnedMetadata: Record<string, unknown> = { title, artist, albumArtUrl };
-
-  // 1. L0 SESSION CACHE CHECK (Theme/Colors Only)
-  const sessionKey = `sly_theme_${albumArtUrl}`;
-  const l0Color = albumArtUrl ? sessionStorage.getItem(sessionKey) : null;
-  if (l0Color) {
-    pinnedMetadata.extractedColor = l0Color;
-  }
-
-  // 2. HUD GRACE PERIOD (Seamless Persistent Hits)
-  // Even if not in L0 yet, the persistent cache warming in content.ts might return 
-  // in 1-2 frames. We wait 150ms before showing the HUD to give it a head-start.
-  const hudGracePeriod = 150;
-  setTimeout(() => {
-    // ABORT CONDITIONS:
-    // 1. Track changed during the grace period
-    if (!window.slyInternalState.fetchingForUri.has(myUri)) return;
-    // 2. Lyrics were found (L1/L2 success) during the grace period
-    if ((window.slyInternalState.pendingLyricsData as any)?._slyUri === myUri || 
-        (window.slyInternalState.currentLyrics as any)?._slyUri === myUri) return;
-    // 3. User closed the panel during the grace period
-    if (!window.slyInternalState.fetchingForTitle) return;
-
-    window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
-  }, hudGracePeriod);
-
-  // Fast-track color extraction to upgrade the HUD asynchronously
-  if (albumArtUrl) {
-    safeSendMessage({ type: 'GET_COLOR', payload: { albumArtUrl } }, (r) => {
-      // 1. STALE TRACK CHECK
-      if (myGeneration !== window.slyInternalState.fetchGeneration) return;
-
-      if (r?.color) {
-        // Populate L0 for next time
-        sessionStorage.setItem(sessionKey, r.color as string);
-
-        // Pin to metadata for the HUD
-        pinnedMetadata.extractedColor = r.color;
-
-        // ONLY back-fill the live state if it's a REAL lyrics object (with lines)
-        if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
-          (window.slyInternalState.currentLyrics as Record<string, unknown>).extractedColor = r.color;
-        }
-
-        // 2. ALREADY FINISHED CHECK
-        // If lyrics are already being injected or are in the queue, DO NOT show a fetching HUD.
-        // We check for .lines specifically to avoid "Ghost Payloads" (objects with only color but no text).
-        const hasPayload = !!((window.slyInternalState.pendingLyricsData as Record<string, unknown> | null)?.lines);
-        const root = document.getElementById('lyrics-root-sync');
-        const hasRendered = !!((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) && !!root;
-
-        if (hasRendered && r.color) {
-          const currentBg = root.style.getPropertyValue('--lyrics-color-background')?.trim();
-          // ONLY upgrade if the current background is a placeholder (missing, pitch black, or the error grey 0.20).
-          // This prevents overwriting a high-quality "stolen" background from an unsynced track.
-          const currentLum = currentBg ? window.slyPerceivedLuminance?.(currentBg) : 0;
-          const isPlaceholder = !currentBg || currentLum < 0.05 || (currentLum > 0.19 && currentLum < 0.21);
-
-          if (isPlaceholder) {
-            console.log('[sly-dom] Upgrading placeholder background with late-arriving extracted color.');
-            const safeBg = window.slyPerceivedLuminance?.(r.color) > 0.25 ? '#121212' : r.color;
-            root.style.setProperty('--lyrics-color-background', safeBg);
-          }
-        }
-
-        if (!hasPayload && !hasRendered) {
-          window.slyShowStatus('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Initializing external search...', false, pinnedMetadata);
-        }
-      }
-    });
-  }
-
-  console.log(`[sly] Fetching lyrics for "${title}" by ${artist} (${uri || 'no-uri'}) — sending request to service worker...`);
-
-  const knownNativeStatus = uri ? window.slyPreFetchRegistry.getState(uri)?.nativeStatus : null;
-
-  safeSendMessage({ type: 'FETCH_LYRICS', payload: { title, artist, albumArtUrl, uri, nativeStatus: knownNativeStatus, forceRefresh } }, (r) => {
-    // STALE CHECK 1: Generation mismatch — native recovered or track changed mid-flight
-    if (myGeneration !== window.slyInternalState.fetchGeneration) {
-      // If the generation was bumped but the URI still matches, this is likely a
-      // bridge-scanner stabilization reset (e.g. URI went from 'N/A' -> real).
-      // We allow the response to proceed to avoid a redundant 500ms re-fetch delay.
-      const uriStillMatches = myUri && window.slyInternalState.lastUri && myUri === window.slyInternalState.lastUri;
-      if (!uriStillMatches) {
-        console.log(`[sly] Fetch response for "${title}" discarded — generation is stale.`);
-        // Only clear if we aren't already fetching for a new song.
-        if (!window.slyInternalState.fetchingForTitle && window.slyClearStatus) window.slyClearStatus();
-        return;
-      }
-    }
-
-    // STALE CHECK 2: Track URI changed while in flight (tolerates title-only corrections).
-    // Guard requires both sides to be real URIs — skips if lastUri was never set (first boot,
-    // or slyResetPlayerState called without a URI argument).
-    if (myUri && window.slyInternalState.lastUri && myUri !== window.slyInternalState.lastUri) {
-      console.log(`[sly] Fetch response for "${title}" discarded — track already changed.`);
-      // Only clear if we aren't already fetching for a new song.
-      if (!window.slyInternalState.fetchingForTitle && window.slyClearStatus) window.slyClearStatus();
-      return;
-    }
-
-    if (r?.prefetchState || r?.ok) {
-      if (myUri) {
-        const state = r.prefetchState || ((r.data as any)?.isSynced ? 'SYNCED' : 'UNSYNCED');
-        window.slyPreFetchRegistry.register(myUri, state, {
-          title, artist, nativeStatus: (r as any).nativeStatus,
-          customStatus: state as any,
-          reason: 'External Fetch Result'
-        });
-      }
-    }
-
-    if (r?.ok) {
-      const mode = (r.data as Record<string, unknown>)?.isSynced ? 'synced (LRC)' : 'unsynced (plain)';
-      console.log(`[sly] Fetch succeeded for "${title}" — got ${mode} lyrics.`);
-
-      // SLY FIX: Populate L0 Session Cache for instant synchronous restoration on next play.
-      if (uri) {
-        const mutableData = safeClone(r.data);
-        mutableData._slyUri = uri; // Ensure URI is stamped for L0 consistency
-        // BUG-16 Fix: Explicitly hydrate nativeStatus from the response root.
-        // Background upgrades (e.g. nativeMissing -> nativeStatus) are sent in the root,
-        // not inside r.data, and were previously dropped during L0 hydration.
-        if (r.nativeStatus) mutableData.nativeStatus = r.nativeStatus;
-        window.slyInternalState.l0Cache.set(uri, mutableData);
-      }
-
-      // We DON'T clear status here; slyInjectLyrics will handle it for a smooth transition
-      window.slyInternalState.pendingLyricsData = safeClone(window.slyInternalState.l0Cache.get(uri) || r.data);
-      // Kick injection immediately if the panel is already open
-      setTimeout(window.slyCheckNowPlaying, 0);
-    } else {
-      console.warn(`[sly] Fetch failed for "${title}" — no lyrics found.`);
-      
-      // SLY FIX: Stand-down logic. If Spotify has native unsynced/synced lyrics, 
-      // do NOT show a failure HUD. Reset forceFallback and let native take over.
-      const nativeStatus = myUri ? window.slyPreFetchRegistry.getState(myUri)?.nativeStatus : null;
-      if (nativeStatus === 'UNSYNCED' || nativeStatus === 'SYNCED' || nativeStatus === 'NATIVE_OK') {
-        console.log(`[sly] Stand-down: External fetch failed, but track has native ${nativeStatus} lyrics. Reverting to native.`);
-        window.slyInternalState.currentLyrics = null;
-        window.slyInternalState.forceFallback = false;
-        window.slyInternalState.fetchingForTitle = '';
-        if (myUri) window.slyInternalState.fetchingForUri.delete(myUri);
-        if (window.slyClearStatus) window.slyClearStatus();
-        return;
-      }
-
-      // SLY FIX: Populate L0 Session Cache with failure state.
-      if (uri) window.slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: (r?.data as any)?.extractedColor });
-
-      window.slyInternalState.fetchingForTitle = '';
-      if (uri) window.slyInternalState.fetchingForUri.delete(uri);
-
-      // Save failure state AND extracted color for immersive HUD
-      window.slyInternalState.currentLyrics = {
-        failed: true,
-        extractedColor: (r?.data as Record<string, unknown>)?.extractedColor,
-      };
-
-      // Only show failure HUD if panel is currently open
-      const btn = document.querySelector('[data-testid="lyrics-button"]');
-      if (btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true') {
-        window.slyShowStatus(
-          "Even Spotify Karaoke couldn't find the lyrics for this song.",
-          'You can help the community by adding them to the open-source database.',
-          true,
-          pinnedMetadata,
-        );
-      }
-    }
-  });
+window.slyTriggerLyricsFetch = (title, artist, albumArtUrl, uri, forceRefresh = false) => {
+  FetchEngine.triggerFetch(title, artist, albumArtUrl, uri, forceRefresh);
 };

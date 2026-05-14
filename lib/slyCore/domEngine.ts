@@ -16,7 +16,6 @@ declare global {
     // Forward refs from ui.js (not yet ported — guarded in source)
     slyParseLRC?: (lrc: string) => { time: number; text: string }[];
     slyUpdateSync?: () => void;
-    slyClearStatus?: () => void;
   }
 }
 
@@ -188,13 +187,35 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
 /**
  * Constructs the internal lyrics list structure (spacers, padding, lines, and attribution).
  */
-window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<string, unknown>): void {
+window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<string, unknown>, preferredMode?: string, targetLang?: string): void {
   root.innerHTML = '';
   const isSynced = lyricsObj.isSynced as boolean;
+  const processedMap = lyricsObj.processed as Record<string, any> | undefined;
+
   // window.slyParseLRC comes from ui.js (not yet ported) — guarded with || []
-  const lines = isSynced ? (window.slyParseLRC?.(lyricsObj.syncedLyrics as string) || []) : [];
-  const texts = isSynced ? lines.map((l: { time: number; text: string }) => l.text) : ((lyricsObj.plainLyrics as string) || '').split('\n');
-  const newLines = isSynced ? lines : texts.map((t: string) => ({ time: 0, text: t }));
+  const originalLines = isSynced ? (window.slyParseLRC?.(lyricsObj.syncedLyrics as string) || []) : [];
+  
+  // SEAMLESS UPGRADE: If we have processed lyrics matching the user's preference,
+  // use them for the INITIAL RENDER to prevent the "original-to-processed" shimmer.
+  // SYNCED GUARD: Skip for synced lyrics — processed.romanized was computed from
+  // plainLyrics (N lines), but the LRC has M lines (M ≠ N due to blank spacers,
+  // intro timing, ♪ markers). Using N romanized items to build M LRC elements
+  // causes misalignment: romanized[i] maps to LRC_line[i], not the same actual lyric.
+  let texts: string[] = [];
+  if (!isSynced && preferredMode && preferredMode !== 'original' && processedMap) {
+    const lang = targetLang || Object.keys(processedMap)[0];
+    const processed = processedMap[lang];
+    if (processed) {
+      texts = preferredMode === 'romanized' ? processed.romanized : processed.translated;
+    }
+  }
+
+  // Fallback to original if no processed data found or original mode requested
+  if (texts.length === 0) {
+    texts = isSynced ? originalLines.map((l: { time: number; text: string }) => l.text) : ((lyricsObj.plainLyrics as string) || '').split('\n');
+  }
+
+  const newLines = isSynced ? originalLines : texts.map((t: string) => ({ time: 0, text: t }));
   if (!lyricsObj.lines || (lyricsObj.lines as any[]).length !== newLines.length) {
     lyricsObj.lines = newLines;
   }

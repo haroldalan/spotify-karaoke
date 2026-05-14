@@ -4,6 +4,7 @@ import { createDomObserver } from '../../lib/dom/domObserver';
 import { startStorageListener } from '../../lib/core/storageListener';
 import { createModeController } from '../../lib/core/modeController';
 import { createLifecycleController, setupSlyBridge } from '../../lib/core/lifecycleController';
+import { prewarmRuntimeCache } from '../../lib/core/lyricsCache';
 import { StateStore } from '../../lib/core/store';
 import { setupKeyboardShortcuts } from '../../lib/core/keyboardListener';
 import { setupMessageListener, setupTokenBridge } from '../../lib/core/messageListener';
@@ -18,7 +19,6 @@ import '../../lib/slyCore/styles';
 import '../../lib/slyCore/playback';
 import '../../lib/slyCore/detector';
 import '../../lib/slyCore/domEngine';
-import '../../lib/slyCore/statusHud';
 import '../../lib/slyCore/messaging';
 import '../../lib/slyCore/ui';
 import '../../lib/slyCore/events';
@@ -72,6 +72,7 @@ async function main(): Promise<void> {
 
     const store = new StateStore();
     await store.loadFromStorage();
+    await prewarmRuntimeCache(store.runtimeCache);
 
     const modeController = createModeController({ store });
     const { switchMode, reapplyMode, autoSwitchIfNeeded } = modeController;
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
       reapplyMode,
       autoSwitchIfNeeded,
     });
-    const { trySetup, syncSetup, onSongChange, trySetupOrPoll, syncPill } = lifecycleController;
+    const { trySetup, syncSetup, onSongChange, trySetupOrPoll, syncPill, quickApply } = lifecycleController;
 
     setupMessageListener(store, switchMode);
     const cleanupKeyboard = setupKeyboardShortcuts(switchMode);
@@ -91,8 +92,16 @@ async function main(): Promise<void> {
     if (!store.domObserver) {
       store.domObserver = createDomObserver({
         onSongChange: (key) => onSongChange(key),
-        onLyricsInjected: () => syncSetup(),
-        onControlsRemoved: () => trySetupOrPoll(),
+        onLyricsInjected: () => { quickApply(); syncSetup(); },
+        onControlsRemoved: () => {
+          // Re-inject the pill SYNCHRONOUSLY before the browser paints.
+          // When React reconciles the lyrics list (new song render), it evicts our
+          // pill. syncPill(true) is a pure DOM operation — no async gaps — so the
+          // pill reappears in the same task, before any frame is painted.
+          // trySetupOrPoll() then runs the full async setup (observer, mode etc.).
+          syncPill(true);
+          trySetupOrPoll();
+        },
         onLyricsPanelClosed: () => document.dispatchEvent(new CustomEvent('sly:panel_close')),
         onInvalidate: () => { 
           store.domObserver = null; 

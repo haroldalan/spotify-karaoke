@@ -50,7 +50,13 @@ export function startStorageListener(opts: StorageListenerOpts): void {
             : (processed ? (opts.store.mode === 'romanized' ? processed.romanized : processed.translated) : null);
           
           if (lines) {
-            applyLinesToDOM(lines, newDual ? cache.original : undefined, newDual, (v) => { opts.store.isApplying = v; });
+            // SLY FIX: Dual lyrics real-time toggle must handle both pipelines.
+            // Pipeline B (native): applyLinesToDOM with no targets → uses getLyricsLines() → native DOM.
+            // Pipeline A (custom #lyrics-root-sync): getLyricsLines() EXCLUDES #lyrics-root-sync, so
+            // we must explicitly pass slyActiveDomElements as the target.
+            const isPipelineA = !!(opts.store.slyActiveContainer || opts.store.slyActiveDomElements.length > 0);
+            const targets = isPipelineA ? opts.store.slyActiveDomElements as HTMLElement[] : undefined;
+            applyLinesToDOM(lines, newDual ? cache.original : undefined, newDual, (v) => { opts.store.isApplying = v; }, targets);
           }
         }
       }

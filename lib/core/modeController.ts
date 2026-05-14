@@ -1,5 +1,6 @@
 import { safeBrowserCall, getTargetLang } from '../utils/browserUtils';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
+import { getLyricsLines } from '../dom/domQueries';
 import { syncButtonStates, setLoadingState } from '../dom/lyricsControls';
 import { fetchProcessed } from './fetchProcessed';
 import { isLatinScript } from '../lyrics/scriptDetector';
@@ -51,6 +52,7 @@ export function createModeController(opts: ModeControllerOpts) {
       }
       console.log(`[sly-audit] 📄 Applying Original Lyrics (Latin script fallback, First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
       applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+      opts.store.lyricsAppliedForKey = opts.store.songKey;
       syncButtonStates(next);
       setLoadingState(false);
       return;
@@ -76,6 +78,7 @@ export function createModeController(opts: ModeControllerOpts) {
         }
         console.log(`[sly-audit] 📄 Applying Original Lyrics (First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
         applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
+        opts.store.lyricsAppliedForKey = opts.store.songKey;
         setLoadingState(false);
       } else {
         const lang = forceLang || opts.store.currentActiveLang || await getTargetLang();
@@ -110,6 +113,7 @@ export function createModeController(opts: ModeControllerOpts) {
         }
         console.log(`[sly-audit] 🔮 Processed Lyrics ("${next}" mode, First 5 lines):\n`, lines.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
         applyLinesToDOM(lines, cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+        opts.store.lyricsAppliedForKey = opts.store.songKey;
         setLoadingState(false);
       }
     } catch (err) {
@@ -145,6 +149,7 @@ export function createModeController(opts: ModeControllerOpts) {
         const targets = getTargets();
         console.log(`[SKaraoke:Mode] reapplyMode: Latin script detected for romanized mode. Using originals.`);
         applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+        opts.store.lyricsAppliedForKey = opts.store.songKey;
         setLoadingState(false);
         return;
       }
@@ -158,11 +163,20 @@ export function createModeController(opts: ModeControllerOpts) {
 
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
     const targets = getTargets();
+
+    // If there are no lyrics lines in the DOM yet, bail out silently.
+    // The lyricsObserver (which fires on DOM mutations) will call reapplyMode
+    // again once the native lyrics are rendered — at which point the cache will
+    // already be populated and the apply will succeed immediately.
+    const domLines = targets ?? getLyricsLines();
+    if (domLines.length === 0) return;
+
     if (targets && targets.length !== cache.original.length) {
       console.warn('[SKaraoke:Content] Alignment mismatch detected in reapplyMode. DOM:', targets.length, 'Cache:', cache.original.length);
     }
     console.log(`[sly-audit] 🔮 Processed Lyrics (Re-applying "${mode}" mode, First 5 lines):\n`, lines.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
     applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+    opts.store.lyricsAppliedForKey = opts.store.songKey;
     setLoadingState(false);
   }
 
@@ -170,8 +184,38 @@ export function createModeController(opts: ModeControllerOpts) {
     if (opts.store.isSwitchingMode && !forceRefresh) return;
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
-    if ((mode === 'original' && preferredMode !== 'original') || forceRefresh) {
-      switchMode(preferredMode, undefined, false, forceRefresh, cacheOverride);
+    const cache = cacheOverride ?? opts.store.cache;
+
+    // Classic trigger: mode is still 'original' but user wants something else.
+    const modeNeedsSwitch = mode === 'original' && preferredMode !== 'original';
+
+    // Shimmer trigger: fire as soon as preferredMode is non-original and the
+    // processed cache is empty — regardless of whether we have original lines yet.
+    // This is intentionally decoupled from the fetch guard below.
+    const shimmerNeeded =
+      preferredMode !== 'original' &&
+      cache.processed.size === 0 &&
+      !opts.store.isSwitchingMode;
+
+    // Fetch trigger: only fire when we have original lines to send to the processor.
+    // Requires cache.original.length > 0 to avoid a useless no-op fetch.
+    const optimisticNeedsFetch =
+      !modeNeedsSwitch &&
+      preferredMode !== 'original' &&
+      cache.processed.size === 0 &&
+      cache.original.length > 0;
+
+    // If shimmer is needed but we cannot start the fetch yet (no originals),
+    // activate the loading visual so the user sees feedback immediately.
+    // switchMode will be called later once originals arrive (via lyricsObserver).
+    if (shimmerNeeded && !optimisticNeedsFetch && !modeNeedsSwitch && !forceRefresh) {
+      setLoadingState(true);
+    }
+
+    if (modeNeedsSwitch || forceRefresh || optimisticNeedsFetch) {
+      // Pass forceRefresh=true when data isn't ready so switchMode bypasses the
+      // same-mode early-return guard (mode === preferredMode after optimistic init).
+      switchMode(preferredMode, undefined, false, forceRefresh || optimisticNeedsFetch, cacheOverride);
     }
   }
 

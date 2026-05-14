@@ -1,5 +1,7 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/ui.js
+import { MetadataEngine } from './metadataEngine';
+import { StatusEngine } from './statusEngine';
 export {};
 /* modules/core/ui.js: Synchronized Lyrics UI Controller */
 /* Note: findMediaRecursively, slySeekTo, and slyGetPlaybackSeconds have been moved to modules/playback-engine.js */
@@ -85,7 +87,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   if (window.slyResetPlaybackExtrapolator) window.slyResetPlaybackExtrapolator();
 
   // 2. DOM Cleanup
-  if (window.slyClearStatus) window.slyClearStatus();
+  StatusEngine.clear();
 
   // Nuclear Cleanup: Remove ALL custom root instances and reset the main container
   // UNLESS we have an L0 hit, in which case we preserve them for a seamless swap.
@@ -154,12 +156,13 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
                            document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
 
     if (isMissingOrUnsynced && isOnLyricsPage) {
-      const detection = typeof window.slyDetectNativeState === 'function' ? window.slyDetectNativeState() : {};
-      const artist = detection.artist || window.spotifyState?.track?.artistName || '';
-      const albumArtUrl = detection.albumArtUrl || window.spotifyState?.track?.image || '';
-      console.log(`[sly-ui] 🚀 PROACTIVE FETCH: Track ${newTitle} [${uri}] is confirmed ${preFetch.nativeStatus || preFetch.state} in pre-fetch registry. Initiating instant fetch at 0ms...`);
-      if (typeof window.slyTriggerLyricsFetch === 'function') {
-        window.slyTriggerLyricsFetch(newTitle, artist, albumArtUrl, uri);
+      const meta = MetadataEngine.getNowPlaying();
+      
+      if (MetadataEngine.isValidForFetch(meta)) {
+        console.log(`[sly-ui] 🚀 PROACTIVE FETCH: Track ${newTitle} [${uri}] is confirmed ${preFetch.nativeStatus || preFetch.state} in pre-fetch registry. Initiating instant fetch at 0ms...`);
+        if (typeof window.slyTriggerLyricsFetch === 'function') {
+          window.slyTriggerLyricsFetch(newTitle, meta.artist, meta.albumArtUrl, uri);
+        }
       }
     }
   }

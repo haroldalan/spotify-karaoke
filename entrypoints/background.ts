@@ -182,6 +182,7 @@ export default defineBackground(() => {
         const { title, artist, albumArtUrl, uri, forceRefresh, nativeStatus } = msg.payload ?? {} as NonNullable<typeof msg.payload>;
 
         if (!title || !artist) {
+          console.error(`[ServiceWorker] ❌ REJECTED: Missing metadata for fetch. Title: "${title}", Artist: "${artist}", URI: ${uri}`);
           sendResponse({ ok: false, error: 'Missing metadata' });
           return true;
         }
@@ -227,6 +228,19 @@ export default defineBackground(() => {
             }
 
             lyricsCache.set(cacheKey, stored); // Promote to L1
+            
+            // SLY FIX: Look ahead for a processed cache entry (lc: prefix) 
+            // to eliminate the "shimmer" where original lyrics appear before romanized ones.
+            if (uri) {
+              const lcKey = `lc:${uri}`;
+              const lcResult = await safeBrowserCall(() => browser.storage.local.get([lcKey]));
+              const lcEntry = lcResult?.[lcKey];
+              if (lcEntry?.processed) {
+                console.log(`[ServiceWorker] L2 PROCESSED HIT: Merging romanization/translation for ${title}`);
+                stored.processed = lcEntry.processed;
+              }
+            }
+
             sendResponse(stored);
 
             // --- UPGRADE LOGIC ---
