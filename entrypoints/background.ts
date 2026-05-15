@@ -109,8 +109,10 @@ export default defineBackground(() => {
               idx[key].lastAccessed = Date.now();
               const setRes = await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
               if (setRes === null) throw new Error('Index update failed');
+              sendResponse({ ok: true });
+            } else {
+              sendResponse({ ok: false, error: 'Key not found in index' });
             }
-            sendResponse({ ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: (err as Error).message });
           }
@@ -151,8 +153,20 @@ export default defineBackground(() => {
       // New handler: Fetch Spotify CSS to bypass CORS for Deep Scavenger
       // ----------------------------------------------------------------
       if (msg.type === 'SLY_FETCH_CSS') {
-        fetch((msg as any).url)
-          .then(res => res.text())
+        const url = (msg as any).url;
+        const isAllowed = typeof url === 'string' && (
+          url.startsWith('https://open.spotifycdn.com/') || 
+          url.startsWith('https://xpui.static.akamaized.net/')
+        );
+        if (!isAllowed) {
+          sendResponse({ success: false, error: 'Forbidden URL' });
+          return true;
+        }
+        fetch(url)
+          .then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.text();
+          })
           .then(text => sendResponse({ success: true, cssText: text }))
           .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
@@ -162,7 +176,11 @@ export default defineBackground(() => {
       // New handler: fetch missing/unsynced lyrics from YTM + LRCLIB
       // ----------------------------------------------------------------
       if (msg.type === 'SLY_CHECK_CACHE') {
-        const { title, artist, uri } = msg.payload ?? {} as any;
+        const { title, artist, uri } = msg.payload ?? {};
+        if (!uri && (!title || !artist)) {
+          sendResponse({ ok: true, found: false });
+          return true;
+        }
         const cacheKey = lyricsCache.getCacheKey(title!, artist!, uri);
         const fallbackKey = uri ? lyricsCache.getCacheKey(title!, artist!) : undefined;
         
@@ -235,7 +253,7 @@ export default defineBackground(() => {
             // STALE DATA GUARD: Only merge if the hash of the stored original lines
             // matches the plainLyrics of the current fetch result. This prevents
             // Unsynced romanization from being applied to Synced LRC lines (index shift).
-            if (uri && stored.ok && stored.data?.plainLyrics) {
+            if (uri && stored.ok && stored.data?.plainLyrics && !stored.processed) {
               const lcKey = `lc:${uri}`;
               const lcResult = await safeBrowserCall(() => browser.storage.local.get([lcKey]));
               const lcEntry = lcResult?.[lcKey];
@@ -278,14 +296,10 @@ export default defineBackground(() => {
                     browser.tabs.sendMessage(sender.tab.id, {
                       type: 'LYRICS_UPGRADED',
                       payload: { cacheKey, data: fresh },
-                    });
+                    }).catch(() => {});
                   }
-                } else {
-                  await lyricsPersistence.set(cacheKey, stored);
                 }
-              }).catch(async () => {
-                await lyricsPersistence.set(cacheKey, stored);
-              });
+              }).catch(() => {});
             }
             return;
           }
@@ -405,27 +419,36 @@ export default defineBackground(() => {
       // ----------------------------------------------------------------
       if (msg.type === 'SLY_MARK_ENTRY_POINT') {
         if (sender.tab?.id) {
-          (globalThis as any).slyEntryPoints = (globalThis as any).slyEntryPoints || new Set();
-          (globalThis as any).slyEntryPoints.add(sender.tab.id);
+          const tabId = sender.tab.id;
+          browser.storage.local.get('slyEntryPoints').then((res) => {
+            const entryPoints = new Set(res.slyEntryPoints || []);
+            entryPoints.add(tabId);
+            browser.storage.local.set({ slyEntryPoints: Array.from(entryPoints) });
+          });
         }
         return false;
       }
 
       if (msg.type === 'SLY_NAV_BACK') {
         if (sender.tab?.id) {
-          const isEntryPoint = (msg as any).isEntryPoint || (globalThis as any).slyEntryPoints?.has(sender.tab.id);
-          
-          if (isEntryPoint) {
-            console.log('[sly-bg] Safety Bounce: Tab is entry point. Redirecting to Spotify Home.');
-            browser.tabs.update(sender.tab.id, { url: 'https://open.spotify.com/' }).catch(() => {});
-            (globalThis as any).slyEntryPoints?.delete(sender.tab.id);
-          } else {
-            console.log('[sly-bg] Requesting tabs.goBack for non-entry-point navigation.');
-            browser.tabs.goBack(sender.tab.id).catch((err) => {
-              console.warn('[sly-bg] tabs.goBack failed, falling back to Home:', err.message);
-              browser.tabs.update(sender.tab.id!, { url: 'https://open.spotify.com/' }).catch(() => {});
-            });
-          }
+          const tabId = sender.tab.id;
+          browser.storage.local.get('slyEntryPoints').then(async (res) => {
+            const entryPoints = new Set(res.slyEntryPoints || []);
+            const isEntryPoint = (msg as any).isEntryPoint || entryPoints.has(tabId);
+            
+            if (isEntryPoint) {
+              console.log('[sly-bg] Safety Bounce: Tab is entry point. Redirecting to Spotify Home.');
+              browser.tabs.update(tabId, { url: 'https://open.spotify.com/' }).catch(() => {});
+              entryPoints.delete(tabId);
+              await browser.storage.local.set({ slyEntryPoints: Array.from(entryPoints) });
+            } else {
+              console.log('[sly-bg] Requesting tabs.goBack for non-entry-point navigation.');
+              browser.tabs.goBack(tabId).catch((err) => {
+                console.warn('[sly-bg] tabs.goBack failed, falling back to Home:', err.message);
+                browser.tabs.update(tabId, { url: 'https://open.spotify.com/' }).catch(() => {});
+              });
+            }
+          });
         }
         return false;
       }

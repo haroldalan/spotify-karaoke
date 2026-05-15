@@ -57,13 +57,26 @@ export interface SlyInternalState {
 
 declare global {
   interface Window {
-    spotifyState?: Record<string, unknown>;
-    slyInternalState?: any;
-    antigravityInterval?: NodeJS.Timeout | number;
+    spotifyState: any;
+    slyInternalState: any;
+    antigravityInterval?: any;
     antigravitySyncAnimFrame?: number;
     slyStartThrottledPoll?: () => void;
+    slyCheckNowPlaying?: () => Promise<void>;
+    slyResetPlayerState?: (title: string, uri?: string) => void;
+    slyDetectNativeState?: () => Promise<any>;
+    slyTriggerLyricsFetch?: (...args: any[]) => void;
+    slyPreFetchRegistry?: any;
+    slyPreFetchInterval?: any;
+    slyInjectCoreStyles?: () => void;
+    slyDeepScavengeStyles?: () => void;
+    SPOTIFY_CLASSES?: any;
+    slyUpdateButtonState?: (m: string) => void;
+    slyGetCoreStyles?: () => string;
   }
 }
+
+declare const browser: any;
 
 /**
  * Live track and lyrics state populated by the MAIN-world scanner (slyBridge.js)

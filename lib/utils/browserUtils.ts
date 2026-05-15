@@ -1,3 +1,5 @@
+declare const browser: any;
+
 export const isContextValid = () => {
   try {
     return !!browser.runtime?.id;
@@ -29,7 +31,7 @@ export async function safeBrowserCall<T>(fn: () => Promise<T>): Promise<T | null
 
 export async function getTargetLang(): Promise<string> {
   const data = await safeBrowserCall(() => browser.storage.sync.get('targetLang'));
-  return (data?.targetLang as string) ?? 'en';
+  return ((data as any)?.targetLang as string) ?? 'en';
 }
 
 /**

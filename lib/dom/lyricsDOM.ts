@@ -1,5 +1,25 @@
-import { getLyricsLines, getNowPlayingKey } from './domQueries';
 import type { SongCache } from '../core/lyricsTypes';
+import { getLyricsLines, getNowPlayingKey } from './domQueries';
+
+/**
+ * Physically removes all extension-injected elements and attributes from the 
+ * native lyrics container, restoring it to its original Spotify state.
+ */
+export function purgeSlyDOM(): void {
+  const lines = document.querySelectorAll('[data-testid="lyrics-line"] > div');
+  lines.forEach((el) => {
+    const original = el.getAttribute('data-sly-original');
+    if (original !== null) {
+      el.textContent = original;
+      el.removeAttribute('data-sly-original');
+    } else {
+      // Fallback: cleanup spans if attribute was missing for some reason
+      el.querySelectorAll('.sly-main-line, .sly-dual-line').forEach(s => s.remove());
+    }
+    // Also clear the active class if it survived
+    el.classList.remove('sly-active');
+  });
+}
 
 export function snapshotOriginals(cache: SongCache): void {
   const lines = getLyricsLines();
@@ -8,17 +28,11 @@ export function snapshotOriginals(cache: SongCache): void {
 
   lines.forEach((el) => {
     if (el.hasAttribute('data-sly-original')) return;
-
-    const dualSub = el.querySelector<HTMLElement>('.sly-dual-line');
-    if (dualSub) {
-      el.setAttribute('data-sly-original', dualSub.textContent ?? '');
-      return;
-    }
-    const mainSpan = el.querySelector<HTMLElement>('.sly-main-line');
-    if (mainSpan) {
-      el.setAttribute('data-sly-original', mainSpan.textContent ?? '');
-      return;
-    }
+    
+    // SLY FIX: Never read from .sly-main-line during a snapshot. 
+    // If the extension has already injected spans (due to a race), 
+    // we must ignore them and use textContent (which should be the native text 
+    // if Spotify just updated the node) or ideally, we should have purged first.
     el.setAttribute('data-sly-original', el.textContent ?? '');
   });
 

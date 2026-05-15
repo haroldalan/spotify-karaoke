@@ -173,7 +173,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
 
   // 4. PRE-FETCH REGISTRY CHECK
   // Consult the registry populated by the Background script/Interceptor
-  state.preFetch = window.slyPreFetchRegistry.getState(state.currentUri ?? '') ?? null;
+  state.preFetch = (window as any).slyPreFetchRegistry?.getState(state.currentUri ?? '') ?? null;
 
   if (state.preFetch && (state.preFetch.nativeStatus === 'MISSING' || state.preFetch.nativeStatus === 'ROMANIZED' || state.preFetch.nativeStatus === 'UNSYNCED')) {
     const reason = `PERSISTED_NATIVE_${state.preFetch.nativeStatus}`;

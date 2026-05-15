@@ -17,13 +17,6 @@ export interface SlyPreFetchRegistry {
   clearOldEntries(): void;
 }
 
-declare global {
-  interface Window {
-    slyPreFetchRegistry: SlyPreFetchRegistry;
-    slyPreFetchInterval?: number;
-  }
-}
-
 /**
  * Central Registry for Pre-fetched Track States.
  * Populated by the fetch interceptor (MAIN world → postMessage) and background

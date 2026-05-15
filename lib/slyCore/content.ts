@@ -1,16 +1,10 @@
-// @ts-nocheck
+declare const browser: any;
 import { isContextValid, safeClone } from '../utils/browserUtils';
 import { slyAdManager } from './adManager';
 import { getLyricsLines, getLyricsViewRoot } from '../dom/domQueries';
+import { purgeSlyDOM } from '../dom/lyricsDOM';
 import { WarmingEngine } from './warmingEngine';
 import { StatusEngine } from './statusEngine';
-
-declare global {
-  interface Window {
-    slyCheckNowPlaying: () => void;
-    antigravityInterval?: NodeJS.Timeout | number;
-  }
-}
 
 console.log('[sly] DOM Engine starting...');
 if (window.slyInjectCoreStyles) window.slyInjectCoreStyles();
@@ -19,11 +13,13 @@ if (window.slyInjectCoreStyles) window.slyInjectCoreStyles();
 if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
 if (window.slyPreFetchInterval) clearInterval(window.slyPreFetchInterval);
 if (window.antigravitySyncAnimFrame) cancelAnimationFrame(window.antigravitySyncAnimFrame);
-document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles').forEach(node => node.remove());
+if (window.antigravitySyncButtonAnimFrame) cancelAnimationFrame(window.antigravitySyncButtonAnimFrame);
+document.querySelectorAll('#lyrics-root-sync, #sly-hijack-styles, #sly-status-hud, #sly-mode-pill, #sly-sync-button').forEach(node => node.remove());
 
 // Note: Navigation Interceptor, Interaction Monitoring, and Button Hijack have been moved to modules/content-events.js
 
 // --- STATE SYNC ---
+
 // Note: Internal extension state is now managed by window.slyInternalState in modules/state-manager.js
 window.slyCheckNowPlaying = slyCheckNowPlaying;
 
@@ -56,6 +52,7 @@ setTimeout(() => {
 
 // Relay messages from Bridge (MAIN world) to Background (Extension world)
 window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
   if (event.data?.type === 'SLY_INTERCEPTOR_READY') {
     window.slyInternalState.interceptorFailed = false;
     window.slyInternalState.interceptorActive = true;
@@ -143,6 +140,11 @@ document.addEventListener('sly:panel_close', () => {
     const nativeContainer = main.querySelector(`.${nativeContainerClass}:not(#lyrics-root-sync)`) as HTMLElement | null;
     if (nativeContainer) nativeContainer.style.display = '';
   }
+
+  // SLY FIX: Physically remove all injected spans and attributes from the native DOM
+  // when the panel is closed. This prevents stale state from interfering with 
+  // future track detections or React reconciliations.
+  purgeSlyDOM();
 });
 
 // slyCore records the incoming lyrics object when Pipeline B signals injection.
@@ -151,7 +153,7 @@ document.addEventListener('sly:inject', (e: Event) => {
   const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
   // Stamp the URI at injection time so Step 1.5 can check if the skip target
   // is already the track we have lyrics for.
-  const currentUri = (window.spotifyState?.track as Record<string, unknown>)?.uri as string | undefined;
+  const currentUri = (window.spotifyState?.track as Record<string, unknown>)?.uri as string | undefined || (lyricsObj as any)._slyUri;
   if (currentUri) lyricsObj._slyUri = currentUri;
   window.slyInternalState.currentLyrics = lyricsObj;
   window.slyInternalState.isTransitioning = false; // Transition complete
@@ -369,7 +371,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         // Issue 2 Fix: Defer MISSING decision if we have weak evidence and just changed songs.
         // This prevents the extension from jumping to a "lyrics unavailable" display while
         // Spotify's own UI is still settling or loading.
-        const registryIsEmpty = !window.slyPreFetchRegistry.getState(fullUri || '');
+        const registryIsEmpty = !(window as any).slyPreFetchRegistry?.getState(fullUri || '');
         const onlyDomEvidence = detection.hasUnavailableMessage && !detection.preFetch;
         const timeSinceSongChange = Date.now() - window.slyInternalState.songChangeTime;
 
@@ -420,7 +422,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       // Stand down if native lyrics suddenly became synced/recovered or we are unsynced vs unsynced
       const isNativeFunctional = lyricsState === 'SYNCED' || lyricsState === 'NATIVE_OK';
       if (isNativeFunctional && !window.slyInternalState.forceFallback) {
-        window.slyPreFetchRegistry.register(fullUri || '', 'NATIVE_OK', { 
+        (window as any).slyPreFetchRegistry?.register(fullUri || '', 'NATIVE_OK', { 
           title: title, 
           artist: artist, 
           nativeStatus: 'NATIVE_OK',
@@ -428,7 +430,8 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         });
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri.clear();
+        const targetUri = (data as any)._slyUri || fullUri;
+        if (targetUri) window.slyInternalState.fetchingForUri.delete(targetUri);
         StatusEngine.clear();
         document.dispatchEvent(new CustomEvent('sly:panel_close'));
         return;
@@ -438,7 +441,8 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       if (lyricsState === 'UNSYNCED' && !data.isSynced && !hasExtraContent && !window.slyInternalState.forceFallback) {
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri.clear();
+        const targetUri = (data as any)._slyUri || fullUri;
+        if (targetUri) window.slyInternalState.fetchingForUri.delete(targetUri);
         StatusEngine.clear();
         return;
       }
@@ -454,14 +458,16 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
           console.warn(`[sly] Taking over aborted: pendingLyricsData URI (${payloadUri}) does not match current track URI (${currentUri})`);
           window.slyInternalState.pendingLyricsData = null;
           window.slyInternalState.fetchingForTitle = '';
-          window.slyInternalState.fetchingForUri.clear();
+          const targetUri = (data as any)._slyUri || currentUri;
+          if (targetUri) window.slyInternalState.fetchingForUri.delete(targetUri);
           return;
         }
 
         window.slyInternalState.currentLyrics = data;
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri.clear();
+        const targetUri = (data as any)._slyUri || fullUri;
+        if (targetUri) window.slyInternalState.fetchingForUri.delete(targetUri);
         StatusEngine.clear();
 
         console.log(`[sly] Takeover complete. Current Lyrics:`, window.slyInternalState.currentLyrics);
@@ -476,11 +482,12 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         // SLY FIX: If we "took over" but have no content, we must mark as failed 
         // to prevent the Decision Engine from re-triggering infinitely.
         console.warn('[sly] Taking over but no content found. Marking as failed.');
-        const failedUri = (data as any)._slyUri || currentUri;
+        const failedUri = (data as any)._slyUri || fullUri;
         window.slyInternalState.currentLyrics = { failed: true, _slyUri: failedUri };
         window.slyInternalState.pendingLyricsData = null;
         window.slyInternalState.fetchingForTitle = '';
-        window.slyInternalState.fetchingForUri.clear();
+        const targetUri = (data as any)._slyUri || fullUri;
+        if (targetUri) window.slyInternalState.fetchingForUri.delete(targetUri);
         StatusEngine.clear();
       }
     }
@@ -498,7 +505,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         // SLY FIX: Explicitly clear the custom state so the Persistence Engine doesn't immediately 
         // try to re-inject the abandoned DOM in the next poll frame (which causes an infinite loop).
         window.slyInternalState.currentLyrics = null;
-        window.slyInternalState.fetchingForUri.clear();
+        if (fullUri) window.slyInternalState.fetchingForUri.delete(fullUri);
         window.slyInternalState.statusHUDActive = false;
         window.slyInternalState.isFetchingHUD = false;
         window.slyInternalState.isAdHUDActive = false;
@@ -535,23 +542,38 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         }
       }
     }
-    if (window.slyUpdateButtonState) window.slyUpdateButtonState();
+    if (window.slyUpdateButtonState) window.slyUpdateButtonState('original');
   } catch (e) {
     console.error('[sly] Uncaught error in checkNowPlaying:', e);
   }
 };
 
+let consecutivePollErrors = 0;
 async function startThrottledPoll() {
   if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
   
-  await window.slyCheckNowPlaying();
+  try {
+    await window.slyCheckNowPlaying();
+    consecutivePollErrors = 0; // Reset on success
+  } catch (e) {
+    consecutivePollErrors++;
+    console.error(`[sly] Poll error #${consecutivePollErrors}:`, e);
+  }
+  
+  // Back off if we're failing repeatedly
+  if (consecutivePollErrors >= 5) {
+    const backoff = 30000; // 30 seconds
+    console.warn(`[sly] Too many consecutive errors. Backing off for ${backoff/1000}s.`);
+    window.antigravityInterval = setTimeout(startThrottledPoll, backoff) as unknown as number;
+    return;
+  }
   
   // Determine standing-down interval using slyInternalState fields set by the
   // slyCheckNowPlaying() call above — no second slyDetectNativeState() DOM call needed.
   // lastDecision is set to 'synced:<title>' by the SYNCED branch and reset to ''
   // by slyResetPlayerState() on every track change, so this correctly reads false
   // after any song transition.
-  const isStandingDown = (window.slyInternalState.lastDecision?.startsWith('synced:') ?? false) &&
+  const isStandingDown = (window.slyInternalState.lastDecision?.startsWith('synced_or_ok:') ?? false) &&
                          !window.slyInternalState.forceFallback &&
                          !window.slyInternalState.fetchingForTitle &&
                          !window.slyInternalState.nativeRecoveryPending;

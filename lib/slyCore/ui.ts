@@ -2,6 +2,7 @@
 // Port of: lyric-test/modules/core/ui.js
 import { MetadataEngine } from './metadataEngine';
 import { StatusEngine } from './statusEngine';
+import { purgeSlyDOM } from '../dom/lyricsDOM';
 export {};
 /* modules/core/ui.js: Synchronized Lyrics UI Controller */
 /* Note: findMediaRecursively, slySeekTo, and slyGetPlaybackSeconds have been moved to modules/playback-engine.js */
@@ -13,6 +14,7 @@ declare global {
     slyUpdateButtonState: () => void;
     slyUpdateSync: () => void;
     slyUpdateSyncButton: () => void;
+    antigravitySyncButtonAnimFrame?: number;
     // Ensure we know about these globals
     slyGetPlaybackSeconds: () => number;
     antigravitySyncAnimFrame?: number;
@@ -107,6 +109,10 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
     document.dispatchEvent(new CustomEvent('sly:release'));
     document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
     window.slyInternalState.customRoot = null;
+    
+    // NUCLEAR CLEANUP: Physically remove all injected spans and attributes from the native DOM.
+    // This is critical to prevent "Dangling Spans" from poisoning the next song's cache.
+    purgeSlyDOM();
   }
 
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
@@ -184,7 +190,12 @@ window.slyUpdateButtonState = function (): void {
  * Self-terminating: stops when the button element is removed from the DOM.
  */
 window.slyUpdateSyncButton = function (): void {
-  // console.log('[sly-debug] 🔘 slyUpdateSyncButton tick...');
+  const localRef = window.slyUpdateSyncButton;
+  
+  // GHOST LOOP PROTECTION: If the context was invalidated or the function was redefined, terminate.
+  if (typeof browser === 'undefined' || !browser.runtime?.id) return;
+  if (localRef !== window.slyUpdateSyncButton) return;
+
   const syncBtn = document.getElementById('sly-sync-button');
   if (!syncBtn) return; // button removed (song change / reset) — loop terminates
 
@@ -234,7 +245,7 @@ window.slyUpdateSyncButton = function (): void {
     }
   }
 
-  requestAnimationFrame(window.slyUpdateSyncButton);
+  window.antigravitySyncButtonAnimFrame = requestAnimationFrame(window.slyUpdateSyncButton);
 };
 
 window.slyUpdateSync = function (): void {

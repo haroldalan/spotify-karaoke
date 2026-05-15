@@ -37,20 +37,10 @@ export function auditOriginalLyrics(store: StateStore): void {
 const getTrackUri = () => (spotifyState?.track as { uri?: string } | null)?.uri;
 
 function getVerbalLines(lines: string[]): string[] {
+  const noiseRegex = /^(?:instrumental|インストゥルメンタル|instrumentalni|instrumentalny|instrumental de|\[.*instrumental.*\]|\(.*\)|[♪🎵🎶\s]+)$/i;
   return lines
     .map(line => line.trim())
-    .filter(line => {
-      if (!line) return false;
-      const lower = line.toLowerCase();
-      return (
-        line !== '♪' &&
-        line !== '🎵' &&
-        line !== '🎶' &&
-        line !== 'instrumental' &&
-        lower !== '[instrumental]' &&
-        lower !== '(instrumental)'
-      );
-    });
+    .filter(line => line && !noiseRegex.test(line));
 }
 
 function sameLines(a?: string[], b?: string[]): boolean {
@@ -80,6 +70,13 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   // Only used within this function's closure — not shared with setupSlyBridge.
   let cacheReadyPromise: Promise<void> | null = null;
   let pollId: number | null = null;
+  function clearPoll() {
+    if (pollId) {
+      cancelAnimationFrame(pollId);
+      window.clearTimeout(pollId);
+      pollId = null;
+    }
+  }
 
   /**
    * Single owner of the mode pill.
@@ -109,7 +106,6 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       shouldShow = store.showPill;
     } else if (stateCtx === 'PIPELINE_A') {
       // SLY FIX: Targeted injection logic for our own Pipeline A container.
-      const customRoot = document.getElementById('lyrics-root-sync');
       if (!customRoot || store.godState !== 'PIPELINE_A') return;
       const customInner = customRoot.querySelector(`.${listCls}`);
       injectionTarget = (customInner ?? customRoot) as HTMLElement;
@@ -156,7 +152,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
   function verifyAndHealCache(cache: SongCache): void {
     if (store.isApplying) return;
-    if (slyInternalState?.currentLyrics) return;
+    if (slyInternalState?.currentLyrics && !slyInternalState.currentLyrics.failed) return;
     if (store.slyActiveContainer || document.getElementById('lyrics-root-sync') || store.godState === 'PIPELINE_A') return;
 
     const registryState = (window as any).slyPreFetchRegistry?.getState(store.songKey);
@@ -165,12 +161,13 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (spotifyState?.isTimeSynced === false || spotifyState?.nativeHasLyrics === false) return;
 
     const nativeLines = getLyricsLines().map(el => {
-      const dualSub = el.querySelector('.sly-dual-line');
-      if (dualSub) return dualSub.textContent ?? '';
-      const mainSpan = el.querySelector('.sly-main-line');
-      if (mainSpan) return mainSpan.textContent ?? '';
-      return el.getAttribute('data-sly-original') ?? el.textContent ?? '';
-    }).filter(text => text.trim().length > 0);
+      // PRIORITIZE the attribute — it is the immutable source of truth once we've taken over.
+      const original = el.getAttribute('data-sly-original');
+      if (original !== null) return original;
+      
+      // If no attribute, textContent should be native (un-hijacked).
+      return el.textContent ?? '';
+    }).filter(text => text !== null); // Preserve empty strings for index parity
 
     if (nativeLines.length > 0) {
       if (cache.original.length === 0) {
@@ -423,8 +420,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           
           syncPill('NATIVE_OK');
 
-          const currentPollId = pollId;
-          if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+          clearPoll();
 
           opts.store.lyricsAppliedForKey = opts.store.songKey;
           document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
@@ -537,8 +533,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       });
 
       if (opts.store.isSwitchingMode) {
-        const currentPollId = pollId;
-        if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+        clearPoll();
         return;
       }
 
@@ -563,8 +558,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           // Native lyrics applied. Clear any fetching/loading HUDs.
           clearHUDFlags();
 
-          const currentPollId = pollId;
-          if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+          clearPoll();
           opts.store.lyricsAppliedForKey = opts.store.songKey;
           return;
         }
@@ -574,8 +568,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         return;
       }
 
-      const currentPollId = pollId;
-      if (currentPollId) { cancelAnimationFrame(currentPollId); pollId = null; }
+      clearPoll();
       opts.autoSwitchIfNeeded();
 
       const s = performance.now();
@@ -822,8 +815,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       controls?.classList.remove('sly-loading');
     }
 
-    const currentPollId = pollId;
-    if (currentPollId) cancelAnimationFrame(currentPollId);
+    clearPoll();
 
     pollForLyricsContainer();
 

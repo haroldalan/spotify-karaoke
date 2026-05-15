@@ -1,12 +1,6 @@
 // Port of: lyric-test/modules/core/styles.js
 /* modules/dom-styles.js: CSS Styles for the custom lyrics UI */
 
-declare global {
-  interface Window {
-    slyGetCoreStyles: () => string;
-  }
-}
-
 /**
  * Returns the full CSS string for the custom lyrics UI.
  * Called as a function (not a constant) so that SPOTIFY_CLASSES values
