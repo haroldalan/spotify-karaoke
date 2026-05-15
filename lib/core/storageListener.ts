@@ -7,7 +7,9 @@ import { StateStore } from './store';
 export interface StorageListenerOpts {
   store: StateStore;
   onSwitchMode: (mode: LyricsMode, lang?: string) => void;
+  onReapplyMode: () => void;
 }
+
 
 export function startStorageListener(opts: StorageListenerOpts): void {
   safeBrowserCall(async () => {
@@ -42,24 +44,9 @@ export function startStorageListener(opts: StorageListenerOpts): void {
       if ('dualLyrics' in changes) {
         const newDual = (changes.dualLyrics.newValue as boolean | undefined) ?? true;
         opts.store.dualLyricsEnabled = newDual;
-        const cache = opts.store.cache;
-        if (cache.original.length > 0) {
-          const processed = cache.processed.get(opts.store.currentActiveLang);
-          const lines = (opts.store.mode === 'original') 
-            ? cache.original 
-            : (processed ? (opts.store.mode === 'romanized' ? processed.romanized : processed.translated) : null);
-          
-          if (lines) {
-            // SLY FIX: Dual lyrics real-time toggle must handle both pipelines.
-            // Pipeline B (native): applyLinesToDOM with no targets → uses getLyricsLines() → native DOM.
-            // Pipeline A (custom #lyrics-root-sync): getLyricsLines() EXCLUDES #lyrics-root-sync, so
-            // we must explicitly pass slyActiveDomElements as the target.
-            const isPipelineA = !!(opts.store.slyActiveContainer || opts.store.slyActiveDomElements.length > 0);
-            const targets = isPipelineA ? opts.store.slyActiveDomElements as HTMLElement[] : undefined;
-            applyLinesToDOM(lines, newDual ? cache.original : undefined, newDual, (v) => { opts.store.isApplying = v; }, targets);
-          }
-        }
+        opts.onReapplyMode();
       }
+
 
       if ('preferredMode' in changes) {
         const newPref = (changes.preferredMode.newValue as LyricsMode | undefined) ?? 'original';

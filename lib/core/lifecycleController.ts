@@ -106,14 +106,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const nativeContainer = getLyricsContainer();
       if (!nativeContainer || store.godState !== 'NATIVE_OK') return;
       injectionTarget = nativeContainer;
-      shouldShow = store.dualLyricsEnabled;
+      shouldShow = store.showPill;
     } else if (stateCtx === 'PIPELINE_A') {
       // SLY FIX: Targeted injection logic for our own Pipeline A container.
       const customRoot = document.getElementById('lyrics-root-sync');
       if (!customRoot || store.godState !== 'PIPELINE_A') return;
       const customInner = customRoot.querySelector(`.${listCls}`);
       injectionTarget = (customInner ?? customRoot) as HTMLElement;
-      shouldShow = true;
+      shouldShow = store.showPill;
     } else {
       // Heuristic path — used when state is not yet explicitly known.
       // Priority: Pipeline A inner list > native container > native shell.
@@ -123,7 +123,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       injectionTarget = (customInner ?? container) as HTMLElement | null;
       const detection = window.slyDetectNativeState?.() ?? {};
       const hasContent = detection.hasNativeLines || store.slyActiveContainer?.isConnected;
-      shouldShow = typeof stateCtx === 'boolean' ? stateCtx : (store.showPill && !!hasContent);
+      shouldShow = typeof stateCtx === 'boolean' ? (stateCtx && store.showPill) : (store.showPill && !!hasContent);
     }
 
     if (!injectionTarget) {
@@ -706,6 +706,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     lyricsObserver = null;
     opts.store.cache = { original: [], processed: new Map() };
     opts.store.pendingNativeLines.clear();
+    opts.store.slyActiveContainer = null;
+    opts.store.slyActiveDomElements = [];
+
 
     // Session-cache warm: synchronously hydrate runtimeCache from sessionStorage
     // before the hasHotCache check. On a within-tab reload (Ctrl+Shift+R) the

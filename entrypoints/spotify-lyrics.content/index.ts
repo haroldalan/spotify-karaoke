@@ -113,6 +113,8 @@ async function main(): Promise<void> {
     startStorageListener({
       store,
       onSwitchMode: (m, lang) => switchMode(m, lang),
+      onReapplyMode: () => reapplyMode(),
+
     });
 
     trySetup();
