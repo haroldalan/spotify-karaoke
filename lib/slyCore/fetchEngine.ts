@@ -5,6 +5,7 @@ import { slyInternalState } from './state';
 import { safeClone } from '../utils/browserUtils';
 import { slyPreFetchRegistry } from './preFetch';
 import { safeSendMessage } from './messaging';
+import { setLoadingState } from '../dom/lyricsControls';
 
 /**
  * FetchEngine: Orchestrates external lyric fetching with UI feedback.
@@ -151,6 +152,7 @@ export const FetchEngine = {
   _handleSuccess(r: any, context: any) {
     const { title, uri } = context;
     slyInternalState.isFetchingHUD = false;
+    setLoadingState(false);
     slyInternalState.fetchingForTitle = ''; // BUG-F1 Fix: Clear title flag immediately
     slyInternalState.fetchingForUri.delete(uri);
     const mode = r.data?.isSynced ? 'synced (LRC)' : 'unsynced (plain)';
@@ -187,6 +189,7 @@ export const FetchEngine = {
   _handleFailure(r: any, context: any) {
     const { title, artist, uri } = context;
     slyInternalState.isFetchingHUD = false;
+    setLoadingState(false);
     slyInternalState.fetchingForTitle = ''; // BUG-F1 Fix: Clear title flag immediately
     slyInternalState.fetchingForUri.delete(uri);
     console.warn(`[FetchEngine] ❌ FAILURE: "${title}" — no lyrics found.`);

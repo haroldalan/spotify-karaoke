@@ -167,7 +167,7 @@ export function createModeController(opts: ModeControllerOpts) {
 
       if (mode !== 'original') {
         console.warn(`[SKaraoke:Mode] reapplyMode: Data missing for ${mode}. Triggering recovery fetch.`);
-        await switchMode(mode, undefined, true, true);
+        await switchMode(mode, undefined, false, true);
       }
       return;
     }
@@ -175,7 +175,7 @@ export function createModeController(opts: ModeControllerOpts) {
     if (!hasAlignedProcessedLines(processed, mode, cache.original.length)) {
       console.warn('[SKaraoke:Mode] reapplyMode: stale processed cache rejected. Recomputing.');
       cache.processed.clear();
-      await switchMode(mode, undefined, true, true);
+      await switchMode(mode, undefined, false, true);
       return;
     }
 

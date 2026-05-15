@@ -166,6 +166,15 @@ document.addEventListener('sly:song_change', async (e) => {
   
   // Clear the HUD immediately on skip to prevent ghost error messages
   StatusEngine.clear();
+
+  // SLY FIX: Synchronously clear all fetching state flags here for redundancy.
+  // This ensures that even if the poll tick runs before the bridge syncs,
+  // it won't see a "zombie" fetching state from the previous song.
+  window.slyInternalState.isFetchingHUD = false;
+  window.slyInternalState.statusHUDActive = false;
+  window.slyInternalState.isAdHUDActive = false;
+  window.slyInternalState.fetchingForTitle = '';
+  window.slyInternalState.fetchingForUri.clear();
   
   // Reset the poll loop to start fresh for the new song
   if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
@@ -293,11 +302,13 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
 
 
     // RE-INJECTION CHECK: If we are searching, failed, or in an ad, but the panel was re-rendered, restore the HUD.
-    if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed || 
+    // SLY FIX: Added !isTransitioning guard to prevent "HUD recovery" during track skips.
+    if (!window.slyInternalState.isTransitioning && (
+        (window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed || 
         window.slyInternalState.isFetchingHUD || 
         window.slyInternalState.isAdHUDActive ||
         window.slyInternalState.fetchingForTitle ||
-        window.slyInternalState.fetchingForUri.size > 0) {
+        window.slyInternalState.fetchingForUri.size > 0)) {
       if (!document.getElementById('sly-status-hud')) {
         // Safety Exit: If we actually have valid lyrics in the state, do not restore a loading HUD.
         if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {

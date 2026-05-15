@@ -22,6 +22,7 @@ let lyricsObserver: MutationObserver | null = null;
 
 const clearHUDFlags = () => {
   StatusEngine.clear();
+  setLoadingState(false);
 };
 
 export function auditOriginalLyrics(store: StateStore): void {
@@ -644,11 +645,16 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
     // Synchronously clear slyCore's currentLyrics to prevent stale restore/re-injection race conditions
     if (typeof (window as any).slyInternalState === 'object') {
-      console.log('[sly-lifecycle] Synchronously clearing slyCore currentLyrics, lastDecision, fetchingForUri, and forceFallback to prevent stale restore and resolve decision engine deadlock.');
-      (window as any).slyInternalState.currentLyrics = null;
-      (window as any).slyInternalState.lastDecision = '';
-      (window as any).slyInternalState.fetchingForUri.clear();
-      (window as any).slyInternalState.forceFallback = false;
+      const sly = (window as any).slyInternalState;
+      console.log('[sly-lifecycle] Synchronously clearing slyCore fetching/HUD state to prevent stale restore.');
+      sly.currentLyrics = null;
+      sly.lastDecision = '';
+      sly.fetchingForUri.clear();
+      sly.fetchingForTitle = '';
+      sly.isFetchingHUD = false;
+      sly.statusHUDActive = false;
+      sly.isAdHUDActive = false;
+      sly.forceFallback = false;
     }
 
     // SLY FIX (Magical Seamless Swap): If we have a VALID L0 takeover hit, 
