@@ -96,13 +96,13 @@ window.addEventListener('message', (event) => {
   } else if (data?.type === 'SLY_MXM_NEW_INTERCEPTION') {
     const { requestId, payload } = data;
     safeSendMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload }, (r) => {
-      window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r.generation }, window.location.origin);
+      window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r.generation }, '*');
     });
 
   } else if (data?.type === 'SLY_MXM_FETCH_NATIVE') {
     const { requestId, payload } = data;
     safeSendMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload }, (r) => {
-      window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r.ok, lines: r.lines }, window.location.origin);
+      window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r.ok, lines: r.lines }, '*');
     });
   }
 });

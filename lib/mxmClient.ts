@@ -52,7 +52,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                 }
             };
             window.addEventListener('message', handler);
-            window.postMessage({ type: 'SLY_GET_MXM_TOKEN' }, window.location.origin);
+            window.postMessage({ type: 'SLY_GET_MXM_TOKEN' }, '*');
             
             // Timeout to prevent hanging if the bridge isn't ready
             setTimeout(() => {
@@ -130,7 +130,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                     window.postMessage({ 
                         type: 'SLY_SET_MXM_TOKEN', 
                         payload: { token, expiry: _tokenExpiry } 
-                    }, window.location.origin);
+                    }, '*');
                     
                     return token;
                 } else {
@@ -274,7 +274,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
      */
     function verifyNativeScript(lines: SubtitleLine[]): boolean {
         const NATIVE_REGEX =
-            /[\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F]/g;
+            /[\u0B80-\u0BFF\u0900-\u0DFF\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F]/g;
         const sample = lines.slice(0, 15).map(l => l.words).join(' ');
         const matches = sample.match(NATIVE_REGEX);
         const nativeCount = matches ? matches.length : 0;

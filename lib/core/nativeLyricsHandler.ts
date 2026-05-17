@@ -44,10 +44,15 @@ export async function handleNativeLyrics(
 ): Promise<void> {
   state.pendingNativeLines.set(trackId, nativeLines);
 
-  if (trackId !== getNowPlayingTrackId() || state.cache.original.length === 0) return;
+  if (trackId !== getNowPlayingTrackId()) return;
+
+  const cacheForensics = slyForensics.analyzeText(state.cache.original);
+  const nativeForensics = slyForensics.analyzeText(nativeLines);
 
   const isAlreadyNative = state.cache.original.length === nativeLines.length && state.cache.original.every((l, i) => l === nativeLines[i]);
-  if (isAlreadyNative) {
+  const isUpgradingRomanized = !cacheForensics.hasAnyNative && nativeForensics.hasAnyNative;
+
+  if (isAlreadyNative && !isUpgradingRomanized) {
     state.pendingNativeLines.delete(trackId);
     return;
   }

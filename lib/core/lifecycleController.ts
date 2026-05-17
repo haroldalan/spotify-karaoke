@@ -13,6 +13,7 @@ import { slyInternalState, spotifyState } from '../slyCore/state';
 import { TakeoverEngine } from '../slyCore/takeoverEngine';
 import { MetadataEngine } from '../slyCore/metadataEngine';
 import { StatusEngine } from '../slyCore/statusEngine';
+import { slyForensics } from '../slyCore/forensics';
 
 /**
  * lyricsObserver is module-level so both createLifecycleController and setupSlyBridge
@@ -153,6 +154,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
   function verifyAndHealCache(cache: SongCache): void {
     if (store.isApplying) return;
+    if (slyInternalState.isTransitioning) return;
     if (slyInternalState?.currentLyrics && !slyInternalState.currentLyrics.failed) return;
     if (store.slyActiveContainer || document.getElementById('lyrics-root-sync') || store.godState === 'PIPELINE_A') return;
 
@@ -197,9 +199,19 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         const isMismatch = verbalCache.length !== verbalNative.length || 
                            !verbalCache.every((l, i) => l === verbalNative[i]);
         if (isMismatch) {
+          // FORENSIC GUARD: Avoid downgrading native script to romanized text.
+          const cacheForensics = slyForensics.analyzeText(cache.original);
+          const nativeForensics = slyForensics.analyzeText(nativeLines);
+
+          if (cacheForensics.hasAnyNative && !nativeForensics.hasAnyNative) {
+            console.log('[sly] 🛡️ Forensic Guard: Cache has native script, but DOM is Romanized. Re-applying native cache to DOM.');
+            opts.reapplyMode();
+            return;
+          }
+
           const origSnippet = cache.original.slice(0, 3).join(' | ');
           const nativeSnippet = nativeLines.slice(0, 3).join(' | ');
-          console.warn(`[sly] ⚠️ Cache Mismatch / Poisoning detected! Self-healing cache active. Live DOM (${nativeLines.length} lines: "${nativeSnippet}") differs from Cache original (${cache.original.length} lines: "${origSnippet}"). Overwriting cache with fresh DOM snapshot.`);
+          console.warn(`[sly] ⚠️ Cache Mismatch detected! Self-healing cache. Live DOM (${nativeLines.length} lines) differs from Cache original (${cache.original.length} lines). Overwriting cache.`);
           cache.processed.clear();
           snapshotOriginals(cache);
           saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
@@ -628,6 +640,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
 
   function onSongChange(newKey: string): void {
+    if (!newKey || newKey === 'undefined' || newKey === 'null') return;
     const songKey = opts.store.songKey;
     console.log(`[sly-lifecycle] 🔄 onSongChange triggered. Moving from "${songKey || 'None'}" ➡️ "${newKey}". Synchronously purging TAKEOVER elements.`);
     
@@ -828,7 +841,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // Notify slyCore of the track change reactively so it no longer needs to
     // detect this in its 500ms poll. URI is sourced from window.spotifyState
     // which slyCore's scanner already populates — no new coupling.
-    document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri } }));
+    if (uri && uri !== 'undefined' && uri !== 'null') {
+      document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri } }));
+    }
   }
 
   function trySetupOrPoll(): void {
@@ -1040,6 +1055,15 @@ export function setupSlyBridge(
     const isDifferent = store.cache.original.length !== plainLines.length ||
                         !store.cache.original.every((l, i) => l === plainLines[i]);
     if (store.cache.original.length > 0 && isDifferent) {
+      // FORENSIC GUARD: If existing cache is native script but takeover data is Latin, 
+      // do NOT clear the cache or overwrite it.
+      const cacheForensics = slyForensics.analyzeText(store.cache.original);
+      const plainForensics = slyForensics.analyzeText(plainLines);
+      if (cacheForensics.hasAnyNative && !plainForensics.hasAnyNative) {
+        console.log('[sly] 🛡️ Forensic Guard: Takeover data is Romanized, but cache has native script. Keeping cache.');
+        return; // Abort the cache update
+      }
+
       const origSnippet = store.cache.original.slice(0, 3).join(' | ');
       const plainSnippet = plainLines.slice(0, 3).join(' | ');
       console.log(`[sly-lifecycle] 🔄 Cache Invalidation: Takeover data differs from Native snapshot. Clearing processed map.\nOld: "${origSnippet}"\nNew: "${plainSnippet}"`);

@@ -181,6 +181,15 @@ export default defineBackground(() => {
           sendResponse({ ok: true, found: false });
           return true;
         }
+
+        // SLY FIX: Proactively notify Musixmatch of this track's metadata.
+        // This ensures the interceptor (MAIN world) has the metadata ready 
+        // if it needs to perform an upgrade search.
+        if (uri && title && artist) {
+          const trackId = uri.split(':').pop();
+          if (trackId) mxmProvider.notifyMetadata(trackId, title, artist);
+        }
+
         const cacheKey = lyricsCache.getCacheKey(title!, artist!, uri);
         const fallbackKey = uri ? lyricsCache.getCacheKey(title!, artist!) : undefined;
         

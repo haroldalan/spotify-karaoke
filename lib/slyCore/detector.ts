@@ -197,7 +197,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   const isNativeLanguage = window.SLY_NATIVE_LANGUAGES.has(window.spotifyState.language as string);
 
   // Strictly gate forensic scanning by the confirmed Language Tag.
-  if (isNativeLanguage && state.hasNativeLines && timeSinceOpen > 1500 && !window.slyInternalState.forceFallback && state.preFetch?.state !== 'NATIVE_OK') {
+  if (isNativeLanguage && state.hasNativeLines && timeSinceOpen > 1000 && !window.slyInternalState.forceFallback) {
     const nativeLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
                             .filter(el => !el.closest('#lyrics-root-sync'))
                             .slice(0, 5)
@@ -246,7 +246,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
                             state.preFetch?.nativeStatus === 'UNSYNCED' ||
                             state.preFetch?.state === 'UNSYNCED');
 
-  const isNativeSynced = window.spotifyState.isTimeSynced === true;
+  const isNativeSynced = window.spotifyState.isTimeSynced === true && !window.slyInternalState.forceFallback;
 
   // Determine the finalized state
   // SLY FIX: Prioritize NATIVE_OK above all other states. If we have live lines, 
@@ -283,7 +283,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     
     // SELF-HEALING: If we see native lines but the registry thought it was MISSING or ROMANIZED,
     // we have proof the registry is stale/wrong. Fix it.
-    if (state.currentUri && !state.isAd && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.nativeStatus === 'ROMANIZED')) {
+    if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus === 'MISSING') {
       console.log(`[sly-detector] 🩹 SELF-HEAL: Native lines found for track ${state.currentUri} which was tagged ${state.preFetch.nativeStatus}. Updating registry to NATIVE_OK.`);
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'NATIVE_OK' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {

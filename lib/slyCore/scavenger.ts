@@ -152,7 +152,7 @@ export const slyScavengeClasses = function (): void {
   }
 
   // Broadcast updated classes to the MAIN world (slyBridge.js)
-  window.postMessage({ type: 'SLY_UPDATE_CLASSES', classes: window.SPOTIFY_CLASSES }, window.location.origin);
+  window.postMessage({ type: 'SLY_UPDATE_CLASSES', classes: window.SPOTIFY_CLASSES }, '*');
 }
 
 let isDeepScavenging = false;
@@ -224,7 +224,7 @@ export function slyDeepScavengeStyles(): void {
     console.log('[sly-scavenger] Deep CSS Scavenge complete:', { ...window.SPOTIFY_CLASSES });
     
     // Broadcast updated classes to the MAIN world (slyBridge.js)
-    window.postMessage({ type: 'SLY_UPDATE_CLASSES', classes: window.SPOTIFY_CLASSES }, window.location.origin);
+    window.postMessage({ type: 'SLY_UPDATE_CLASSES', classes: window.SPOTIFY_CLASSES }, '*');
     
     hasDeepScavenged = true;
     lastDeepScavengeTime = Date.now();

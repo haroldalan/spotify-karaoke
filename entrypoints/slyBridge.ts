@@ -279,6 +279,16 @@ window.slyOmniscientSearch = function (
       lastUri = track.uri as string;
       window.__sly_native_has_lyrics = undefined;
       window.__sly_track_change_time = Date.now();
+
+      // SLY FIX: Instantly notify the Interceptor (via Background) of the new track's metadata.
+      // This eliminates the 3s timeout window where the Interceptor is 'blind' while waiting for DOM updates.
+      const trackId = (track.uri as string).split(':').pop();
+      if (trackId && track.name) {
+          window.postMessage({ 
+              type: 'SLY_MXM_NOTIFY_METADATA', 
+              payload: { trackId, name: track.name, artist: (track.artists as any)?.[0]?.name || 'Unknown' } 
+          }, '*');
+      }
     }
 
     // Context-Aware Return Memory
@@ -288,7 +298,7 @@ window.slyOmniscientSearch = function (
       lastPath = currentPath;
     }
 
-    window.postMessage({ source: 'SLY_BRIDGE', data: state }, window.location.origin);
+    window.postMessage({ source: 'SLY_BRIDGE', data: state }, '*');
   };
 
   // Scanner interval merged into shield loop (Section 3)

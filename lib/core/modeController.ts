@@ -46,7 +46,8 @@ export function createModeController(opts: ModeControllerOpts) {
     console.log(`[sly-audit] 🔄 Mode Change Requested: "${previousMode}" ➡️ "${next}"`);
     if (cache.original.length === 0) snapshotOriginals(cache);
 
-    if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original)) {
+    const isNativeLanguage = (window as any).SLY_NATIVE_LANGUAGES?.has((window as any).spotifyState?.language);
+    if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original) && !isNativeLanguage) {
       opts.store.mode = next;
       if (preferredMode !== next) {
         opts.store.preferredMode = next;

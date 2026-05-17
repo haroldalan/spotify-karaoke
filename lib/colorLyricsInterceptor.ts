@@ -9,7 +9,7 @@ import type { MxmClient } from './mxmClient';
 function slyPost(type: string, trackId?: string, extra?: Record<string, unknown>): void {
     window.postMessage(
         { type, ...(trackId ? { trackId } : {}), ...(extra ?? {}) },
-        window.location.origin,
+        '*',
     );
 }
 
@@ -130,7 +130,7 @@ export async function handleColorLyrics(
             trackId: spotifyTrackId,
             nativeLines: nativeLines.map((l: any) => l.words),
             isRomanizedUpgrade: isDenseTypeface === false
-        }, window.location.origin);
+        }, '*');
 
         // ── Signals 5 + 7 (success path) ─────────────────────────────────────
         // Port of: lyric-test/modules/bridge/interceptor.js lines 119-120

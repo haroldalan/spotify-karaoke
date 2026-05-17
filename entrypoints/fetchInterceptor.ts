@@ -7,7 +7,7 @@ export default defineUnlistedScript(() => {
      */
     const mxm = {
         notifyMetadata(trackId: string, name: string, artist: string) {
-            window.postMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: { trackId, name, artist } }, window.location.origin);
+            window.postMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: { trackId, name, artist } }, '*');
         },
         async newInterception(trackId: string): Promise<number> {
             return new Promise((resolve) => {
@@ -19,7 +19,7 @@ export default defineUnlistedScript(() => {
                     }
                 };
                 window.addEventListener('message', handler);
-                window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload: { trackId }, requestId }, window.location.origin);
+                window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload: { trackId }, requestId }, '*');
             });
         },
         async fetchNativeLines(providerLyricsId: string | null, trackId: string, hexGid: string, interceptId: number): Promise<any[] | null> {
@@ -34,18 +34,18 @@ export default defineUnlistedScript(() => {
                     }
                 };
                 window.addEventListener('message', handler);
-                window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload: { providerLyricsId, trackId, hexGid, interceptId: id }, requestId }, window.location.origin);
+                window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload: { providerLyricsId, trackId, hexGid, interceptId: id }, requestId }, '*');
             });
         },
         warmup() {
-            window.postMessage({ type: 'SLY_MXM_WARMUP' }, window.location.origin);
+            window.postMessage({ type: 'SLY_MXM_WARMUP' }, '*');
         }
     };
 
     mxm.warmup();
 
     // Signal that the interceptor is ready (BUG-B11)
-    window.postMessage({ type: 'SLY_INTERCEPTOR_READY' }, window.location.origin);
+    window.postMessage({ type: 'SLY_INTERCEPTOR_READY' }, '*');
 
     const _fetch = window.fetch.bind(window);
     

@@ -161,6 +161,8 @@ document.addEventListener('sly:inject', (e: Event) => {
 
 document.addEventListener('sly:song_change', async (e) => {
   const { uri } = (e as CustomEvent).detail;
+  if (!uri || uri === 'undefined' || uri === 'null') return;
+  
   console.log(`[sly-lifecycle] ⚡ Reactive Song Change Detected: ${uri}. Re-evaluating state.`);
   window.slyInternalState.isTransitioning = true;
   

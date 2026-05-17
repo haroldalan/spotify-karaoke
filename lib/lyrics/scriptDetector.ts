@@ -62,7 +62,7 @@ export const SCRIPT_TO_LANG: Partial<Record<ScriptType, string>> = {
 };
 
 const NON_LATIN_SCRIPT_RE =
-  /[\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0900-\u0D7F\u0600-\u06FF\u0590-\u05FF\u0E00-\u0E7F]/;
+  /[\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0900-\u0D7F\u0B80-\u0BFF\u0600-\u06FF\u0590-\u05FF\u0E00-\u0E7F]/;
 
 export function isLatinScript(lines: string[]): boolean {
   const text = lines.join('');

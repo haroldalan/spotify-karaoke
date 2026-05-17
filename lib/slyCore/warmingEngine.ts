@@ -78,7 +78,7 @@ export const WarmingEngine = {
     window.postMessage({ 
       type: 'SLY_CHECK_CACHE', 
       payload: { title, artist, uri } 
-    }, window.location.origin);
+    }, '*');
   },
 
   /**
