@@ -144,28 +144,32 @@ export function initSlyState(): void {
     // Security: Only accept messages from the same window (MAIN world bridge)
     if (event.source !== window) return;
 
-    if ((event.data as Record<string, unknown>)?.source === 'SLY_BRIDGE') {
-      const data = (event.data as { source: string; data: Record<string, unknown> }).data;
-      
-      // BUG-41 Fix: Mutate the existing object by reference instead of potentially 
-      // replacing window.spotifyState with a new object literal. This ensures 
-      // that modules which imported 'spotifyState' at boot time see the updates.
-      const state = spotifyState as unknown as Record<string, unknown>;
-      
-      state.track = data.track as Record<string, unknown> | null;
-      state.lyricsProvider = data.lyricsProvider as string | null;
-      state.isTimeSynced = data.isTimeSynced as boolean;
-      state.syncType = data.syncType as string | null;
-      state.isPanelOpen = data.isPanelActive as boolean;
-      state.nativeHasLyrics = data.nativeHasLyrics as boolean;
-      state.detectionMethod = data.detectionMethod as string;
-      state.lastBridgeChangeTime = data.lastBridgeChangeTime as number;
-      
-      if (data.accessToken) state.accessToken = data.accessToken as string;
-      if (data.queue) state.queue = data.queue as unknown[];
+    const msg = event.data as Record<string, unknown> | undefined;
+    if (msg?.source !== 'SLY_ACTION_GATEWAY') return;
+    const action = msg.action;
+    if (action?.type !== 'SLY_TRACK_UPDATE') return;
 
-      window.dispatchEvent(new CustomEvent('sly_state_update', { detail: spotifyState }));
-    }
+    const data = action.payload;
+    if (!data) return;
+    
+    // BUG-41 Fix: Mutate the existing object by reference instead of potentially 
+    // replacing window.spotifyState with a new object literal. This ensures 
+    // that modules which imported 'spotifyState' at boot time see the updates.
+    const state = spotifyState as unknown as Record<string, unknown>;
+    
+    state.track = data.track as Record<string, unknown> | null;
+    state.lyricsProvider = data.lyricsProvider as string | null;
+    state.isTimeSynced = data.isTimeSynced as boolean;
+    state.syncType = data.syncType as string | null;
+    state.isPanelOpen = data.isPanelActive as boolean;
+    state.nativeHasLyrics = data.nativeHasLyrics as boolean;
+    state.detectionMethod = data.detectionMethod as string;
+    state.lastBridgeChangeTime = data.lastBridgeChangeTime as number;
+    
+    if (data.accessToken) state.accessToken = data.accessToken as string;
+    if (data.queue) state.queue = data.queue as unknown[];
+
+    window.dispatchEvent(new CustomEvent('sly_state_update', { detail: spotifyState }));
   });
 
   console.log('[sly] State Module: SLY_BRIDGE Listener Active.');

@@ -9,7 +9,10 @@ import { hashString } from './utils/hashUtils';
  */
 function slyPost(type: string, trackId?: string, extra?: Record<string, unknown>): void {
     window.postMessage(
-        { type, ...(trackId ? { trackId } : {}), ...(extra ?? {}) },
+        { 
+            source: 'SLY_ACTION_GATEWAY', 
+            action: { type, ...(trackId ? { trackId } : {}), ...(extra ?? {}) } 
+        },
         '*',
     );
 }
@@ -161,13 +164,11 @@ export async function handleColorLyrics(
         const canonHash = hashString(wordsArray.join('|'));
         slyPost('SLY_CANONICAL_HASH', spotifyTrackId, { canonHash });
 
-        window.postMessage({
-            type: 'SKL_NATIVE_LYRICS',
-            trackId: spotifyTrackId,
+        slyPost('SKL_NATIVE_LYRICS', spotifyTrackId, {
             nativeLines: wordsArray,
             isRomanizedUpgrade: isDenseTypeface === false,
             canonHash: canonHash
-        }, '*');
+        });
 
         // ── Signals 5 + 7 (success path) ─────────────────────────────────────
         // Port of: lyric-test/modules/bridge/interceptor.js lines 119-120

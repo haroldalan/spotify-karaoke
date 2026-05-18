@@ -77,7 +77,7 @@ document.addEventListener('pointerdown', (e: Event) => {
       }
 
       console.log(`[sly-audit] Hijacking event to prevent Spotify navigation hijack. Intent: ${intent} | Current Scroll: ${scrollPos}px`);
-      window.postMessage({ source: intent }, '*');
+      window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: intent } }, '*');
     } else {
       console.log('[sly-audit] Bypassing hijack because provider is not null and label is not "Lyrics".');
     }

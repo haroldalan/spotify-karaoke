@@ -64,22 +64,31 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
         });
 
         window.addEventListener('message', (event) => {
-            if (event.data?.type === 'SLY_MXM_NEW_INTERCEPTION') {
-                window.postMessage({
-                    type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE',
-                    requestId: event.data.requestId,
-                    generation: 1
-                }, '*');
-            } else if (event.data?.type === 'SLY_MXM_FETCH_NATIVE') {
-                window.postMessage({
-                    type: 'SLY_MXM_FETCH_NATIVE_RESPONSE',
-                    requestId: event.data.requestId,
-                    ok: true,
-                    lines: [
-                        { words: 'こんにちは世界、今日は良い天気ですね' },
-                        { words: 'さくらの花が咲いている' }
-                    ]
-                }, '*');
+            if (event.data?.source === 'SLY_ACTION_GATEWAY') {
+                const action = event.data.action;
+                if (action?.type === 'SLY_MXM_NEW_INTERCEPTION') {
+                    window.postMessage({
+                        source: 'SLY_ACTION_GATEWAY',
+                        action: {
+                            type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE',
+                            requestId: action.requestId,
+                            generation: 1
+                        }
+                    }, '*');
+                } else if (action?.type === 'SLY_MXM_FETCH_NATIVE') {
+                    window.postMessage({
+                        source: 'SLY_ACTION_GATEWAY',
+                        action: {
+                            type: 'SLY_MXM_FETCH_NATIVE_RESPONSE',
+                            requestId: action.requestId,
+                            ok: true,
+                            lines: [
+                                { words: 'こんにちは世界、今日は良い天気ですね' },
+                                { words: 'さくらの花が咲いている' }
+                            ]
+                        }
+                    }, '*');
+                }
             }
         });
 
@@ -103,8 +112,11 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
         // Fix (Issue 3): target origin is now window.location.origin, not '*'
         expect(window.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
-                type: 'SKL_NATIVE_LYRICS',
-                trackId: '4cOdK2wGLETKBW3PvgPWqT'
+                source: 'SLY_ACTION_GATEWAY',
+                action: expect.objectContaining({
+                    type: 'SKL_NATIVE_LYRICS',
+                    trackId: '4cOdK2wGLETKBW3PvgPWqT'
+                })
             }),
             expect.any(String)
         );
@@ -122,15 +134,21 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
 
         // Lifecycle signals fire for all tracks (pre-fetch registry populated)
         expect(window.postMessage).toHaveBeenCalledWith(
-            expect.objectContaining({ type: 'SLY_FETCH_START', trackId: '123' }), '*'
+            expect.objectContaining({
+                source: 'SLY_ACTION_GATEWAY',
+                action: expect.objectContaining({ type: 'SLY_FETCH_START', trackId: '123' })
+            }), '*'
         );
         expect(window.postMessage).toHaveBeenCalledWith(
-            expect.objectContaining({ type: 'SLY_FETCH_END', trackId: '123' }), '*'
+            expect.objectContaining({
+                source: 'SLY_ACTION_GATEWAY',
+                action: expect.objectContaining({ type: 'SLY_FETCH_END', trackId: '123' })
+            }), '*'
         );
 
         // Upgrade signals must NOT fire for Latin-script tracks
         const allCalls = (window.postMessage as ReturnType<typeof vi.fn>).mock.calls;
-        const types = allCalls.map((c: any[]) => c[0]?.type);
+        const types = allCalls.map((c: any[]) => c[0]?.action?.type || c[0]?.type);
         expect(types).not.toContain('SLY_INTERCEPT_START');
         expect(types).not.toContain('SKL_NATIVE_LYRICS');
     });

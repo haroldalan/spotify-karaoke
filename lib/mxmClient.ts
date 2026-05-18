@@ -38,8 +38,8 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
         _isHydrating = true;
         _hydrationPromise = new Promise<void>((resolve) => {
             const handler = (event: MessageEvent) => {
-                if (event.data?.type === 'SLY_MXM_TOKEN_RESPONSE') {
-                    const { token, expiry } = event.data;
+                if (event.data?.source === 'SLY_ACTION_GATEWAY' && event.data.action?.type === 'SLY_MXM_TOKEN_RESPONSE') {
+                    const { token, expiry } = event.data.action;
                     if (token && Date.now() < expiry) {
                         _tokenCache = token;
                         _tokenExpiry = expiry;
@@ -52,7 +52,7 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                 }
             };
             window.addEventListener('message', handler);
-            window.postMessage({ type: 'SLY_GET_MXM_TOKEN' }, '*');
+            window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_GET_MXM_TOKEN' } }, '*');
             
             // Timeout to prevent hanging if the bridge isn't ready
             setTimeout(() => {
@@ -128,8 +128,11 @@ export function createMxmClient(fetchFn: typeof window.fetch): MxmClient {
                     _tokenFailCount = 0; // Reset on success
                     
                     window.postMessage({ 
-                        type: 'SLY_SET_MXM_TOKEN', 
-                        payload: { token, expiry: _tokenExpiry } 
+                        source: 'SLY_ACTION_GATEWAY',
+                        action: {
+                            type: 'SLY_SET_MXM_TOKEN', 
+                            payload: { token, expiry: _tokenExpiry } 
+                        }
                     }, '*');
                     
                     return token;

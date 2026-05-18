@@ -18,6 +18,7 @@ export class StateStore {
   runtimeCache = new Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>();
   pendingNativeLines = new Map<string, string[]>();
   canonicalHash: number | null = null;
+  canonicalHashes = new Map<string, number>();
   domObserver: MutationObserver | null = null;
   lyricsObserver: MutationObserver | null = null;
   pollId: number | null = null;

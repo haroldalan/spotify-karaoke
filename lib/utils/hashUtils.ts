@@ -1,10 +1,13 @@
 /**
  * Robust string hash (53-bit safe integer).
  * Improved version of DJB2 with better entropy for longer strings.
- * Normalized to ignore whitespace differences.
+ * Normalized to ignore case, whitespace, all standard/smart punctuation, and pipe separators.
  */
 export function hashString(str: string): number {
-  const normalized = str.replace(/\s+/g, '');
+  const normalized = str
+    .toLowerCase()
+    .replace(/[\s!"#$%&'()*+,-./:;<=>?@[\\\]^_\`{|}~♪…\u2018\u2019\u201C\u201D]/g, '');
+
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for (let i = 0, ch; i < normalized.length; i++) {
     ch = normalized.charCodeAt(i);

@@ -215,7 +215,7 @@ Romanize and Translate modes then operate on the correct native source, producin
 | **Local romanization** | 10 bundled libraries covering 16+ writing systems |
 | **Interception point** | `document_start`, MAIN world — before React first paint |
 | **Cache** | L1: 10-song RAM · L2: 200-song persistent (`browser.storage.local`, LRU-evicted) · L3: in-flight deduplication · L4: network |
-| **React Fiber bridge** | `slyBridge.ts` scans Spotify's Fiber tree at 600ms to extract tokens, track metadata, and queue state |
+| **React Fiber bridge** | `slyBridge.ts` scans Spotify's Fiber tree at 500ms. Utilizes a target-optimized **Crawler Cache Gate** to completely stand down heavy signature scans once resolved, maintaining a virtually 0% CPU footprint during active lyrics display |
 | **Playback sync** | Wall-clock extrapolation via `performance.now()` for 60fps sub-second accuracy between Spotify's ~500ms UI ticks |
 | **Stale-cancel guards** | Generation Map + `processGen` parity counter (2 independent mechanisms) |
 | **Translation fallback** | Google Translate → MyMemory → original preserved |

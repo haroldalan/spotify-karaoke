@@ -137,8 +137,11 @@ export async function loadSongCache(
     // BUG-1 Fix: Hash coherence check — discard + delete stale entry on mismatch.
     if (cache.original.length > 0) {
       const currentHash = hashString(cache.original.join('|'));
-      if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash) {
-        console.warn('[SKaraoke:Content] loadSongCache: Hash mismatch — discarding stale processed cache for key:', key);
+      const sameLines = Array.isArray(entry.original) && entry.original.length === cache.original.length &&
+        entry.original.every((line: string, idx: number) => line.trim() === cache.original[idx].trim());
+
+      if (entry.original.length !== cache.original.length || entry.originalHash !== currentHash || !sameLines) {
+        console.warn('[SKaraoke:Content] loadSongCache: Line mismatch or hash mismatch — discarding stale processed cache for key:', key);
         runtimeCache.delete(key);
         try { sessionStorage.removeItem(SESSION_KEY(key)); } catch {}
         browser.runtime.sendMessage({ type: 'SLY_DELETE_L0_CACHE', payload: { key } }).catch(() => {});

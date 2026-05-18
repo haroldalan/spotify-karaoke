@@ -102,7 +102,17 @@ async function main(): Promise<void> {
           syncPill(true);
           trySetupOrPoll();
         },
-        onLyricsPanelClosed: () => document.dispatchEvent(new CustomEvent('sly:panel_close')),
+        onLyricsPanelClosed: () => {
+          if (store.domObserver) {
+            (store.domObserver as any).disconnectViewport();
+          }
+          document.dispatchEvent(new CustomEvent('sly:panel_close'));
+        },
+        onLyricsPanelOpened: () => {
+          if (store.domObserver) {
+            (store.domObserver as any).connectViewport();
+          }
+        },
         onInvalidate: () => { 
           store.domObserver = null; 
           cleanupKeyboard();

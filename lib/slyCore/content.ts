@@ -44,6 +44,9 @@ if (isFirstLoad) {
 // BUG-B11: Interceptor Heartbeat
 // We wait 2 seconds for the MAIN world interceptor to signal readiness. 
 // If it fails (e.g. CSP block), we fall back to a safer native detection mode.
+// Ping the interceptor immediately to initiate an active handshake (fixes reload race condition).
+window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_PING_INTERCEPTOR' } }, '*');
+
 setTimeout(() => {
   if (!window.slyInternalState.interceptorActive) {
     console.warn('[sly] Interceptor Heartbeat: FAILED. Falling back to passive native detection.');
@@ -54,7 +57,7 @@ setTimeout(() => {
 // Relay messages from Bridge (MAIN world) to Background (Extension world)
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
-  if (event.data?.type === 'SLY_INTERCEPTOR_READY') {
+  if (event.data?.type === 'SLY_INTERCEPTOR_READY' || event.data?.action?.type === 'SLY_INTERCEPTOR_READY') {
     window.slyInternalState.interceptorFailed = false;
     window.slyInternalState.interceptorActive = true;
     console.log('[sly] Interceptor Heartbeat: Confirmed Healthy.');
@@ -90,7 +93,17 @@ document.addEventListener('sly:lyrics_injected', async () => {
 // its data-active="true" attribute. Handles panel close cleanup immediately instead
 // of waiting up to 500ms for the poll.
 document.addEventListener('sly:panel_close', () => {
-  
+  // SLY RACE-CONDITION FIX: Ignore panel close events triggered during song transitions
+  // if we are actively on the lyrics page and currently fetching or showing a failure HUD.
+  // Spotify's React app temporarily clears the lyrics button's active attributes during track skips,
+  // which falsely triggers this event and clears our active HUD.
+  const isOnLyricsPage = window.location.pathname.startsWith('/lyrics') || 
+                         document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
+  if (isOnLyricsPage && (window.slyInternalState.isFetchingHUD || window.slyInternalState.statusHUDActive)) {
+    console.log('[sly-lifecycle] 🛡️ Ignoring sly:panel_close during song transition to prevent HUD flicker.');
+    return;
+  }
+
   // BUG-38 Fix (REGRESSION FIX): We no longer clear currentLyrics here.
   // Before: Clearing currentLyrics on panel close broke the "Recovery" feature, 
   // forcing a re-fetch and causing synced lyrics to revert to unsynced on reopen.

@@ -7,7 +7,7 @@
  *
  * Ports (in execution order):
  *   modules/bridge/utils.js   — Fiber access utilities (window globals)
- *   modules/bridge/scanner.js — React Fiber state scanner (600ms interval)
+ *   modules/bridge/scanner.js — React Fiber state scanner (500ms interval)
  *   modules/bridge/shield.js  — Genetic Lock shield (250ms interval)
  *   bridge.js                 — Bridge entry point (wires handlers, activates shield)
  *
@@ -48,8 +48,13 @@ import {
   captureReturnPoint, 
   performAtomicRelease 
 } from '../lib/core/navigationController';
+import type { SlyAction } from '../lib/core/lyricsTypes';
 
 export default defineUnlistedScript(() => {
+  function dispatchSlyAction(action: SlyAction): void {
+    window.postMessage({ source: 'SLY_ACTION_GATEWAY', action }, '*');
+  }
+
 
 /* ============================================================
    SECTION 1 — Bridge Utilities
@@ -285,10 +290,10 @@ window.slyOmniscientSearch = function (
       // This eliminates the 3s timeout window where the Interceptor is 'blind' while waiting for DOM updates.
       const trackId = (track.uri as string).split(':').pop();
       if (trackId && track.name) {
-          window.postMessage({ 
+          dispatchSlyAction({ 
               type: 'SLY_MXM_NOTIFY_METADATA', 
-              payload: { trackId, name: track.name, artist: (track.artists as any)?.[0]?.name || 'Unknown' } 
-          }, '*');
+              payload: { trackId, name: track.name as string, artist: (track.artists as any)?.[0]?.name || 'Unknown' } 
+          });
       }
     }
 
@@ -299,7 +304,7 @@ window.slyOmniscientSearch = function (
       lastPath = currentPath;
     }
 
-    window.postMessage({ source: 'SLY_BRIDGE', data: state }, '*');
+    dispatchSlyAction({ type: 'SLY_TRACK_UPDATE', payload: state });
   };
 
   // Scanner interval merged into shield loop (Section 3)
@@ -445,7 +450,7 @@ window.slyOmniscientSearch = function (
 
         let node = window.slyGetFiber(btn) as Record<string, unknown> | null;
         let depth = 0;
-        let foundInWalk = false;
+        let foundInWalk = window.cachedToggleLyrics !== null;
         let didLock = false;
 
         while (node && depth < 35) {
@@ -574,14 +579,18 @@ window.slyOmniscientSearch = function (
 
   // --- NATIVE TRIGGER HANDLER ---
   window.addEventListener('message', (event) => {
-    const data = event.data as Record<string, any>;
+    if (event.source !== window) return;
+    const msg = event.data as Record<string, any>;
+    if (msg?.source !== 'SLY_ACTION_GATEWAY') return;
+    const action = msg.action as SlyAction;
+    if (!action) return;
     
-    if (data?.source === 'SLY_UPDATE_CLASSES') {
-      window.SPOTIFY_CLASSES = { ...window.SPOTIFY_CLASSES, ...data.classes };
+    if (action.type === 'SLY_UPDATE_CLASSES') {
+      window.SPOTIFY_CLASSES = { ...window.SPOTIFY_CLASSES, ...action.classes };
       return;
     }
 
-    if (data?.source === 'SLY_TRIGGER_NATIVE_CLOSE') {
+    if (action.type === 'SLY_TRIGGER_NATIVE_CLOSE') {
       console.log('>>> [sly] Bridge: Requesting Safe Native Panel Close');
       
       // Set transition guard to disable the Genetic Lock during slide out
@@ -598,7 +607,7 @@ window.slyOmniscientSearch = function (
       return;
     }
 
-    if (data?.source === 'SLY_TRIGGER_NATIVE_OPEN') {
+    if (action.type === 'SLY_TRIGGER_NATIVE_OPEN') {
       console.log('>>> [sly] Bridge: Requesting Native Panel Open');
 
       // Clear transition guard immediately so locks can take effect

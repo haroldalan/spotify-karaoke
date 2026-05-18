@@ -1,4 +1,4 @@
-import { getLyricsViewRoot, getLyricsLines } from './domQueries';
+import { getLyricsContainer, getLyricsLines } from './domQueries';
 import { isContextValid } from '../utils/browserUtils';
 import { applyLinesToDOM, capitalizeLine } from './lyricsDOM';
 import type { SongCache, LyricsMode } from '../core/lyricsTypes';
@@ -14,12 +14,12 @@ export interface LyricsObserverOpts {
 }
 
 export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver | null {
-  const container = getLyricsViewRoot();
+  const container = getLyricsContainer();
   if (!container) {
-    console.log('[sly-observer] ⚠️ createLyricsObserver: no lyrics view root — observer NOT created.');
+    console.log('[sly-observer] ⚠️ createLyricsObserver: no lyrics container found — observer NOT created.');
     return null;
   }
-  console.log(`[sly-observer] ✅ createLyricsObserver: observing node (connected=${container.isConnected}, id="${container.id}", class="${container.className.slice(0, 40)}").`);
+  console.log(`[sly-observer] ✅ createLyricsObserver: observing exact lyrics container (connected=${container.isConnected}, class="${container.className.slice(0, 40)}").`);
 
   const observer = new MutationObserver(() => {
     if (!isContextValid()) {
@@ -36,21 +36,16 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
     if (mode === 'original') {
       console.log('[sly-observer] 🧹 Observer detected mutation in ORIGINAL mode. Invoking continuous garbage collector...');
       const domLines = getLyricsLines();
-      let strippedAttrCount = 0;
       let strippedSpanCount = 0;
       
       domLines.forEach((el) => {
-        if (el.hasAttribute('data-sly-original')) {
-          el.removeAttribute('data-sly-original');
-          strippedAttrCount++;
-        }
         const spans = el.querySelectorAll('.sly-main-line, .sly-dual-line');
         if (spans.length > 0) {
           spans.forEach(s => s.remove());
           strippedSpanCount += spans.length;
         }
       });
-      console.log(`[sly-observer] 🧹 Continuous garbage collector finished. Stripped ${strippedAttrCount} stale attributes, ${strippedSpanCount} stale spans.`);
+      console.log(`[sly-observer] 🧹 Continuous garbage collector finished. Stripped ${strippedSpanCount} stale spans.`);
       return;
     }
 

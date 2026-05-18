@@ -37,17 +37,32 @@ export const FetchEngine = {
     const isNativeSynced = (window.slyPreFetchRegistry?.getState(uri)?.nativeStatus === 'SYNCED');
     let l0Hit = slyInternalState.l0Cache.get(uri);
 
-    // SLY FIX: Bridge to persistent runtimeCache if session cache is empty
+    // SLY FIX: Bridge to persistent runtimeCache if session cache is empty.
+    // Note: runtimeCache is keyed by songKey (aria-label), so we must find by URI property.
     if (!l0Hit && window.slyRuntimeCache) {
-      const persistentHit = window.slyRuntimeCache.get(uri);
+      let persistentHit: any = null;
+      for (const val of window.slyRuntimeCache.values()) {
+        if (val && ((val as any).uri === uri || (val as any)._slyUri === uri)) {
+          persistentHit = val;
+          break;
+        }
+      }
+
       if (persistentHit) {
         console.log(`[FetchEngine] ⚡ PERSISTENT CACHE HIT: Hydrating session cache for "${title}"`);
-        // Convert LyricsCacheEntry to the format expected by FetchEngine
+        // Convert UnifiedSongCacheEntry / LyricsCacheEntry to the format expected by FetchEngine
+        const lines = (persistentHit.processed && window.slyPreferredMode && persistentHit.processed[window.slyPreferredMode]) 
+          ? persistentHit.processed[window.slyPreferredMode] 
+          : (persistentHit.original || (persistentHit.lyrics?.plainLyrics || '').split('\n'));
+
         l0Hit = {
-          lines: persistentHit.processed[window.slyPreferredMode || 'original'] || persistentHit.original,
-          isSynced: !!persistentHit.syncedLyrics,
+          lines: lines,
+          isSynced: !!(persistentHit.lyrics?.syncedLyrics || persistentHit.syncedLyrics),
           _slyUri: uri,
-          extractedColor: persistentHit.extractedColor
+          extractedColor: persistentHit.extractedColor || (persistentHit.metadata?.extractedColor),
+          processed: persistentHit.processed,
+          plainLyrics: persistentHit.lyrics?.plainLyrics || persistentHit.plainLyrics || '',
+          syncedLyrics: persistentHit.lyrics?.syncedLyrics || persistentHit.syncedLyrics || ''
         };
         slyInternalState.l0Cache.set(uri, l0Hit);
       }

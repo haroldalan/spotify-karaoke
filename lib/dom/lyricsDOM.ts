@@ -121,10 +121,11 @@ export function applyLinesToDOM(
   setApplying(true);
 
   const domElements = targetElements ?? getLyricsLines();
-  const useTextMatching = Array.isArray(originals) && originals.length > 0;
+  const isTakeoverMode = document.getElementById('lyrics-root-sync') !== null;
+  const useTextMatching = !isTakeoverMode && Array.isArray(originals) && originals.length > 0;
   
   console.log(`%c[sly-dom] 🚀 applyLinesToDOM invoked!`, 'color: #38bdf8; font-weight: bold;');
-  console.log(`[sly-dom] Args: linesLength=${lines.length} | originalsLength=${originals?.length ?? 'none'} | dualEnabled=${dualLyricsEnabled} | targetElementsGiven=${!!targetElements} | domElementsLength=${domElements.length}`);
+  console.log(`[sly-dom] Args: linesLength=${lines.length} | originalsLength=${originals?.length ?? 'none'} | dualEnabled=${dualLyricsEnabled} | targetElementsGiven=${!!targetElements} | domElementsLength=${domElements.length} | isTakeoverMode=${isTakeoverMode}`);
   if (useTextMatching) {
     console.log(`[sly-dom] Text matching is ACTIVE. Space count in cache.original:`, originals!.filter(l => !l.trim()).length);
   } else {
@@ -168,7 +169,10 @@ export function applyLinesToDOM(
     domOriginalText = domOriginalText.replace(/\s+/g, ' ').trim();
     const originalTextToRestore = domOriginalText;
 
-    const isSpacer = el.classList.contains('aLaX8poOH8kdbmGf') || (i < 2 && domOriginalText === '');
+    const paddingLineClass = window.SPOTIFY_CLASSES?.paddingLineHelper || 'aLaX8poOH8kdbmGf';
+    const isSpacer = el.classList.contains(paddingLineClass) ||
+                     el.parentElement?.classList.contains(paddingLineClass) ||
+                     (i < 2 && domOriginalText === '');
 
     if (isSpacer) {
       matchIndex = -1;

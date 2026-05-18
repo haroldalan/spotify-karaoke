@@ -57,28 +57,31 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   const data = event.data as Record<string, unknown> | undefined;
+  if (data?.source !== 'SLY_ACTION_GATEWAY') return;
+  const action = data.action;
+  if (!action) return;
 
-  if (data?.type === 'SLY_FETCH_START') {
+  if (action.type === 'SLY_FETCH_START') {
     window.slyInternalState.isSpotifyFetching = true;
 
-  } else if (data?.type === 'SLY_FETCH_END') {
+  } else if (action.type === 'SLY_FETCH_END') {
     window.slyInternalState.isSpotifyFetching = false;
     if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
 
-  } else if (data?.type === 'SLY_INTERCEPT_START') {
+  } else if (action.type === 'SLY_INTERCEPT_START') {
     window.slyInternalState.interceptorActive = true;
 
-  } else if (data?.type === 'SLY_INTERCEPT_END') {
+  } else if (action.type === 'SLY_INTERCEPT_END') {
     window.slyInternalState.interceptorActive = false;
     if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
 
-  } else if (data?.type === 'SLY_FORCE_FALLBACK') {
+  } else if (action.type === 'SLY_FORCE_FALLBACK') {
     console.log(`[sly-dom] 🚨 Layer 1 failed to de-romanize track. Forcing Layer 2 (YTM) fallback...`);
     window.slyInternalState.forceFallback = true;
     setTimeout(window.slyCheckNowPlaying, 100);
 
-  } else if (data?.type === 'SLY_PREFETCH_REPORT') {
-    const { trackId, state, nativeStatus, metadata } = data;
+  } else if (action.type === 'SLY_PREFETCH_REPORT') {
+    const { trackId, state, nativeStatus, metadata } = action;
     if (trackId) {
       const fullUri = `spotify:track:${trackId}`;
       window.slyPreFetchRegistry.register(fullUri, state, {
@@ -89,8 +92,8 @@ window.addEventListener('message', (event) => {
       });
     }
 
-  } else if (data?.type === 'SKL_NATIVE_LYRICS') {
-    const { trackId, nativeLines, isRomanizedUpgrade } = data;
+  } else if (action.type === 'SKL_NATIVE_LYRICS') {
+    const { trackId, nativeLines, isRomanizedUpgrade } = action;
     if (trackId) {
       const fullUri = `spotify:track:${trackId}`;
       window.slyPreFetchRegistry.register(fullUri, 'NATIVE_OK', { 
@@ -109,22 +112,28 @@ window.addEventListener('message', (event) => {
       window.slyInternalState.fetchingForTitle = '';
       StatusEngine.clear();
     }
-  } else if (data?.type === 'SLY_MXM_WARMUP') {
+  } else if (action.type === 'SLY_MXM_WARMUP') {
     safeSendMessage({ type: 'SLY_MXM_WARMUP' });
 
-  } else if (data?.type === 'SLY_MXM_NOTIFY_METADATA') {
-    safeSendMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: data.payload });
+  } else if (action.type === 'SLY_MXM_NOTIFY_METADATA') {
+    safeSendMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: action.payload });
 
-  } else if (data?.type === 'SLY_MXM_NEW_INTERCEPTION') {
-    const { requestId, payload } = data;
+  } else if (action.type === 'SLY_MXM_NEW_INTERCEPTION') {
+    const { requestId, payload } = action;
     safeSendMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload }, (r) => {
-      window.postMessage({ type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r.generation }, '*');
+      window.postMessage({ 
+        source: 'SLY_ACTION_GATEWAY', 
+        action: { type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r.generation } 
+      }, '*');
     });
 
-  } else if (data?.type === 'SLY_MXM_FETCH_NATIVE') {
-    const { requestId, payload } = data;
+  } else if (action.type === 'SLY_MXM_FETCH_NATIVE') {
+    const { requestId, payload } = action;
     safeSendMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload }, (r) => {
-      window.postMessage({ type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r.ok, lines: r.lines }, '*');
+      window.postMessage({ 
+        source: 'SLY_ACTION_GATEWAY', 
+        action: { type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r.ok, lines: r.lines } 
+      }, '*');
     });
   }
 });

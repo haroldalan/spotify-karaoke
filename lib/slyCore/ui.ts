@@ -158,10 +158,8 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
     const isMissingOrUnsynced = preFetch && (
       preFetch.nativeStatus === 'MISSING' ||
       preFetch.nativeStatus === 'UNSYNCED' ||
-      preFetch.nativeStatus === 'ROMANIZED' ||
       preFetch.state === 'MISSING' ||
-      preFetch.state === 'UNSYNCED' ||
-      preFetch.state === 'ROMANIZED'
+      preFetch.state === 'UNSYNCED'
     );
     const isOnLyricsPage = window.location.pathname === '/lyrics' ||
                            document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';

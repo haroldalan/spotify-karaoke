@@ -142,14 +142,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
   function verifyAndHealCache(cache: SongCache): void {
     if (store.isApplying) return;
-    if (slyInternalState.isTransitioning) return;
-    if (slyInternalState?.currentLyrics && !slyInternalState.currentLyrics.failed) return;
     if (store.slyActiveContainer || document.getElementById('lyrics-root-sync') || store.godState === 'PIPELINE_A') return;
-
-    const registryState = (window as any).slyPreFetchRegistry?.getState(store.songKey);
-    const nativeStatus = registryState?.nativeStatus;
-    if (nativeStatus === 'UNSYNCED' || nativeStatus === 'MISSING') return;
-    if (spotifyState?.isTimeSynced === false || spotifyState?.nativeHasLyrics === false) return;
 
     const nativeLines = getLyricsLines().map(el => {
       const original = el.getAttribute('data-sly-original');
@@ -157,6 +150,27 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     });
 
     if (nativeLines.length === 0) return;
+
+    // Hybrid State-Gate: if the DOM lines match the canonical hash, we can safely unlock the transition gate!
+    if (slyInternalState.isTransitioning && store.canonicalHash !== null) {
+      const entryHash = hashString(nativeLines.join('|'));
+      if (Number(entryHash) === Number(store.canonicalHash)) {
+        slyInternalState.isTransitioning = false;
+        if ((window as any).slyTransitionTimeout) {
+          clearTimeout((window as any).slyTransitionTimeout);
+          (window as any).slyTransitionTimeout = null;
+        }
+        console.log('[sly-lifecycle] 🔓 Hash verification matches! Instantly unlocked transition gate.');
+      }
+    }
+
+    if (slyInternalState.isTransitioning) return;
+    if (slyInternalState?.currentLyrics && !slyInternalState.currentLyrics.failed) return;
+
+    const registryState = (window as any).slyPreFetchRegistry?.getState(store.songKey);
+    const nativeStatus = registryState?.nativeStatus;
+    if (nativeStatus === 'UNSYNCED' || nativeStatus === 'MISSING') return;
+    if (spotifyState?.isTimeSynced === false || spotifyState?.nativeHasLyrics === false) return;
 
     // Strict Hash Coherence check!
     if (store.canonicalHash !== null) {
@@ -179,6 +193,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           cache.processed.clear();
           snapshotOriginals(cache);
           saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
+          
+          applyLinesToDOM(cache.original, cache.original, false, (v) => { store.isApplying = v; });
         }
       }
     } else {
@@ -190,6 +206,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   }
 
   async function trySetup(): Promise<void> {
+    // Ensure viewport observer is connected dynamically
+    if (opts.store.domObserver) {
+      (opts.store.domObserver as any).connectViewport();
+    }
+
     const entryKey = getNowPlayingKey();
     if (store.setupLock && store.lockOwnerKey === entryKey) return;
     store.setupLock = true;
@@ -206,6 +227,17 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const { container } = syncPill(true); // Force visibility instantly. Do not let Ghost Guard or async tasks hide it.
 
     if (!container) return; // Wait for actual lines before proceeding with content sync
+
+    // SLY FIX: Synchronize track info on trySetup execution to ensure slyCore's fallback detector is aligned
+    const meta = MetadataEngine.getNowPlaying();
+    if (meta.uri && typeof (window as any).slyInternalState === 'object') {
+      const sly = (window as any).slyInternalState;
+      sly.lastUri = meta.uri;
+      const titleFromKey = opts.store.songKey.replace('Now playing: ', '').split(' by ')[0] || '';
+      if (titleFromKey) {
+        sly.lastTitle = titleFromKey;
+      }
+    }
 
     console.log(`[sly-lifecycle] ⚙️ trySetup executing. activeKey: "${activeKey}", store.songKey: "${opts.store.songKey}"`);
 
@@ -249,6 +281,21 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       if (!fpProcessed && fpPreferredMode === 'romanized' && fpCache.processed.size > 0) {
         const entries = Array.from(fpCache.processed.values());
         fpProcessed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
+      }
+      if (fpProcessed) {
+        // HASH VERIFICATION GUARD:
+        if (opts.store.canonicalHash !== null) {
+          const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
+          const cacheHash = runtimeEntry?.originalHash ?? hashString(fpCache.original.join('|'));
+          if (runtimeEntry && !runtimeEntry.originalHash) runtimeEntry.originalHash = cacheHash;
+
+          if (Number(cacheHash) !== Number(opts.store.canonicalHash)) {
+            console.warn(`[sly-lifecycle] trySetup fast path: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
+            deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
+            opts.store.cache = { original: [], processed: new Map() };
+            fpProcessed = undefined;
+          }
+        }
       }
       if (fpProcessed) {
         opts.store.mode = fpPreferredMode;
@@ -360,9 +407,25 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // Synchronously pre-warm from in-memory runtime cache to eliminate the async yield frame-flash (port of v3.0.6).
       const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
       if (runtimeEntry) {
-        if (opts.store.cache.original.length === 0) opts.store.cache.original = [...runtimeEntry.original];
-        for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
-          if (!opts.store.cache.processed.has(lang)) opts.store.cache.processed.set(lang, res);
+        // HASH VERIFICATION GUARD:
+        if (opts.store.canonicalHash !== null) {
+          const entryHash = runtimeEntry.originalHash ?? hashString(runtimeEntry.original.join('|'));
+          if (!runtimeEntry.originalHash) runtimeEntry.originalHash = entryHash;
+
+          if (Number(entryHash) !== Number(opts.store.canonicalHash)) {
+            console.warn(`[sly-lifecycle] syncSetup pre-warm: Hash mismatch (${entryHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
+            deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
+          } else {
+            if (opts.store.cache.original.length === 0) opts.store.cache.original = [...runtimeEntry.original];
+            for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
+              if (!opts.store.cache.processed.has(lang)) opts.store.cache.processed.set(lang, res);
+            }
+          }
+        } else {
+          if (opts.store.cache.original.length === 0) opts.store.cache.original = [...runtimeEntry.original];
+          for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
+            if (!opts.store.cache.processed.has(lang)) opts.store.cache.processed.set(lang, res);
+          }
         }
       }
 
@@ -373,6 +436,22 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         if (!processed && syncPreferredMode === 'romanized' && opts.store.cache.processed.size > 0) {
           const entries = Array.from(opts.store.cache.processed.values());
           processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
+        }
+
+        if (processed) {
+          // HASH VERIFICATION GUARD:
+          if (opts.store.canonicalHash !== null) {
+            const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
+            const cacheHash = runtimeEntry?.originalHash ?? hashString(opts.store.cache.original.join('|'));
+            if (runtimeEntry && !runtimeEntry.originalHash) runtimeEntry.originalHash = cacheHash;
+
+            if (Number(cacheHash) !== Number(opts.store.canonicalHash)) {
+              console.warn(`[sly-lifecycle] syncSetup fast path: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
+              deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
+              opts.store.cache = { original: [], processed: new Map() };
+              processed = undefined;
+            }
+          }
         }
 
         if (processed) {
@@ -434,6 +513,21 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         if (!spProcessed && spPreferredMode === 'romanized' && spCache.processed.size > 0) {
           const entries = Array.from(spCache.processed.values());
           spProcessed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
+        }
+        if (spProcessed) {
+          // HASH VERIFICATION GUARD:
+          if (opts.store.canonicalHash !== null) {
+            const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
+            const cacheHash = runtimeEntry?.originalHash ?? hashString(spCache.original.join('|'));
+            if (runtimeEntry && !runtimeEntry.originalHash) runtimeEntry.originalHash = cacheHash;
+
+            if (Number(cacheHash) !== Number(opts.store.canonicalHash)) {
+              console.warn(`[sly-lifecycle] syncSetup post-storage fast path: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
+              deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
+              opts.store.cache = { original: [], processed: new Map() };
+              spProcessed = undefined;
+            }
+          }
         }
         if (spProcessed) {
           opts.store.mode = spPreferredMode;
@@ -573,6 +667,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   let discoveryTime = 0;
 
   function pollForLyricsContainer(attempts = 0): void {
+    // Ensure viewport observer is connected dynamically
+    if (opts.store.domObserver) {
+      (opts.store.domObserver as any).connectViewport();
+    }
+
     if (attempts === 0) discoveryTime = performance.now();
 
     // Abort poll if slyCore is actively displaying custom lyrics.
@@ -640,6 +739,16 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       sly.statusHUDActive = false;
       sly.isAdHUDActive = false;
       sly.forceFallback = false;
+
+      // Transactional State-Gate: lock the transition phase
+      sly.isTransitioning = true;
+      if ((window as any).slyTransitionTimeout) clearTimeout((window as any).slyTransitionTimeout);
+      (window as any).slyTransitionTimeout = setTimeout(() => {
+        if (typeof (window as any).slyInternalState === 'object') {
+          (window as any).slyInternalState.isTransitioning = false;
+          console.log('[sly-lifecycle] ⏰ Transition timeout fallback triggered. Clearing isTransitioning.');
+        }
+      }, 1500);
     }
 
     // SLY FIX (Magical Seamless Swap): If we have a VALID L0 takeover hit, 
@@ -649,7 +758,18 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // SLY FIX: Robust URI extraction via MetadataEngine.
     // Handles race conditions where DOM widget is not yet ready.
     const meta = MetadataEngine.getNowPlaying();
-    const uri = meta.uri;
+    const titleFromKey = newKey.replace('Now playing: ', '').split(' by ')[0] || '';
+    const isStateStale = meta.title && titleFromKey && meta.title.toLowerCase() !== titleFromKey.toLowerCase();
+    const isUriStale = isStateStale && !getNowPlayingTrackId();
+    const uri = isUriStale ? null : meta.uri;
+
+    // SLY FIX: Synchronize track info immediately to slyInternalState to prevent the double-reset race
+    if (typeof (window as any).slyInternalState === 'object') {
+      const sly = (window as any).slyInternalState;
+      if (uri) sly.lastUri = uri;
+      if (titleFromKey) sly.lastTitle = titleFromKey;
+    }
+
     const l0Hit = uri ? (window as any).slyInternalState?.l0Cache?.get(uri) : null;
     const isNativeSynced = uri ? (window as any).slyPreFetchRegistry?.getState(uri)?.nativeStatus === 'SYNCED' : false;
 
@@ -677,6 +797,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     store.godState = 'LOADING'; // Track is changing — no stable pill target until next state event.
     store.songKey = newKey;
     
+    // Synchronize canonicalHash from pre-warm map for the new song
+    const trackId = getNowPlayingTrackId();
+    store.canonicalHash = trackId ? (store.canonicalHashes.get(trackId) ?? null) : null;
+    console.log(`[sly-lifecycle] 🔄 Set active canonicalHash to: ${store.canonicalHash} for track ${trackId}`);
+
     // mode represents what is actually painted, not what the user wants.
     // The preferred mode is applied only after processed lines reach the DOM.
     store.mode = 'original';
@@ -816,6 +941,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (uri && uri !== 'undefined' && uri !== 'null') {
       document.dispatchEvent(new CustomEvent('sly:song_change', { detail: { uri } }));
     }
+    // Wake up the main polling loop instantly on track change to bypass Spotify search latency
+    if (typeof (window as any).slyStartThrottledPoll === 'function') {
+      (window as any).slyStartThrottledPoll();
+    }
   }
 
   function trySetupOrPoll(): void {
@@ -861,17 +990,47 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
     }
 
+    if (processed && opts.store.canonicalHash !== null) {
+      const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
+      const cacheHash = runtimeEntry?.originalHash ?? hashString(opts.store.cache.original.join('|'));
+      if (runtimeEntry && !runtimeEntry.originalHash) runtimeEntry.originalHash = cacheHash;
+
+      if (Number(cacheHash) !== Number(opts.store.canonicalHash)) {
+        console.warn(`[sly-lifecycle] quickApply: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
+        deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
+        opts.store.cache = { original: [], processed: new Map() };
+        processed = undefined;
+      }
+    }
+
     // Fallback: check runtimeCache directly in case onSongChange's pre-warm ran
     // but the cache object was replaced before the entries were copied over.
     if (!processed) {
       const runtimeEntry = opts.store.runtimeCache.get(songKey);
       if (runtimeEntry) {
-        const rp = runtimeEntry.processed;
-        const rpEntry = rp[currentActiveLang]
-          ?? (preferredMode === 'romanized'
-            ? Object.values(rp).find((e: any) => !e.isLowQualityRomanization) ?? Object.values(rp)[0]
-            : undefined);
-        processed = rpEntry as typeof processed;
+        if (opts.store.canonicalHash !== null) {
+          const entryHash = runtimeEntry.originalHash ?? hashString(runtimeEntry.original.join('|'));
+          if (!runtimeEntry.originalHash) runtimeEntry.originalHash = entryHash;
+
+          if (Number(entryHash) !== Number(opts.store.canonicalHash)) {
+            console.warn(`[sly-lifecycle] quickApply runtimeCache: Hash mismatch (${entryHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
+            deleteSongCache(songKey, opts.store.runtimeCache);
+          } else {
+            const rp = runtimeEntry.processed;
+            const rpEntry = rp[currentActiveLang]
+              ?? (preferredMode === 'romanized'
+                ? Object.values(rp).find((e: any) => !e.isLowQualityRomanization) ?? Object.values(rp)[0]
+                : undefined);
+            processed = rpEntry as typeof processed;
+          }
+        } else {
+          const rp = runtimeEntry.processed;
+          const rpEntry = rp[currentActiveLang]
+            ?? (preferredMode === 'romanized'
+              ? Object.values(rp).find((e: any) => !e.isLowQualityRomanization) ?? Object.values(rp)[0]
+              : undefined);
+          processed = rpEntry as typeof processed;
+        }
       }
     }
 
@@ -1054,6 +1213,7 @@ export function setupSlyBridge(
       console.log(`[sly-lifecycle] 🔄 Cache Invalidation: Takeover data differs from Native snapshot. Clearing processed map.\nOld: "${origSnippet}"\nNew: "${plainSnippet}"`);
       store.cache.processed.clear();
       deleteSongCache(targetKey, store.runtimeCache);
+      store.globalProcessGenRef.value++; // Cancel any active/in-flight background processing
     }
 
     store.cache.original = plainLines;
@@ -1148,6 +1308,7 @@ export function setupSlyBridge(
 
   document.addEventListener('sly:release', () => {
     store.godState = 'RELEASING'; // Pill is being rescued to document.body; awaiting next state event.
+    store.mode = 'original'; // SLY FIX: Reset the painted mode back to original to keep the UI state coherent
     const s = performance.now();
     // #lyrics-root-sync (and the pill inside it) has been removed from the DOM.
     // Stop Pipeline B's sync loop, clear the flag so slyCore's loop can run

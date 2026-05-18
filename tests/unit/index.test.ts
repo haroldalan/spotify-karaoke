@@ -163,9 +163,12 @@ describe('Content Script Integration (JSDOM)', () => {
             source: window,
             origin: 'https://open.spotify.com',
             data: {
-                type: 'SKL_NATIVE_LYRICS',
-                trackId: '1234567890',
-                nativeLines: ['こんにちは']
+                source: 'SLY_ACTION_GATEWAY',
+                action: {
+                    type: 'SKL_NATIVE_LYRICS',
+                    trackId: '1234567890',
+                    nativeLines: ['こんにちは']
+                }
             }
         }));
 
