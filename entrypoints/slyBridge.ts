@@ -40,6 +40,7 @@ declare global {
     cachedToggleLyrics: ((...args: unknown[]) => unknown) | null;
     slyConfigPool: Set<unknown>;
     SPOTIFY_CLASSES?: Record<string, string>;
+    slyCloseTransitionActive?: boolean;
   }
 }
 
@@ -416,6 +417,16 @@ window.slyOmniscientSearch = function (
     console.log('>>> [sly] Shield Activated (Hybrid Fiber + Observer)');
 
     shieldInterval = setInterval(() => {
+      // SLY FIX: Stand down during close transitions to prevent lock-fighting or double-open flickers.
+      // Auto-reset when pathname is no longer '/lyrics'.
+      const isPathLyrics = window.location.pathname.startsWith('/lyrics');
+      if (!isPathLyrics && window.slyCloseTransitionActive) {
+        window.slyCloseTransitionActive = false;
+      }
+      if (window.slyCloseTransitionActive) {
+        return;
+      }
+
       window.slyScanSpotifyState(); // Merged Scanner
       const btn = document.querySelector('[data-testid="lyrics-button"]');
       const navBar = document.querySelector('[data-testid="now-playing-bar"]');
@@ -573,6 +584,9 @@ window.slyOmniscientSearch = function (
     if (data?.source === 'SLY_TRIGGER_NATIVE_CLOSE') {
       console.log('>>> [sly] Bridge: Requesting Safe Native Panel Close');
       
+      // Set transition guard to disable the Genetic Lock during slide out
+      window.slyCloseTransitionActive = true;
+
       // 1. Kill Intervals
       if (window.slyScannerInterval) clearInterval(window.slyScannerInterval);
       if (window.slyShieldInterval) clearInterval(window.slyShieldInterval);
@@ -586,6 +600,9 @@ window.slyOmniscientSearch = function (
 
     if (data?.source === 'SLY_TRIGGER_NATIVE_OPEN') {
       console.log('>>> [sly] Bridge: Requesting Native Panel Open');
+
+      // Clear transition guard immediately so locks can take effect
+      window.slyCloseTransitionActive = false;
 
       if (typeof window.cachedToggleLyrics === 'function') {
         console.log('>>> [sly] Bridge: Invoking Native toggleLyrics()');

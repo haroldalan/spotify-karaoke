@@ -22,7 +22,13 @@ export function injectControls(
     // Shimmer state is exclusively managed by setLoadingState(false), called
     // by whichever code path has confirmed the content is ready.
     existing.style.display = showPill ? '' : 'none';
-    syncButtonStates(mode);
+    
+    // Apply visual fakeout to prevent button highlights from visually "resetting"
+    // to Original while waiting for processed lyrics to arrive.
+    const displayMode =
+      mode === 'original' && preferredMode !== 'original' ? preferredMode : mode;
+    syncButtonStates(displayMode);
+
     if (existing.parentElement !== container) {
       container.insertBefore(existing, container.firstChild);
     }
