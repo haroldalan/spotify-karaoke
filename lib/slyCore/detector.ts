@@ -283,7 +283,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     
     // SELF-HEALING: If we see native lines but the registry thought it was MISSING or ROMANIZED,
     // we have proof the registry is stale/wrong. Fix it.
-    if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus === 'MISSING') {
+    if (state.currentUri && !state.isAd && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.nativeStatus === 'ROMANIZED')) {
       console.log(`[sly-detector] 🩹 SELF-HEAL: Native lines found for track ${state.currentUri} which was tagged ${state.preFetch.nativeStatus}. Updating registry to NATIVE_OK.`);
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'NATIVE_OK' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
@@ -335,3 +335,97 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
 
   return state;
 };
+
+export interface TrackStateResolution {
+  trackId: string;
+  sourceState: 'SYNCED' | 'UNSYNCED' | 'ROMANIZED' | 'MISSING' | 'LOADING';
+  action: 'NATIVE_ORIGINAL' | 'NATIVE_UPGRADED' | 'TAKEOVER_SYNCED' | 'TAKEOVER_UNSYNCED' | 'STANDBY';
+  provider: 'SPOTIFY' | 'YTM' | 'LRCLIB' | 'MUSIXMATCH' | 'NONE';
+}
+
+export function resolveTrackState(
+  detector: DetectorState,
+  preFetch: any,
+  cachedEntry: any
+): TrackStateResolution {
+  const trackId = detector.currentTrackId || '';
+  
+  const resolution: TrackStateResolution = {
+    trackId,
+    sourceState: 'LOADING',
+    action: 'STANDBY',
+    provider: 'NONE',
+  };
+
+  if (detector.isAd) {
+    resolution.action = 'STANDBY';
+    resolution.sourceState = 'LOADING';
+    return resolution;
+  }
+
+  // 1. Determine Source State from Spotify DOM/Prefetch Evidence
+  let spotifyStatus: 'SYNCED' | 'UNSYNCED' | 'ROMANIZED' | 'MISSING' | 'LOADING' = 'LOADING';
+  
+  if (preFetch) {
+    if (preFetch.nativeStatus === 'MISSING' || preFetch.state === 'MISSING') {
+      spotifyStatus = 'MISSING';
+    } else if (preFetch.nativeStatus === 'UNSYNCED' || preFetch.state === 'UNSYNCED') {
+      spotifyStatus = 'UNSYNCED';
+    } else if (preFetch.nativeStatus === 'ROMANIZED' || preFetch.state === 'ROMANIZED') {
+      spotifyStatus = 'ROMANIZED';
+    } else if (preFetch.nativeStatus === 'SYNCED' || preFetch.nativeStatus === 'NATIVE_OK' || preFetch.state === 'SYNCED' || preFetch.state === 'NATIVE_OK') {
+      spotifyStatus = 'SYNCED';
+    }
+  }
+
+  // Fallback to DOM evidence if preFetch is still loading
+  if (spotifyStatus === 'LOADING') {
+    if (detector.hasNativeLines) {
+      spotifyStatus = 'SYNCED';
+    } else if (detector.hasUnavailableMessage) {
+      spotifyStatus = 'MISSING';
+    }
+  }
+
+  resolution.sourceState = spotifyStatus;
+
+  // 2. Decision Logic ("God List" Priority Resolution)
+
+  // Priority 1: Spotify Synced + Not Romanized -> Use native original!
+  if (spotifyStatus === 'SYNCED' && !window.slyInternalState.forceFallback) {
+    resolution.action = 'NATIVE_ORIGINAL';
+    resolution.provider = 'SPOTIFY';
+    return resolution;
+  }
+
+  // Priority 2: Spotify is Synced but Romanized -> Musixmatch native upgrade.
+  if (spotifyStatus === 'ROMANIZED') {
+    if (window.slyInternalState.pendingNativeLines?.has(trackId)) {
+      resolution.action = 'NATIVE_UPGRADED';
+      resolution.provider = 'MUSIXMATCH';
+      return resolution;
+    }
+  }
+
+  // Priority 3: If we have cached YTM/LRCLIB synced lyrics, we takeover immediately!
+  if (cachedEntry) {
+    if (cachedEntry.lyrics?.syncedLyrics) {
+      resolution.action = 'TAKEOVER_SYNCED';
+      resolution.provider = cachedEntry.lyrics.source || 'LRCLIB';
+      return resolution;
+    } else if (cachedEntry.lyrics?.plainLyrics) {
+      if (spotifyStatus === 'MISSING' || spotifyStatus === 'UNSYNCED') {
+        resolution.action = 'TAKEOVER_UNSYNCED';
+        resolution.provider = cachedEntry.lyrics.source || 'LRCLIB';
+        return resolution;
+      }
+    }
+  }
+
+  // Priority 4: Spotify Unsynced or Missing -> Standby/Trigger search.
+  if (spotifyStatus === 'UNSYNCED' || spotifyStatus === 'MISSING') {
+    resolution.action = 'STANDBY';
+  }
+
+  return resolution;
+}

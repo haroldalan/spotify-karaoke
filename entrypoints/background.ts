@@ -8,6 +8,82 @@ import { mxmProvider } from '../lib/lyricsProviders/mxm';
 import { hashString } from '../lib/utils/hashUtils';
 
 export default defineBackground(() => {
+  // 1. Dynamic TTL Resolution Logic
+  function getDynamicTTL(entry: any): number {
+    if (!entry) return 0;
+    // If failed/missing/placeholder
+    if (entry.isPlaceholder || !entry.ok || entry.prefetchState === 'MISSING') {
+      return 12 * 60 * 60 * 1000; // 12 hours
+    }
+    // If unsynced/romanized
+    if (entry.prefetchState === 'UNSYNCED' || entry.nativeStatus === 'ROMANIZED' || entry.nativeStatus === 'UNSYNCED') {
+      return 24 * 60 * 60 * 1000; // 24 hours
+    }
+    // Otherwise (Synced / NATIVE_OK)
+    return 30 * 24 * 60 * 60 * 1000; // 30 days
+  }
+
+  // 2. Lazy Upgrade Queue to avoid API rate limits
+  interface UpgradeQueueItem {
+    title: string;
+    artist: string;
+    albumArtUrl: string;
+    uri: string;
+    cacheKey: string;
+    fallbackKey?: string;
+    senderTabId?: number;
+  }
+
+  const upgradeQueue: UpgradeQueueItem[] = [];
+  let isProcessingQueue = false;
+
+  async function processUpgradeQueue() {
+    if (isProcessingQueue || upgradeQueue.length === 0) return;
+    isProcessingQueue = true;
+    
+    while (upgradeQueue.length > 0) {
+      const item = upgradeQueue.shift();
+      if (!item) continue;
+      
+      console.log(`[sly-upgrade] ⏳ Proactively/lazily upgrading track: "${item.title}" by ${item.artist}`);
+      try {
+        const fresh = await getLyricsForTrack(item.title, item.artist, item.albumArtUrl, item.uri);
+        if (fresh && fresh.ok) {
+          const current = lyricsCache.get(item.cacheKey) || await lyricsPersistence.get(item.cacheKey, item.fallbackKey);
+          if (current?.nativeStatus && !fresh.nativeStatus) {
+            fresh.nativeStatus = current.nativeStatus;
+          }
+          
+          fresh.prefetchState = fresh.data?.isSynced ? 'SYNCED' : 'UNSYNCED';
+          await lyricsPersistence.set(item.cacheKey, fresh);
+          lyricsCache.set(item.cacheKey, fresh);
+          
+          console.log(`[sly-upgrade] 🎉 Successful proactive upgrade for "${item.title}" to ${fresh.prefetchState}`);
+
+          // Send message to tab to hot-swap!
+          if (item.senderTabId) {
+            browser.tabs.sendMessage(item.senderTabId, {
+              type: 'LYRICS_UPGRADED',
+              payload: { cacheKey: item.cacheKey, data: fresh, uri: item.uri },
+            }).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn(`[sly-upgrade] ⚠️ Proactive upgrade failed for "${item.title}":`, err);
+      }
+      
+      // Stand-down between queries to be extremely polite
+      await new Promise(r => setTimeout(r, 4000));
+    }
+    isProcessingQueue = false;
+  }
+
+  function enqueueUpgrade(item: UpgradeQueueItem) {
+    if (upgradeQueue.some(x => x.cacheKey === item.cacheKey)) return;
+    upgradeQueue.push(item);
+    processUpgradeQueue();
+  }
+
   browser.runtime.onMessage.addListener(
     (
       msg: {
@@ -194,8 +270,18 @@ export default defineBackground(() => {
         const fallbackKey = uri ? lyricsCache.getCacheKey(title!, artist!) : undefined;
         
         (async () => {
-          const stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
+          let stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
           if (stored) {
+             // Self-heal: If it was tagged ROMANIZED but plain lyrics contain no non-Latin script characters, correct it
+             if (stored.nativeStatus === 'ROMANIZED' && stored.data?.plainLyrics) {
+                 const hasNonLatin = /[\u0900-\u0DFF\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u08FF\u0E00-\u0E7F]/.test(stored.data.plainLyrics);
+                 if (!hasNonLatin) {
+                     console.log(`[sly-sw] 🩹 Self-healing stale ROMANIZED tag on cache check: "${title}" by ${artist}`);
+                     stored.nativeStatus = 'NATIVE_OK' as any;
+                     lyricsCache.set(cacheKey, stored);
+                     await lyricsPersistence.set(cacheKey, stored);
+                 }
+             }
              console.log(`[sly-sw] Cache check for ${title}: Found. Native=${stored.nativeStatus || 'N/A'}, Custom=${stored.prefetchState || 'N/A'}`);
              sendResponse({ ok: true, found: true, ...stored });
           } else {
@@ -223,9 +309,9 @@ export default defineBackground(() => {
             const cached = lyricsCache.get(cacheKey);
             if (cached && !(cached as any).isPlaceholder) {
               const age = Date.now() - (cached.persistedAt || 0);
-              const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-              if (age > THIRTY_DAYS) {
-                console.log(`[ServiceWorker] L1 EXPIRED (TTL): ${title}`);
+              const ttl = getDynamicTTL(cached);
+              if (age > ttl) {
+                console.log(`[ServiceWorker] L1 EXPIRED (Dynamic TTL: ${ttl / 3600000}h): ${title}`);
                 // Fall through to L2/Fetch path
               } else {
                 console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
@@ -237,80 +323,90 @@ export default defineBackground(() => {
 
           // 2. L2: Persistent Storage Hit
           const fallbackKey = uri ? lyricsCache.getCacheKey(title, artist) : undefined;
-          const stored = forceRefresh ? null : await lyricsPersistence.get(cacheKey, fallbackKey);
+          let stored = forceRefresh ? null : await lyricsPersistence.get(cacheKey, fallbackKey);
           if (stored && !(stored as any).isPlaceholder) {
-            console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
-            
-            // Reconstruct prefetchState if missing (legacy cache support)
-            if (!stored.prefetchState) {
-              if (stored.ok && stored.data) {
-                stored.prefetchState = stored.data.isSynced ? 'SYNCED' : 'UNSYNCED';
-              } else {
-                stored.prefetchState = 'MISSING';
-              }
+            // Self-heal: If it was tagged ROMANIZED but plain lyrics contain no non-Latin script characters, correct it
+            if (stored.nativeStatus === 'ROMANIZED' && stored.data?.plainLyrics) {
+                const hasNonLatin = /[\u0900-\u0DFF\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u08FF\u0E00-\u0E7F]/.test(stored.data.plainLyrics);
+                if (!hasNonLatin) {
+                    console.log(`[sly-sw] 🩹 Self-healing stale ROMANIZED tag on L2 hit: "${title}" by ${artist}`);
+                    stored.nativeStatus = 'NATIVE_OK' as any;
+                    lyricsCache.set(cacheKey, stored);
+                    await lyricsPersistence.set(cacheKey, stored);
+                }
             }
 
-            // Backwards compatibility: Promote old nativeMissing flag to new nativeStatus
-            if ((stored as any).nativeMissing && !stored.nativeStatus) {
-              stored.nativeStatus = 'MISSING';
-            }
-
-            lyricsCache.set(cacheKey, stored); // Promote to L1
+            const age = Date.now() - (stored.persistedAt || 0);
+            const ttl = getDynamicTTL(stored);
             
-            // SLY FIX: Look ahead for a processed cache entry (lc: prefix) 
-            // to eliminate the "shimmer" where original lyrics appear before romanized ones.
-            // STALE DATA GUARD: Only merge if the hash of the stored original lines
-            // matches the plainLyrics of the current fetch result. This prevents
-            // Unsynced romanization from being applied to Synced LRC lines (index shift).
-            if (uri && stored.ok && stored.data?.plainLyrics && !stored.processed) {
-              const lcKey = `lc:${uri}`;
-              const lcResult = await safeBrowserCall(() => browser.storage.local.get([lcKey]));
-              const lcEntry = lcResult?.[lcKey];
+            if (age > ttl) {
+              console.log(`[ServiceWorker] L2 EXPIRED (Dynamic TTL: ${ttl / 3600000}h): ${title} — triggering background refresh.`);
+              // If L2 is expired, we do NOT return the stale hit. We fall through to network fetch!
+            } else {
+              console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
               
-              if (lcEntry?.processed && lcEntry.originalHash) {
-                // Compute hash of current plainLyrics to compare
-                const currentPlain = stored.data.plainLyrics;
-                const currentHash = hashString(currentPlain.split('\n').join('|'));
-                
-                if (lcEntry.originalHash === currentHash) {
-                  console.log(`[ServiceWorker] L2 PROCESSED HIT: Merging verified romanization for ${title}`);
-                  stored.processed = lcEntry.processed;
+              // Reconstruct prefetchState if missing (legacy cache support)
+              if (!stored.prefetchState) {
+                if (stored.ok && stored.data) {
+                  stored.prefetchState = stored.data.isSynced ? 'SYNCED' : 'UNSYNCED';
                 } else {
-                  console.warn(`[ServiceWorker] L2 PROCESSED IGNORED: Hash mismatch for ${title} (Source lyrics changed).`);
+                  stored.prefetchState = 'MISSING';
                 }
               }
-            }
 
-            sendResponse(stored);
+              // Backwards compatibility: Promote old nativeMissing flag to new nativeStatus
+              if ((stored as any).nativeMissing && !stored.nativeStatus) {
+                stored.nativeStatus = 'MISSING';
+              }
 
-            // --- UPGRADE LOGIC ---
-            const needsUpgrade = (!stored.ok && !stored.isPlaceholder) || (stored.data && stored.data.isSynced === false);
-            const lastCheck = stored.lastCheckedAt || 0;
-            const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
-            const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-            const retryThreshold = !stored.ok ? dayAgo : weekAgo;
- 
-            if (needsUpgrade && lastCheck < retryThreshold) {
-              console.log(`[ServiceWorker] Upgrade Check for ${title}`);
-              getLyricsForTrack(title, artist, albumArtUrl, uri).then(async (fresh) => {
-                if (fresh && fresh.ok && (fresh.data?.isSynced || !stored.ok)) {
-                  // BUG-C3 Fix: Re-fetch current state to avoid overwriting late-arriving nativeStatus
-                  const current = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
-                  if (current?.nativeStatus && !fresh.nativeStatus) {
-                    fresh.nativeStatus = current.nativeStatus;
-                  }
-                  await lyricsPersistence.set(cacheKey, fresh);
-                  lyricsCache.set(cacheKey, fresh);
-                  if (sender.tab?.id) {
-                    browser.tabs.sendMessage(sender.tab.id, {
-                      type: 'LYRICS_UPGRADED',
-                      payload: { cacheKey, data: fresh },
-                    }).catch(() => {});
+              lyricsCache.set(cacheKey, stored); // Promote to L1
+              
+              // SLY FIX: Look ahead for a processed cache entry (lc: prefix) 
+              // to eliminate the "shimmer" where original lyrics appear before romanized ones.
+              // STALE DATA GUARD: Only merge if the hash of the stored original lines
+              // matches the plainLyrics of the current fetch result. This prevents
+              // Unsynced romanization from being applied to Synced LRC lines (index shift).
+              if (uri && stored.ok && stored.data?.plainLyrics && !stored.processed) {
+                const lcKey = `lc:${uri}`;
+                const lcResult = await safeBrowserCall(() => browser.storage.local.get([lcKey]));
+                const lcEntry = lcResult?.[lcKey];
+                
+                if (lcEntry?.processed && lcEntry.originalHash) {
+                  // Compute hash of current plainLyrics to compare
+                  const currentPlain = stored.data.plainLyrics;
+                  const currentHash = hashString(currentPlain.split('\n').join('|'));
+                  
+                  if (lcEntry.originalHash === currentHash) {
+                    console.log(`[ServiceWorker] L2 PROCESSED HIT: Merging verified romanization for ${title}`);
+                    stored.processed = lcEntry.processed;
+                  } else {
+                    console.warn(`[ServiceWorker] L2 PROCESSED IGNORED: Hash mismatch for ${title} (Source lyrics changed).`);
                   }
                 }
-              }).catch(() => {});
+              }
+
+              sendResponse(stored);
+
+              // --- UPGRADE LOGIC (Lazy Upgrade Queue) ---
+              const needsUpgrade = (!stored.ok && !stored.isPlaceholder) || (stored.data && stored.data.isSynced === false);
+              const lastCheck = stored.lastCheckedAt || 0;
+              const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
+              const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+              const retryThreshold = !stored.ok ? dayAgo : weekAgo;
+   
+              if (needsUpgrade && lastCheck < retryThreshold) {
+                enqueueUpgrade({
+                  title,
+                  artist,
+                  albumArtUrl: albumArtUrl || '',
+                  uri: uri || '',
+                  cacheKey,
+                  fallbackKey,
+                  senderTabId: sender.tab?.id
+                });
+              }
+              return;
             }
-            return;
           }
 
           // 3. L3: Join In-Flight Fetch (Deduplication)

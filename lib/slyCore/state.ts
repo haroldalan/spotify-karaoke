@@ -53,6 +53,7 @@ export interface SlyInternalState {
   /** Timestamp until which automatic panel detection/takeover is suppressed.
    *  Used to prevent "re-opening flicker" when closing panels. */
   panelIntentCooldown: number;
+  lastResolvedStateString?: string;
 }
 
 declare global {
@@ -125,6 +126,7 @@ export const slyInternalState: SlyInternalState = {
   interceptorActive: false,
   interceptorFailed: false,
   panelIntentCooldown: 0,
+  lastResolvedStateString: '',
 };
 
 window.slyInternalState = slyInternalState;

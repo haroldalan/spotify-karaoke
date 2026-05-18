@@ -59,6 +59,6 @@ describe('Security and Permissions Audit', () => {
 
         // Both MAIN world scripts (fetchInterceptor.js, slyBridge.js) MUST ONLY match open.spotify.com
         const interceptorObj = webAccessible[0];
-        expect(interceptorObj.matches).toEqual(['*://open.spotify.com/*']);
+        expect(interceptorObj.matches).toEqual(['https://open.spotify.com/*']);
     });
 });

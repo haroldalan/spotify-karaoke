@@ -1,6 +1,7 @@
 import { getNowPlayingTrackId, getLyricsLines } from '../dom/domQueries';
 import { loadSongCache } from './lyricsCache';
 import type { SongCache, LyricsCacheEntry, LyricsMode } from './lyricsTypes';
+import { slyForensics } from '../slyCore/forensics';
 
 export interface NativeLyricsState {
   cache: SongCache;

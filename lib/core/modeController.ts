@@ -1,5 +1,5 @@
 import { safeBrowserCall, getTargetLang } from '../utils/browserUtils';
-import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
+import { snapshotOriginals, applyLinesToDOM, purgeSlyDOM } from '../dom/lyricsDOM';
 import { getLyricsLines } from '../dom/domQueries';
 import { syncButtonStates, setLoadingState } from '../dom/lyricsControls';
 import { fetchProcessed } from './fetchProcessed';
@@ -33,6 +33,40 @@ export function createModeController(opts: ModeControllerOpts) {
     return Array.isArray(lines) && lines.length === expected;
   };
 
+  const logEntireLyrics = (next: LyricsMode, cache: SongCache, lang: string): void => {
+    console.groupCollapsed(`%c[sly-debug] 📋 ENTIRE LYRICS FOR MODE "${next.toUpperCase()}" (${cache.original.length} lines)`, 'color: #1DB954; font-weight: bold; font-size: 12px;');
+    console.log(`[sly-debug] Song Key: "${opts.store.songKey}" | Target Translation Language: "${lang}"`);
+    console.log(`[sly-debug] Cache Original Length: ${cache.original.length}`);
+    
+    if (next === 'original') {
+      const table = cache.original.map((line, idx) => ({
+        Index: idx,
+        Original: line
+      }));
+      console.table(table);
+    } else {
+      let processed = cache.processed.get(lang);
+      if (!processed && next === 'romanized' && cache.processed.size > 0) {
+        const entries = Array.from(cache.processed.values());
+        processed = entries.find(e => !e.isLowQualityRomanization && e.romanized) ?? entries.find(e => e.romanized) ?? null;
+      }
+      if (!processed) {
+        console.log(`[sly-debug] ⚠️ No processed cache found for language: "${lang}"`);
+        console.groupEnd();
+        return;
+      }
+      const targetLines = next === 'romanized' ? processed.romanized : processed.translated;
+      console.log(`[sly-debug] Target Lines Length: ${targetLines?.length ?? 0}`);
+      const table = cache.original.map((origLine, idx) => ({
+        Index: idx,
+        Original: origLine,
+        [next.charAt(0).toUpperCase() + next.slice(1)]: targetLines?.[idx] ?? '---'
+      }));
+      console.table(table);
+    }
+    console.groupEnd();
+  };
+
   async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false, cacheOverride?: SongCache): Promise<void> {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
@@ -58,6 +92,7 @@ export function createModeController(opts: ModeControllerOpts) {
         console.warn('[SKaraoke:Content] Alignment mismatch detected (Latin). DOM:', targets.length, 'Cache:', cache.original.length);
       }
       console.log(`[sly-audit] 📄 Applying Original Lyrics (Latin script fallback, First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
+      logEntireLyrics(next, cache, opts.store.currentActiveLang || 'en');
       applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
       opts.store.lyricsAppliedForKey = opts.store.songKey;
       syncButtonStates(next);
@@ -83,8 +118,8 @@ export function createModeController(opts: ModeControllerOpts) {
           opts.store.preferredMode = next;
           safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
         }
-        console.log(`[sly-audit] 📄 Applying Original Lyrics (First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
-        applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, getTargets());
+        console.log(`[sly-audit] 📄 Reverting to pristine original lyrics and purging custom DOM elements.`);
+        purgeSlyDOM();
         opts.store.lyricsAppliedForKey = opts.store.songKey;
         setLoadingState(false);
       } else {
@@ -110,6 +145,7 @@ export function createModeController(opts: ModeControllerOpts) {
         if (processed === null) {
           opts.store.mode = previousMode;
           syncButtonStates(previousMode);
+          setLoadingState(false); // SLY FIX: Clear loading state on failed processing!
           return;
         }
 
@@ -124,6 +160,7 @@ export function createModeController(opts: ModeControllerOpts) {
           console.warn('[SKaraoke:Content] Alignment mismatch detected (Processed). DOM:', targets.length, 'Cache:', cache.original.length);
         }
         console.log(`[sly-audit] 🔮 Processed Lyrics ("${next}" mode, First 5 lines):\n`, lines.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
+        logEntireLyrics(next, cache, lang);
         applyLinesToDOM(lines, cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
         opts.store.lyricsAppliedForKey = opts.store.songKey;
         setLoadingState(false);
@@ -160,6 +197,7 @@ export function createModeController(opts: ModeControllerOpts) {
       if (mode === 'romanized' && isLatinScript(cache.original)) {
         const targets = getTargets();
         console.log(`[SKaraoke:Mode] reapplyMode: Latin script detected for romanized mode. Using originals.`);
+        logEntireLyrics('romanized', cache, currentActiveLang);
         applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
         opts.store.lyricsAppliedForKey = opts.store.songKey;
         setLoadingState(false);
@@ -194,7 +232,8 @@ export function createModeController(opts: ModeControllerOpts) {
       console.warn('[SKaraoke:Content] Alignment mismatch detected in reapplyMode. DOM:', targets.length, 'Cache:', cache.original.length);
     }
     console.log(`[sly-audit] 🔮 Processed Lyrics (Re-applying "${mode}" mode, First 5 lines):\n`, lines.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
-    applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
+    logEntireLyrics(mode, cache, currentActiveLang);
+    applyLinesToDOM(lines, cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
     opts.store.lyricsAppliedForKey = opts.store.songKey;
     setLoadingState(false);
   }
@@ -235,6 +274,8 @@ export function createModeController(opts: ModeControllerOpts) {
       // Pass forceRefresh=true when data isn't ready so switchMode bypasses the
       // same-mode early-return guard (mode === preferredMode after optimistic init).
       switchMode(preferredMode, undefined, false, forceRefresh || optimisticNeedsFetch, cacheOverride);
+    } else {
+      setLoadingState(false); // SLY FIX: Clear the loading state if no switch is needed!
     }
   }
 

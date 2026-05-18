@@ -13,7 +13,18 @@ export function setupMessageListener(
     const msg = event.data;
     if (!msg?.type) return;
 
+    if (msg.type === 'SLY_FETCH_START') {
+      store.canonicalHash = null;
+    }
+
+    if (msg.type === 'SLY_CANONICAL_HASH') {
+      store.canonicalHash = msg.canonHash;
+      console.log(`[sly-listener] 🔒 Captured canonical lyrics hash: ${msg.canonHash} for track ${msg.trackId}`);
+    }
+
     if (msg.type === 'SKL_NATIVE_LYRICS') {
+      // Upgraded native lyrics carry a canonHash too
+      if (msg.canonHash) store.canonicalHash = msg.canonHash;
       handleNativeLyrics(
         msg.trackId as string,
         msg.nativeLines as string[],

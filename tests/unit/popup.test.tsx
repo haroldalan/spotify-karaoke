@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
 import App from '../../entrypoints/popup/App';
 
@@ -16,6 +16,10 @@ describe('Popup App Component', () => {
             const { TextEncoder } = require('util');
             global.TextEncoder = TextEncoder;
         }
+    });
+
+    afterEach(() => {
+        document.body.innerHTML = '';
     });
 
     it('renders the initial state correctly with storage populated', async () => {

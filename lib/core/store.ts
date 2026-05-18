@@ -1,4 +1,4 @@
-import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
+import type { LyricsMode, SongCache, LyricsCacheEntry, UnifiedSongCacheEntry } from './lyricsTypes';
 import { isContextValid, safeBrowserCall } from '../utils/browserUtils';
 
 export class StateStore {
@@ -15,8 +15,9 @@ export class StateStore {
   isApplying = false;
   isSwitchingMode = false;
   showPill = true;
-  runtimeCache = new Map<string, LyricsCacheEntry>();
+  runtimeCache = new Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>();
   pendingNativeLines = new Map<string, string[]>();
+  canonicalHash: number | null = null;
   domObserver: MutationObserver | null = null;
   lyricsObserver: MutationObserver | null = null;
   pollId: number | null = null;

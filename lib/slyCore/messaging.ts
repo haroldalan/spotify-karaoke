@@ -24,10 +24,32 @@ browser.runtime.onMessage.addListener((message: Record<string, unknown>) => {
     if (!fresh) return;
     
     const uri = (message.payload as Record<string, unknown>)?.uri as string;
-    if (uri) window.slyInternalState.l0Cache.set(uri, safeClone(fresh));
+    if (uri) {
+      window.slyInternalState.l0Cache.set(uri, safeClone(fresh));
+    }
 
-    window.slyInternalState.pendingLyricsData = safeClone(fresh);
-    console.log('[sly-dom] Background fetch succeeded. Pending lyrics data updated for automatic injection.');
+    const currentUri = (window.spotifyState?.track as any)?.uri;
+    const isCurrentTrack = uri && currentUri && uri === currentUri;
+
+    if (isCurrentTrack) {
+      console.log(`[sly-coherence] 🔥 Active Track Upgraded! Performing hot-swap for: "${fresh.title}"`);
+      window.slyInternalState.currentLyrics = safeClone(fresh);
+      window.slyInternalState.pendingLyricsData = null;
+      
+      const root = document.getElementById('lyrics-root-sync');
+      if (root) {
+        // Active UI is visible: trigger a seamless hot-swap!
+        document.dispatchEvent(new CustomEvent('sly:inject', {
+          detail: { 
+            lyricsObj: safeClone(fresh),
+            isInstant: true 
+          },
+        }));
+      }
+    } else {
+      window.slyInternalState.pendingLyricsData = safeClone(fresh);
+      console.log('[sly-dom] Background fetch succeeded. Pending lyrics data updated for automatic injection.');
+    }
   }
 });
 

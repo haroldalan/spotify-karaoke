@@ -82,6 +82,9 @@ export const FetchEngine = {
     slyInternalState.fetchingForUri.add(uri);
     slyInternalState.fetchingForTitle = title;
     slyInternalState.currentLyrics = null; // Clear old results/failures for clean HUD recovery
+    if (forceRefresh) {
+      slyInternalState.l0Cache.delete(uri); // Clear failed/stale cache entry to prevent any recovery desync
+    }
     console.log(`[FetchEngine] 🚀 INITIATING FETCH: "${title}" by ${artist} [URI: ${uri}]`);
 
     // 3. HUD GRACE PERIOD (Seamless Hits)

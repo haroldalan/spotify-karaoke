@@ -1,4 +1,5 @@
 import { safeBrowserCall } from '../utils/browserUtils';
+import { hashString } from '../utils/hashUtils';
 import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
@@ -21,9 +22,11 @@ import { slyForensics } from '../slyCore/forensics';
  */
 let lyricsObserver: MutationObserver | null = null;
 
-const clearHUDFlags = () => {
+const clearHUDFlags = (store?: StateStore) => {
   StatusEngine.clear();
-  setLoadingState(false);
+  if (!store || !store.isSwitchingMode) {
+    setLoadingState(false);
+  }
 };
 
 export function auditOriginalLyrics(store: StateStore): void {
@@ -31,33 +34,18 @@ export function auditOriginalLyrics(store: StateStore): void {
   if (songKey && songKey !== store.lastAuditedSongKey && cache.original.length > 0) {
     store.lastAuditedSongKey = songKey;
     console.log(`[sly-audit] 🎵 Active Track: "${songKey}"`);
-    console.log(`[sly-audit] 📄 Original Lyrics (First 5 lines):\n`, cache.original.slice(0, 5).map((l, i) => `  ${i + 1}: ${l}`).join('\n'));
+    console.groupCollapsed(`%c[sly-debug] 📋 ENTIRE ORIGINAL LYRICS ON LOAD (${cache.original.length} lines)`, 'color: #1DB954; font-weight: bold; font-size: 12px;');
+    const table = cache.original.map((line, idx) => ({
+      Index: idx,
+      Original: line
+    }));
+    console.table(table);
     console.log(`[sly-audit] ⚙️ Active Preferred Mode: "${preferredMode}"`);
+    console.groupEnd();
   }
 }
 
 const getTrackUri = () => (spotifyState?.track as { uri?: string } | null)?.uri;
-
-function getVerbalLines(lines: string[]): string[] {
-  const noiseRegex = /^(?:instrumental|インストゥルメンタル|instrumentalni|instrumentalny|instrumental de|\[.*instrumental.*\]|\(.*\)|[♪🎵🎶\s]+)$/i;
-  return lines
-    .map(line => line.trim())
-    .filter(line => line && !noiseRegex.test(line));
-}
-
-function sameLines(a?: string[], b?: string[]): boolean {
-  return !!a && !!b && a.length === b.length && a.every((line, i) => line === b[i]);
-}
-
-function getTakeoverSourceLines(lyricsObj: Record<string, unknown>): string[] {
-  if (lyricsObj.isSynced) {
-    const parsed = (window as any).slyParseLRC?.(String(lyricsObj.syncedLyrics || '')) || [];
-    return parsed.map((line: { text: string }) => line.text);
-  }
-  if (typeof lyricsObj.plainLyrics === 'string') return lyricsObj.plainLyrics.split('\n');
-  if (Array.isArray(lyricsObj.lines)) return lyricsObj.lines.map((line: any) => String(line?.text ?? line ?? ''));
-  return [];
-}
 
 export interface LifecycleControllerOpts {
   store: StateStore;
@@ -164,58 +152,39 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (spotifyState?.isTimeSynced === false || spotifyState?.nativeHasLyrics === false) return;
 
     const nativeLines = getLyricsLines().map(el => {
-      // PRIORITIZE the attribute — it is the immutable source of truth once we've taken over.
       const original = el.getAttribute('data-sly-original');
-      if (original !== null) return original;
-      
-      // If no attribute, textContent should be native (un-hijacked).
-      return el.textContent ?? '';
-    }).filter(text => text !== null); // Preserve empty strings for index parity
+      return original !== null ? original : (el.textContent ?? '');
+    });
 
-    if (nativeLines.length > 0) {
+    if (nativeLines.length === 0) return;
+
+    // Strict Hash Coherence check!
+    if (store.canonicalHash !== null) {
+      const currentHash = hashString(nativeLines.join('|'));
+      
+      // If DOM hash does not match canonical hash, DOM is still settling. Early exit.
+      if (currentHash !== store.canonicalHash) {
+        return;
+      }
+      
+      console.log(`[sly-coherence] 🔒 DOM fully settled and matches canonical hash: ${currentHash}`);
+
       if (cache.original.length === 0) {
         snapshotOriginals(cache);
       } else {
-        const verbalCache = getVerbalLines(cache.original);
-        const verbalNative = getVerbalLines(nativeLines);
-
-        // GHOST GUARD: If React is rendering incrementally, the DOM lines will be a prefix
-        // of our cache. Do not trigger a false-positive mismatch during this settling phase.
-        const isPrefix = verbalNative.length < verbalCache.length && 
-                         verbalNative.every((l, i) => l === verbalCache[i]);
-        if (isPrefix) return;
-
-        // INCREMENTAL GROW GUARD: If the new DOM snapshot is longer than our cached original,
-        // but matches it perfectly up to the cached length, then React is rendering incrementally.
-        // Update our cache with the fuller snapshot instead of triggering a false-positive mismatch.
-        const isGrow = verbalNative.length > verbalCache.length &&
-                       verbalCache.every((l, i) => l === verbalNative[i]);
-        if (isGrow) {
-          cache.original = [...nativeLines];
-          saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
-          return;
-        }
-
-        const isMismatch = verbalCache.length !== verbalNative.length || 
-                           !verbalCache.every((l, i) => l === verbalNative[i]);
-        if (isMismatch) {
-          // FORENSIC GUARD: Avoid downgrading native script to romanized text.
-          const cacheForensics = slyForensics.analyzeText(cache.original);
-          const nativeForensics = slyForensics.analyzeText(nativeLines);
-
-          if (cacheForensics.hasAnyNative && !nativeForensics.hasAnyNative) {
-            console.log('[sly] 🛡️ Forensic Guard: Cache has native script, but DOM is Romanized. Re-applying native cache to DOM.');
-            opts.reapplyMode();
-            return;
-          }
-
-          const origSnippet = cache.original.slice(0, 3).join(' | ');
-          const nativeSnippet = nativeLines.slice(0, 3).join(' | ');
-          console.warn(`[sly] ⚠️ Cache Mismatch detected! Self-healing cache. Live DOM (${nativeLines.length} lines) differs from Cache original (${cache.original.length} lines). Overwriting cache.`);
+        const cacheHash = hashString(cache.original.join('|'));
+        if (currentHash !== cacheHash) {
+          // Live verified DOM differs from Cache. Overwrite and heal.
+          console.warn(`[sly-coherence] ⚠️ Cache Mismatch! Healing cache with verified DOM.`);
           cache.processed.clear();
           snapshotOriginals(cache);
           saveSongCache(opts.store.songKey, cache, opts.store.runtimeCache);
         }
+      }
+    } else {
+      // Fallback: If no canonical hash received yet, only snapshot when cache is completely empty and DOM is stable.
+      if (cache.original.length === 0) {
+        snapshotOriginals(cache);
       }
     }
   }
@@ -227,7 +196,6 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     store.lockOwnerKey = entryKey;
     try {
     const activeKey = getNowPlayingKey();
-    console.log(`[sly-lifecycle] ⚙️ trySetup executing. activeKey: "${activeKey}", store.songKey: "${opts.store.songKey}"`);
     if (activeKey && opts.store.songKey !== activeKey) {
       console.log(`[sly-lifecycle] 🔄 trySetup detected out-of-sync songKey. Forcing onSongChange to ${activeKey}.`);
       onSongChange(activeKey);
@@ -238,6 +206,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const { container } = syncPill(true); // Force visibility instantly. Do not let Ghost Guard or async tasks hide it.
 
     if (!container) return; // Wait for actual lines before proceeding with content sync
+
+    console.log(`[sly-lifecycle] ⚙️ trySetup executing. activeKey: "${activeKey}", store.songKey: "${opts.store.songKey}"`);
 
     // Yield to Pipeline B if it's already working. This prevents the Native Pipeline
     // from proactively snapshotting (and potentially poisoning) the Romanization cache
@@ -296,11 +266,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           onInvalidate: () => { lyricsObserver = null; },
         });
 
-        applyLinesToDOM(fpLines, fpDual ? fpCache.original : undefined, fpDual, (v) => { opts.store.isApplying = v; });
+        applyLinesToDOM(fpLines, fpCache.original, fpDual, (v) => { opts.store.isApplying = v; });
         opts.store.lyricsAppliedForKey = opts.store.songKey;
         syncButtonStates(fpPreferredMode);
         setLoadingState(false);
-        clearHUDFlags();
+        clearHUDFlags(store);
         console.log(`[sly-lifecycle] ✅ Bridge trySetup complete (hot cache fast path, 0 flicker).`);
         return;
       }
@@ -341,7 +311,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
       
       // Setup successful. Clear any stale loading HUDs.
-      clearHUDFlags();
+      clearHUDFlags(store);
 
       const e = performance.now();
       console.log(`[sly-lifecycle] ✅ Bridge trySetup complete. Pill injected/updated (${(e - s).toFixed(2)}ms).`);
@@ -424,12 +394,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           opts.store.mode = syncPreferredMode;
           const lines = syncPreferredMode === 'romanized' ? processed.romanized : processed.translated;
           const dualLyricsEnabled = opts.store.dualLyricsEnabled;
-          applyLinesToDOM(lines, dualLyricsEnabled ? opts.store.cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+          applyLinesToDOM(lines, opts.store.cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(syncPreferredMode);
           setLoadingState(false);
           
           // Native lyrics applied. Clear any fetching/loading HUDs.
-          clearHUDFlags();
+          clearHUDFlags(store);
           
           syncPill('NATIVE_OK');
 
@@ -483,11 +453,11 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
             onInvalidate: () => { lyricsObserver = null; },
           });
 
-          applyLinesToDOM(spLines, spDual ? spCache.original : undefined, spDual, (v) => { opts.store.isApplying = v; });
+          applyLinesToDOM(spLines, spCache.original, spDual, (v) => { opts.store.isApplying = v; });
           opts.store.lyricsAppliedForKey = opts.store.songKey;
           syncButtonStates(spPreferredMode);
           setLoadingState(false);
-          clearHUDFlags();
+          clearHUDFlags(store);
           document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
           console.log('[sly-lifecycle] ✅ Bridge syncSetup complete (post-storage fast path, 0 flicker).');
           return;
@@ -563,13 +533,13 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           opts.store.mode = preferredMode;
           const lines = preferredMode === 'romanized' ? processed.romanized : processed.translated;
           const dualLyricsEnabled = opts.store.dualLyricsEnabled;
-          applyLinesToDOM(lines, dualLyricsEnabled ? opts.store.cache.original : undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+          applyLinesToDOM(lines, opts.store.cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           opts.store.lyricsAppliedForKey = opts.store.songKey;
           syncButtonStates(preferredMode);
           setLoadingState(false);
           
           // Native lyrics applied. Clear any fetching/loading HUDs.
-          clearHUDFlags();
+          clearHUDFlags(store);
 
           clearPoll();
           opts.store.lyricsAppliedForKey = opts.store.songKey;
@@ -629,7 +599,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // We found the lines, we can stop polling.
     } else if (root) {
       const foundTime = performance.now();
-      console.log(`[sly-lifecycle] 🔍 Lyrics view root detected after ${(foundTime - discoveryTime).toFixed(2)}ms. Waiting for lines...`);
+      if (attempts === 0 || attempts % 10 === 0) {
+        console.log(`[sly-lifecycle] 🔍 Lyrics view root detected after ${(foundTime - discoveryTime).toFixed(2)}ms. Waiting for lines (attempt ${attempts})...`);
+      }
       trySetup(); // Call once to inject the pill into the shell
       // View root found but lines missing — poll again with a slight delay
       pollId = window.setTimeout(() => pollForLyricsContainer(attempts + 1), 300) as unknown as number;
@@ -966,6 +938,19 @@ export function setupSlyBridge(
     onActiveIndexChange: (index) => { slyInternalState.lastActiveIndex = index; },
   });
 
+  function getTakeoverSourceLines(lyricsObj: any): string[] {
+    if (lyricsObj.isSynced) {
+      const parsed = (window as any).slyParseLRC?.(String(lyricsObj.syncedLyrics || '')) || [];
+      return parsed.map((l: { text: string }) => l.text);
+    }
+    return String(lyricsObj.plainLyrics || '').split('\n');
+  }
+
+  function sameLines(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    return a.every((line, idx) => line.trim() === b[idx].trim());
+  }
+
   // slyCore's injection gate dispatches this when pendingLyricsData is ready and the
   // panel is open. Pipeline B is now the full orchestrator — it calls slyCore's DOM
   // creation functions as individual tools and dispatches sly:takeover itself.
@@ -1154,7 +1139,10 @@ export function setupSlyBridge(
       auditOriginalLyrics(store);
       
       // Point of No Return: Successfully taken over. Clear all HUD flags and DOM.
-      clearHUDFlags();
+      StatusEngine.clear();
+      if (!store.isSwitchingMode) {
+        setLoadingState(false);
+      }
     });
   });
 

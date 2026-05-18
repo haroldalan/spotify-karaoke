@@ -1,6 +1,7 @@
 import { isContextValid, safeBrowserCall } from '../utils/browserUtils';
 import { hashString } from '../utils/hashUtils';
-import type { SongCache, LyricsCacheEntry, LyricsIndex } from './lyricsTypes';
+import type { SongCache, LyricsCacheEntry, LyricsIndex, UnifiedSongCacheEntry } from './lyricsTypes';
+import { isUnifiedSongCacheEntry } from './lyricsTypes';
 
 const RUNTIME_CACHE_MAX = 50; // BUG-15: Increased from 10
 const PERSISTED_CACHE_MAX = 200;
@@ -36,13 +37,13 @@ function writeSessionCache(songKey: string, entry: LyricsCacheEntry): void {
  */
 export function warmRuntimeCacheFromSession(
   songKey: string,
-  runtimeCache: Map<string, LyricsCacheEntry>
+  runtimeCache: Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>
 ): boolean {
   if (!songKey || runtimeCache.has(songKey)) return false;
   try {
     const raw = sessionStorage.getItem(SESSION_KEY(songKey));
     if (!raw) return false;
-    const entry = JSON.parse(raw) as LyricsCacheEntry;
+    const entry = JSON.parse(raw) as LyricsCacheEntry | UnifiedSongCacheEntry;
     if (!entry.original?.length || !entry.processed) return false;
     // Apply 30-day TTL check to be consistent with loadSongCache.
     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
@@ -62,7 +63,7 @@ export function warmRuntimeCacheFromSession(
  * Pre-warms the runtime cache by bulk-loading indexed entries from persistent storage.
  * This makes already-cached songs synchronous after a new content-script session.
  */
-export async function prewarmRuntimeCache(runtimeCache: Map<string, LyricsCacheEntry>): Promise<void> {
+export async function prewarmRuntimeCache(runtimeCache: Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>): Promise<void> {
   if (!isContextValid()) return;
   try {
     const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
@@ -81,7 +82,7 @@ export async function prewarmRuntimeCache(runtimeCache: Map<string, LyricsCacheE
     for (const [storageKey, entry] of Object.entries(data)) {
       const songKey = storageKey.replace(/^lc:/, '');
       if (entry && !runtimeCache.has(songKey)) {
-        runtimeCache.set(songKey, entry as LyricsCacheEntry);
+        runtimeCache.set(songKey, entry as LyricsCacheEntry | UnifiedSongCacheEntry);
       }
     }
 
@@ -95,7 +96,7 @@ export async function prewarmRuntimeCache(runtimeCache: Map<string, LyricsCacheE
 if (typeof window !== 'undefined') {
   (window as any).slyRuntimeCache = new Map();
 }
-export const runtimeCache: Map<string, LyricsCacheEntry> = (window as any).slyRuntimeCache;
+export const runtimeCache: Map<string, LyricsCacheEntry | UnifiedSongCacheEntry> = (window as any).slyRuntimeCache;
 
 /**
  * Retrieves a lyric entry from the runtime cache or persistent storage.
@@ -104,7 +105,7 @@ export const runtimeCache: Map<string, LyricsCacheEntry> = (window as any).slyRu
 export async function loadSongCache(
   key: string,
   cache: SongCache,
-  runtimeCache: Map<string, LyricsCacheEntry>
+  runtimeCache: Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>
 ): Promise<void> {
   if (!key || !isContextValid()) return;
   try {
@@ -113,7 +114,7 @@ export async function loadSongCache(
     if (!entry) {
       const storageKey = `lc:${key}`;
       const data = await safeBrowserCall(() => browser.storage.local.get(storageKey));
-      entry = data?.[storageKey] as LyricsCacheEntry | undefined;
+      entry = data?.[storageKey] as LyricsCacheEntry | UnifiedSongCacheEntry | undefined;
       
       if (entry) {
         runtimeCache.delete(key); // BUG-C2: Refresh position in Map for LRU
@@ -152,7 +153,7 @@ export async function loadSongCache(
     }
 
     for (const [lang, processed] of Object.entries(entry.processed)) {
-        cache.processed.set(lang, processed);
+        cache.processed.set(lang, processed as any);
     }
 
     // Update index timestamp via background to prevent races (BUG-A3)
@@ -172,20 +173,56 @@ export async function loadSongCache(
 export async function saveSongCache(
   key: string,
   cache: SongCache,
-  runtimeCache: Map<string, LyricsCacheEntry>
+  runtimeCache: Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>
 ): Promise<void> {
   if (!key || cache.original.length === 0 || !isContextValid()) return;
 
-  const processedObj: LyricsCacheEntry['processed'] = {};
+  const existingEntry = runtimeCache.get(key);
+  let entry: UnifiedSongCacheEntry;
+
+  const processedObj: Record<string, any> = {};
   cache.processed.forEach((val, lang) => { processedObj[lang] = val; });
 
-  const entry: LyricsCacheEntry = {
-    original: cache.original,
-    processed: processedObj,
-    lastAccessed: Date.now(),
-    originalHash: hashString(cache.original.join('|')),
-    persistedAt: Date.now(), // BUG-2 Fix: Stamp write time for 30-day TTL enforcement.
-  };
+  const currentHash = hashString(cache.original.join('|'));
+
+  if (existingEntry && isUnifiedSongCacheEntry(existingEntry)) {
+    entry = {
+      ...existingEntry,
+      original: cache.original,
+      processed: processedObj,
+      originalHash: currentHash,
+      metadata: {
+        ...existingEntry.metadata,
+        lastAccessed: Date.now(),
+        persistedAt: Date.now(),
+      },
+      // compatibility fields
+      lastAccessed: Date.now(),
+      persistedAt: Date.now(),
+    };
+  } else {
+    // Generate a backward-compatible UnifiedSongCacheEntry from scratch
+    entry = {
+      uri: key.startsWith('spotify:track:') ? key : `spotify:track:unknown:${key}`,
+      title: key.split('|')[0] || 'Unknown',
+      artist: key.split('|')[1] || 'Unknown',
+      status: 'SYNCED',
+      lyrics: {
+        plainLyrics: cache.original.join('\n'),
+        source: 'SPOTIFY',
+      },
+      processed: processedObj,
+      metadata: {
+        persistedAt: Date.now(),
+        lastAccessed: Date.now(),
+      },
+      // backward compatibility properties
+      original: cache.original,
+      originalHash: currentHash,
+      lastAccessed: Date.now(),
+      persistedAt: Date.now(),
+    };
+  }
 
   // Manage runtime cache size (BUG-C2: True LRU via delete-before-set)
   runtimeCache.delete(key);
@@ -198,14 +235,9 @@ export async function saveSongCache(
   // Also mirror to sessionStorage so within-tab reloads (Ctrl+Shift+R) can
   // hydrate runtimeCache synchronously, bypassing the async storage.local read
   // and eliminating the original-lyrics flash on reload.
-  writeSessionCache(key, entry);
+  writeSessionCache(key, entry as any);
 
   // Delegate persistent storage write to background queue (BUG-A3)
-  // BUG-4 Fix: Inspect the background's response to catch storage failures
-  // (e.g. quota exceeded) that return { ok: false } via sendResponse — these
-  // were previously invisible because sendResponse resolves the message promise.
-  // We intentionally do NOT roll back runtimeCache or cache.processed on failure:
-  // the in-memory data is still valid for the current session; only persistence failed.
   browser.runtime.sendMessage({
     type: 'SLY_SAVE_L0_CACHE',
     payload: { key, entry, PERSISTED_CACHE_MAX }
@@ -221,8 +253,6 @@ export async function saveSongCache(
 export function deleteSongCache(key: string, runtimeCache: Map<string, any>): void {
   if (!key) return;
   
-  // BUG-B14 Fix: Invalidate the in-memory cache immediately. 
-  // Before: Deletion only reached storage via background message; memory remained stale.
   runtimeCache.delete(key);
   try { sessionStorage.removeItem(SESSION_KEY(key)); } catch {}
 

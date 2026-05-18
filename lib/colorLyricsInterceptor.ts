@@ -1,5 +1,6 @@
 import { LATIN_LIKE_LANGS, base62ToHex } from './utils/spotifyUtils';
 import type { MxmClient } from './mxmClient';
+import { hashString } from './utils/hashUtils';
 
 /**
  * Convenience wrapper: posts a SLY_* message to the content-script world.
@@ -12,6 +13,11 @@ function slyPost(type: string, trackId?: string, extra?: Record<string, unknown>
         '*',
     );
 }
+
+const NON_LATIN_LANGS = new Set([
+  'ko', 'ja', 'th', 'te', 'kn', 'gu', 'pa', 'or', 'ta', 'hi', 'ru', 'ml', 'bn', 'ar', 'iw', 'he', 'zh',
+  'el', 'hy', 'ka'
+]);
 
 export async function handleColorLyrics(
     originalResponse: Response,
@@ -56,6 +62,31 @@ export async function handleColorLyrics(
         const lines         = data.lyrics?.lines as unknown[] | undefined;
         const hexGid        = spotifyTrackId ? base62ToHex(spotifyTrackId) : null;
 
+        // Comprehensive script analysis across all lyric lines
+        let hasNonLatinScript = false;
+        if (lines && lines.length > 0) {
+            const fullText = lines.map((l: any) => l.words || '').join(' ');
+            hasNonLatinScript = /[\u0900-\u0DFF\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u08FF\u0E00-\u0E7F\u0590-\u05FF]/.test(fullText);
+        }
+
+        // Normalize regional tags (e.g., 'en-US' -> 'en') and explicitly filter undetermined/non-linguistic codes.
+        const primaryLang = language ? language.split('-')[0].toLowerCase() : '';
+        const isUndetermined = primaryLang === 'und' || primaryLang === 'zxx' || primaryLang === 'unknown';
+
+        const isSupportedNonLatin = isDenseTypeface === false && 
+                                    (NON_LATIN_LANGS.has(primaryLang) || 
+                                     (hasNonLatinScript && (primaryLang && !isUndetermined ? !LATIN_LIKE_LANGS.has(primaryLang) : true)));
+
+        console.log(`[sly-interceptor] Classification diagnostics for "${spotifyTrackId}":`, {
+            language,
+            primaryLang,
+            isDenseTypeface,
+            isSupportedNonLatin,
+            hasNonLatinScript,
+            hasLatinLike: LATIN_LIKE_LANGS.has(primaryLang),
+            latinLikeLangsSize: LATIN_LIKE_LANGS.size
+        });
+
         // ── Signal 2/3: SLY_PREFETCH_REPORT ──────────────────────────────────
         // Report the track's lyric state to the content-script's preFetch registry
         // BEFORE deciding whether to attempt a native upgrade. This ensures the
@@ -67,15 +98,20 @@ export async function handleColorLyrics(
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'MISSING', nativeMissing: true });
             } else if (syncType === 'UNSYNCED') {
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'UNSYNCED' });
-            } else if (isDenseTypeface === false && language !== undefined && !LATIN_LIKE_LANGS.has(language)) {
+            } else if (isSupportedNonLatin) {
                 slyPost('SLY_PREFETCH_REPORT', spotifyTrackId, { state: 'ROMANIZED' });
             }
         }
 
         // Early-exit: no upgrade needed (Latin / already dense / no IDs).
-        if (isDenseTypeface !== false || LATIN_LIKE_LANGS.has(language!) || !spotifyTrackId || !hexGid) {
+        if (!isSupportedNonLatin || !spotifyTrackId || !hexGid) {
             if (!hexGid && spotifyTrackId) {
                 console.warn('[SKaraoke:Interceptor] Base62 conversion failed for track ID:', spotifyTrackId);
+            }
+            if (spotifyTrackId && data?.lyrics?.lines) {
+                const wordsArray = data.lyrics.lines.map((l: any) => l.words || '');
+                const canonHash = hashString(wordsArray.join('|'));
+                slyPost('SLY_CANONICAL_HASH', spotifyTrackId, { canonHash });
             }
             const headers = new Headers(fallbackResponse.headers);
             headers.delete('content-encoding');
@@ -121,15 +157,16 @@ export async function handleColorLyrics(
             });
         }
 
-        // ── Success path ──────────────────────────────────────────────────────
-        // Notify the content script that Layer 1 upgraded successfully.
-        // Uses window.location.origin (not '*') — SKL_NATIVE_LYRICS carries line
-        // content so we restrict it to the same origin for safety.
+        const wordsArray = nativeLines.map((l: any) => l.words || '');
+        const canonHash = hashString(wordsArray.join('|'));
+        slyPost('SLY_CANONICAL_HASH', spotifyTrackId, { canonHash });
+
         window.postMessage({
             type: 'SKL_NATIVE_LYRICS',
             trackId: spotifyTrackId,
-            nativeLines: nativeLines.map((l: any) => l.words),
-            isRomanizedUpgrade: isDenseTypeface === false
+            nativeLines: wordsArray,
+            isRomanizedUpgrade: isDenseTypeface === false,
+            canonHash: canonHash
         }, '*');
 
         // ── Signals 5 + 7 (success path) ─────────────────────────────────────

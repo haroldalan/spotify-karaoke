@@ -5,6 +5,7 @@ import { getLyricsLines, getLyricsViewRoot } from '../dom/domQueries';
 import { purgeSlyDOM } from '../dom/lyricsDOM';
 import { WarmingEngine } from './warmingEngine';
 import { StatusEngine } from './statusEngine';
+import { resolveTrackState } from './detector';
 
 console.log('[sly] DOM Engine starting...');
 if (window.slyInjectCoreStyles) window.slyInjectCoreStyles();
@@ -325,6 +326,9 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
           if (window.slyInternalState.isAdHUDActive) {
             console.log('[sly] Restore: Re-injecting Ad HUD...');
             StatusEngine.show('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
+          } else if (window.slyInternalState.isFetchingHUD || (fullUri && window.slyInternalState.fetchingForUri.has(fullUri))) {
+            console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
+            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri });
           } else if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed) {
             console.log('[sly] Restore: Re-injecting failure HUD...');
             StatusEngine.show(
@@ -333,9 +337,6 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
               true,
               { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri }
             );
-          } else {
-            console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
-            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri });
           }
           return;
         }
@@ -361,29 +362,66 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
     }
 
     // 4. DECISION ENGINE
+    const cachedEntry = window.slyRuntimeCache?.get(fullUri || '');
+    const resolution = resolveTrackState(detection, detection.preFetch, cachedEntry);
 
-    // Abort if native recovered to synced mid-fetch
-    if (lyricsState === 'SYNCED' && window.slyInternalState.fetchingForTitle === title && !window.slyInternalState.forceFallback) {
-      console.warn(`[sly] Aborting fetch for "${title}" — Spotify recovered to native synced lyrics.`);
-      window.slyInternalState.fetchGeneration++;
-      window.slyInternalState.fetchingForTitle = '';
-      window.slyInternalState.nativeRecoveryPending = true;
-      StatusEngine.clear();
-      return;
+    const stateString = `${resolution.action}|${resolution.sourceState}|${resolution.provider}`;
+    if (window.slyInternalState.lastResolvedStateString !== stateString) {
+      console.log(`[sly-coherence] 🧭 Resolved Track State Action: ${resolution.action} | Source: ${resolution.sourceState} | Provider: ${resolution.provider}`);
+      window.slyInternalState.lastResolvedStateString = stateString;
     }
 
-    // 3. GRACE PERIOD HANDLING
-    const isMissingOrUnsynced = (lyricsState.includes('MISSING') || 
-                                 lyricsState.includes('UNSYNCED') || 
-                                 lyricsState.includes('ROMANIZED') || 
-                                 window.slyInternalState.forceFallback) && 
-                                lyricsState !== 'LOADING';
-
-    if (!window.slyInternalState.currentLyrics && !window.slyInternalState.fetchingForTitle && !window.slyInternalState.pendingLyricsData) {
-      if (isMissingOrUnsynced) {
-        // Issue 2 Fix: Defer MISSING decision if we have weak evidence and just changed songs.
-        // This prevents the extension from jumping to a "lyrics unavailable" display while
-        // Spotify's own UI is still settling or loading.
+    // If resolution action is NATIVE_ORIGINAL (Perfect native Spotify synced lyrics), stand down!
+    if (resolution.action === 'NATIVE_ORIGINAL') {
+      const decision = `synced_or_ok:${title}`;
+      if (window.slyInternalState.lastDecision !== decision) {
+        console.log(`[sly-dom] ✅ DECISION: Native lyrics are synced for "${title}". Engine standing down.`);
+        window.slyInternalState.lastDecision = decision;
+        // Cleanup custom takeover state if active
+        if (window.slyInternalState.currentLyrics || window.slyInternalState.isFetchingHUD) {
+          document.dispatchEvent(new CustomEvent('sly:panel_close'));
+        }
+        document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
+      }
+      document.dispatchEvent(new CustomEvent('sly:state', { detail: { state: 'NATIVE_OK' } }));
+      if (window.slyInternalState.nativeRecoveryPending && detection.hasNativeLines) {
+        window.slyInternalState.nativeRecoveryPending = false;
+      }
+    } 
+    // If TAKEOVER_SYNCED or TAKEOVER_UNSYNCED, trigger 0ms takeover using cache/pending lyrics
+    else if (resolution.action === 'TAKEOVER_SYNCED' || resolution.action === 'TAKEOVER_UNSYNCED') {
+      // If we don't have this currently injected or staged, stage it from the cache!
+      if (!window.slyInternalState.currentLyrics && !window.slyInternalState.pendingLyricsData) {
+        const mutableData = {
+          lines: cachedEntry.lyrics?.syncedLyrics 
+            ? (window as any).slyParseLRC?.(cachedEntry.lyrics.syncedLyrics) || []
+            : (cachedEntry.lyrics?.plainLyrics || '').split('\n').map(text => ({ text, time: 0 })),
+          isSynced: !!cachedEntry.lyrics?.syncedLyrics,
+          plainLyrics: cachedEntry.lyrics?.plainLyrics || '',
+          syncedLyrics: cachedEntry.lyrics?.syncedLyrics || '',
+          _slyUri: fullUri,
+          extractedColor: cachedEntry.extractedColor,
+          isInstant: true,
+          processed: cachedEntry.processed
+        };
+        window.slyInternalState.pendingLyricsData = mutableData;
+        console.log(`[sly-coherence] ⚡ God List takeover triggered synchronously from cache for track ${fullUri}`);
+      }
+    } 
+    // If NATIVE_UPGRADED, trigger Pipeline B upgraded lines override
+    else if (resolution.action === 'NATIVE_UPGRADED') {
+      // Pipeline B handles native upgraded override in syncSetup / reapplyMode!
+      // Stand down content takeover, let native render, and trigger native override event
+      document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
+    } 
+    // If STANDBY, we might need to search/trigger fetch or wait
+    else if (resolution.action === 'STANDBY') {
+      const isMissingOrUnsynced = (lyricsState.includes('MISSING') || 
+                                   lyricsState.includes('UNSYNCED') || 
+                                   lyricsState.includes('ROMANIZED') || 
+                                   window.slyInternalState.forceFallback) && 
+                                  lyricsState !== 'LOADING';
+      if (isMissingOrUnsynced && !window.slyInternalState.currentLyrics && !window.slyInternalState.fetchingForTitle && !window.slyInternalState.pendingLyricsData) {
         const registryIsEmpty = !(window as any).slyPreFetchRegistry?.getState(fullUri || '');
         const onlyDomEvidence = detection.hasUnavailableMessage && !detection.preFetch;
         const timeSinceSongChange = Date.now() - window.slyInternalState.songChangeTime;
@@ -398,28 +436,6 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
           window.slyInternalState.lastDecision = decision;
         }
         window.slyTriggerLyricsFetch(title, artist, albumArtUrl || '', fullUri || '', false, detection.album, detection.duration);
-      } else if (lyricsState === 'SYNCED' || lyricsState === 'NATIVE_OK') {
-        const decision = `synced_or_ok:${title}`;
-        if (window.slyInternalState.lastDecision !== decision) {
-          console.log(`[sly-dom] ✅ DECISION: Native lyrics are ${lyricsState} for "${title}" [${fullUri?.split(':').pop() || 'N/A'}]. Engine standing down.`);
-          window.slyInternalState.lastDecision = decision;
-          // Cleanup custom state if we were previously taking over
-          if (window.slyInternalState.currentLyrics || window.slyInternalState.isFetchingHUD) {
-            document.dispatchEvent(new CustomEvent('sly:panel_close'));
-          }
-          // Notify the bridge immediately to ensure the pill appears without MutationObserver latency
-          document.dispatchEvent(new CustomEvent('sly:lyrics_injected'));
-        }
-        // Emit NATIVE_OK on every standing-down tick (not just on transition).
-        // lifecycleController's syncPill('NATIVE_OK') is idempotent — if the pill is
-        // already correctly placed, this is a no-op. If React re-rendered the lyrics
-        // container and removed the pill without removing the lyrics-line nodes
-        // (meaning onLyricsInjected won't fire), this provides a periodic recovery
-        // path with a maximum delay of one poll interval (5s in standing-down mode).
-        document.dispatchEvent(new CustomEvent('sly:state', { detail: { state: 'NATIVE_OK' } }));
-        if (window.slyInternalState.nativeRecoveryPending && detection.hasNativeLines) {
-          window.slyInternalState.nativeRecoveryPending = false;
-        }
       }
     }
 

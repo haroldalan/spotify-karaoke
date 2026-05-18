@@ -27,8 +27,32 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
       opts.onInvalidate();
       return;
     }
-    if (opts.getIsApplying()) return;
-    if (opts.getMode() === 'original') return;
+    if (opts.getIsApplying()) {
+      console.log('[sly-observer] ⏳ Mutation detected but isApplying=true — ignoring to prevent recursive loops.');
+      return;
+    }
+
+    const mode = opts.getMode();
+    if (mode === 'original') {
+      console.log('[sly-observer] 🧹 Observer detected mutation in ORIGINAL mode. Invoking continuous garbage collector...');
+      const domLines = getLyricsLines();
+      let strippedAttrCount = 0;
+      let strippedSpanCount = 0;
+      
+      domLines.forEach((el) => {
+        if (el.hasAttribute('data-sly-original')) {
+          el.removeAttribute('data-sly-original');
+          strippedAttrCount++;
+        }
+        const spans = el.querySelectorAll('.sly-main-line, .sly-dual-line');
+        if (spans.length > 0) {
+          spans.forEach(s => s.remove());
+          strippedSpanCount += spans.length;
+        }
+      });
+      console.log(`[sly-observer] 🧹 Continuous garbage collector finished. Stripped ${strippedAttrCount} stale attributes, ${strippedSpanCount} stale spans.`);
+      return;
+    }
 
     // DIAGNOSTIC: Log if we're firing on a detached (dead) node.
     if (!container.isConnected) {
@@ -43,33 +67,45 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
       return;
     }
 
-    const mode = opts.getMode();
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
     const domLines = getLyricsLines();
     const dualLyricsEnabled = opts.getDualLyricsEnabled();
     const originals = cache.original;
 
+    console.log(`[sly-observer] 🔍 Evaluating needsReapply for ${domLines.length} DOM elements against processed length=${lines.length}...`);
+
     const needsReapply = domLines.some((el, i) => {
-      if (lines[i] === undefined) return false;
+      if (lines[i] === undefined) {
+        console.log(`[sly-observer] [${i}] Processed line is undefined. No reapply needed.`);
+        return false;
+      }
       const expected = capitalizeLine(lines[i]);
 
-      // BUG-FIX: Dual lyrics toggle must be detected by the observer.
-      // If the setting is ON but the DOM has no dual lines (or vice versa), reapply.
-      // Note: dual lyrics only render if original !== processed.
       const shouldHaveDual = dualLyricsEnabled && originals?.[i] !== undefined && originals[i] !== lines[i];
       const hasDual = !!el.querySelector('.sly-dual-line');
-      if (shouldHaveDual !== hasDual) return true;
+      
+      if (shouldHaveDual !== hasDual) {
+        console.log(`[sly-observer] [${i}] Dual lyrics state mismatch! shouldHaveDual=${shouldHaveDual} | hasDual=${hasDual} -> Triggering reapply.`);
+        return true;
+      }
 
       const mainSpan = el.querySelector<HTMLElement>('.sly-main-line');
-      if (mainSpan) return mainSpan.textContent !== expected;
-      return el.textContent !== expected;
+      const actualText = mainSpan ? mainSpan.textContent : el.textContent;
+      const isMismatch = actualText !== expected;
+      
+      if (isMismatch) {
+        console.log(`[sly-observer] [${i}] Text content mismatch! Expected="${expected}" | Actual="${actualText}" -> Triggering reapply.`);
+        return true;
+      }
+      
+      return false;
     });
 
     if (needsReapply) {
-      console.log(`[sly-observer] 🔁 needsReapply=true (${domLines.length} lines, mode=${mode}, dual=${dualLyricsEnabled}) — applying processed lyrics.`);
-      applyLinesToDOM(lines, dualLyricsEnabled ? cache.original : undefined, dualLyricsEnabled, opts.setApplying, domLines);
+      console.log(`[sly-observer] 🔁 needsReapply=true — calling applyLinesToDOM.`);
+      applyLinesToDOM(lines, cache.original, dualLyricsEnabled, opts.setApplying, domLines);
     } else {
-      console.log(`[sly-observer] ✔️ needsReapply=false (${domLines.length} lines, mode=${mode}, dual=${dualLyricsEnabled}) — lyrics already correct.`);
+      console.log(`[sly-observer] ✔️ needsReapply=false — all DOM elements align perfectly with cache.`);
     }
 
   });

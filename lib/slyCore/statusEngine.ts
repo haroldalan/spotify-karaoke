@@ -48,7 +48,26 @@ export const StatusEngine = {
     const track = window.spotifyState?.track as Record<string, any> | null;
     let title = (metadata?.title as string) || (track?.name as string) || 'this song';
     let artist = (metadata?.artist as string) || (track?.artists?.[0]?.name) || 'unknown artist';
-    const artUrl = (metadata?.albumArtUrl as string) || track?.metadata?.image_large_url || track?.images?.[0]?.url || '';
+
+    let domArtUrl = '';
+    try {
+      const img = document.querySelector('[data-testid="now-playing-widget"] img') as HTMLImageElement | null;
+      if (img && img.src) {
+        domArtUrl = img.src;
+      }
+
+      // Fallback for ad cover art in the sidebar (Now Playing View)
+      if (!domArtUrl) {
+        const adImg = (document.querySelector('aside[aria-label="Now playing view"] img[data-testid="cover-art-image"]') ||
+                        document.querySelector('[data-testid="cover-art-image"]') ||
+                        document.querySelector('.NowPlayingView img')) as HTMLImageElement | null;
+        if (adImg && adImg.src) {
+          domArtUrl = adImg.src;
+        }
+      }
+    } catch (e) {}
+
+    const artUrl = (metadata?.albumArtUrl as string) || domArtUrl || track?.metadata?.image_large_url || track?.images?.[0]?.url || '';
 
     let content = `
       <div class="sly-hud-bg-blur" style="background-image: url('${artUrl}')"></div>
@@ -79,12 +98,57 @@ export const StatusEngine = {
     document.dispatchEvent(new CustomEvent('sly:state', { detail: { state: hudState } }));
     
     console.log(`[StatusEngine] 📝 Showing ${hudState} HUD for: "${title}"`);
+
+    // 4. Live Ad Image Mutation Observer
+    if (window.slyAdObserver) {
+      window.slyAdObserver.disconnect();
+      window.slyAdObserver = null;
+    }
+
+    if (isAd) {
+      const containerToObserve = document.querySelector('aside[aria-label="Now playing view"], [data-testid="now-playing-widget"]') || document.body;
+      
+      const observer = new MutationObserver(() => {
+        let currentDomArtUrl = '';
+        try {
+          const img = (document.querySelector('[data-testid="now-playing-widget"] img') ||
+                       document.querySelector('aside[aria-label="Now playing view"] img[data-testid="cover-art-image"]') ||
+                       document.querySelector('[data-testid="cover-art-image"]') ||
+                       document.querySelector('.NowPlayingView img')) as HTMLImageElement | null;
+          if (img && img.src) {
+            currentDomArtUrl = img.src;
+          }
+        } catch (e) {}
+
+        if (currentDomArtUrl) {
+          const bgBlur = document.querySelector('#sly-status-hud .sly-hud-bg-blur') as HTMLElement | null;
+          if (bgBlur && bgBlur.style.backgroundImage !== `url("${currentDomArtUrl}")` && bgBlur.style.backgroundImage !== `url('${currentDomArtUrl}')`) {
+            console.log(`[StatusEngine] 🔄 Ad image changed. Updating HUD background to: ${currentDomArtUrl}`);
+            bgBlur.style.backgroundImage = `url('${currentDomArtUrl}')`;
+          }
+        }
+      });
+
+      observer.observe(containerToObserve, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['src']
+      });
+
+      window.slyAdObserver = observer;
+    }
   },
 
   /**
    * Clears the Status HUD and restores native UI visibility.
    */
   clear(preserveState = false): void {
+    if (window.slyAdObserver) {
+      window.slyAdObserver.disconnect();
+      window.slyAdObserver = null;
+    }
+
     const hud = document.getElementById('sly-status-hud');
     
     if (hud) {

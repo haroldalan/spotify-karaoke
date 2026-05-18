@@ -48,14 +48,41 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
                         lyrics: {
                             language: 'hi',
                             isDenseTypeface: false,
-                            providerLyricsId: 'p123'
+                            providerLyricsId: 'p123',
+                            lines: [
+                                { words: 'नमस्ते दुनिया' }
+                            ]
                         }
                     };
                 }
             };
         });
 
-        vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+        const originalPostMessage = window.postMessage.bind(window);
+        vi.spyOn(window, 'postMessage').mockImplementation((message, targetOrigin, transfer) => {
+            originalPostMessage(message, targetOrigin || '*', transfer);
+        });
+
+        window.addEventListener('message', (event) => {
+            if (event.data?.type === 'SLY_MXM_NEW_INTERCEPTION') {
+                window.postMessage({
+                    type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE',
+                    requestId: event.data.requestId,
+                    generation: 1
+                }, '*');
+            } else if (event.data?.type === 'SLY_MXM_FETCH_NATIVE') {
+                window.postMessage({
+                    type: 'SLY_MXM_FETCH_NATIVE_RESPONSE',
+                    requestId: event.data.requestId,
+                    ok: true,
+                    lines: [
+                        { words: 'こんにちは世界、今日は良い天気ですね' },
+                        { words: 'さくらの花が咲いている' }
+                    ]
+                }, '*');
+            }
+        });
+
         vi.resetModules();
     });
 

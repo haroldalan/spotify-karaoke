@@ -22,6 +22,7 @@ const browserMock = {
         },
         onChanged: {
             addListener: vi.fn(),
+            removeListener: vi.fn(),
         }
     },
 };
