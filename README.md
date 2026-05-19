@@ -186,6 +186,8 @@ Romanize and Translate modes then operate on the correct native source, producin
 
 **Supported coverage:** Deep restoration and optimization for all major non-Latin scripts globally (Tamil, CJK, Hindi, Arabic, Thai, Cyrillic, Hebrew, etc.).
 
+**Forensic Verification:** Before injecting any Musixmatch payload, the extension runs a character-level audit — counting native script characters (Hangul, Devanagari, CJK, etc.) against Latin characters in the response. If Musixmatch itself returned a romanized fallback (a known edge case for some tracks), the injection is silently aborted, preventing the extension from overwriting Spotify's romanized lyrics with a different romanized version from a different source.
+
 ---
 
 ## Romanization Coverage
@@ -212,10 +214,14 @@ Romanize and Translate modes then operate on the correct native source, producin
 | Component | Detail |
 | :--- | :--- |
 | **Smart lyrics fetch** | YouTube Music synced → LRCLIB synced → YouTube Music plain → LRCLIB plain |
+| **Pre-fetch racing** | On every track change, the extension races Spotify to fetch lyrics and stores the result in a 10-minute sliding-window registry — so the hijack decision is already made before Spotify finishes rendering |
 | **Local romanization** | 10 bundled libraries covering 16+ writing systems |
 | **Interception point** | `document_start`, MAIN world — before React first paint |
 | **Cache** | L1: 10-song RAM · L2: 200-song persistent (`browser.storage.local`, LRU-evicted) · L3: in-flight deduplication · L4: network |
-| **React Fiber bridge** | `slyBridge.ts` scans Spotify's Fiber tree at 500ms. Utilizes a target-optimized **Crawler Cache Gate** to completely stand down heavy signature scans once resolved, maintaining a virtually 0% CPU footprint during active lyrics display |
+| **Cache upgrades** | Background worker silently re-queries YTM weekly for previously unsynced songs; upgrades to synced automatically if found |
+| **Forensic Verifier** | Before injecting a Musixmatch payload, counts non-Latin Unicode characters to confirm a true native script was returned — aborts injection if Musixmatch also returned a romanized fallback, preventing loops |
+| **React Fiber bridge** | `slyBridge.ts` scans Spotify's Fiber tree at 500ms intervals. Utilizes a target-optimized **Crawler Cache Gate** to completely stand down heavy signature scans once resolved, maintaining a virtually 0% CPU footprint during active lyrics display |
+| **Genetic Lock** | `Object.defineProperty` override on Spotify's internal lyrics button `disabled` prop + extraction of `toggleLyrics()` directly from memoized Fiber props — keeps the panel permanently accessible and programmatically controllable |
 | **Playback sync** | Wall-clock extrapolation via `performance.now()` for 60fps sub-second accuracy between Spotify's ~500ms UI ticks |
 | **Stale-cancel guards** | Generation Map + `processGen` parity counter (2 independent mechanisms) |
 | **Translation fallback** | Google Translate → MyMemory → original preserved |
@@ -278,15 +284,19 @@ Spotify Karaoke runs two parallel pipelines depending on what Spotify provides.
 
 **Pipeline B — Native lyrics exist:** A `MutationObserver` watches `document.body` for song key updates (`aria-label`) and newly rendered lyric lines. The observer processes mutations in two passes: **Pass 1** handles song key updates to ensure state coherence, and **Pass 2** handles DOM structure changes to detect lyric injection. This prevents race conditions where lyrics might be processed against the previous song's key.
 
-When lyrics are detected, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements. Spotify's own React state is never touched.
+When lyrics are detected, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements — specifically overwriting Spotify's React Fiber nodes with `sly-main-line` and `sly-dual-line` `<span>` elements for Dual Lyrics rendering. Spotify's own React state is never touched.
 
 **Pipeline A — Lyrics missing or broken:** When Spotify reports "Lyrics not available," the `slyCore` engine takes over. It hides Spotify's native container entirely and injects a custom `#lyrics-root-sync` container in its place. Lyrics are fetched from YouTube Music or LRCLIB via the background service worker, then rendered with a `requestAnimationFrame` loop using wall-clock extrapolation for 60fps sync accuracy — completely decoupled from Spotify's own UI refresh cycle.
 
+**Pre-fetch racing:** The moment a track change is detected, the extension races Spotify to fetch external lyrics and stores the result in a 10-minute sliding-window registry (`preFetch`). By the time Spotify finishes rendering its UI, the extension already knows whether a fallback hijack is needed — making the transition feel instant.
+
 **Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
 
-**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses, fetches the native-script version from Musixmatch, and swaps out Spotify's romanized fallback before React renders it.
+**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses, fetches the native-script version from Musixmatch, and runs a **Forensic Verifier** — counting non-Latin Unicode characters to confirm Musixmatch returned a true native script and not another romanized fallback — before swapping out Spotify's response. The swap happens before React renders, so Spotify's app is entirely unaware it received injected data.
 
-**React Fiber bridge:** `entrypoints/slyBridge.ts` runs in the `MAIN` world and traverses Spotify's React Fiber tree to extract live track metadata, access tokens, and the user's queue. It also maintains a Genetic Lock — an `Object.defineProperty` override that keeps Spotify's lyrics button permanently enabled, even for tracks where Spotify would otherwise disable it.
+**React Fiber bridge:** `entrypoints/slyBridge.ts` runs in the `MAIN` world and traverses Spotify's React Fiber tree to extract live track metadata, access tokens, and the user's queue. It also maintains a **Genetic Lock** — an `Object.defineProperty` override on the internal `disabled` prop of Spotify's lyrics button that keeps it permanently enabled, even for tracks where Spotify would otherwise disable it. It additionally extracts Spotify's internal `toggleLyrics()` function directly from memoized Fiber props so the extension can open the lyrics panel programmatically.
+
+**Automatic cache upgrades:** If a song was previously cached with only unsynced lyrics, the background worker silently re-queries YouTube Music once a week to check whether a synced version has since become available, and automatically upgrades the local cache if so — with no user action required.
 
 </details>
 
