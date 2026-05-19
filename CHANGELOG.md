@@ -3,6 +3,86 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.4] — 2026-05-19
+
+### Fixed
+- **Firefox CSP Original Lyrics Restorer**: Implemented a DOM-level fallback in `modeController.ts` that detects when Spotify natively renders romanized lyrics but the extension has high-quality de-romanized native script in the cache (due to the fetch interceptor being blocked by Firefox's CSP). It directly sets the `textContent` of the elements to the cached native lines without spans, bypassing the CSP limitation and keeping the MutationObserver happy.
+
+## [3.1.3] — 2026-05-19
+
+### Added
+- **Crawler Cache Gate**: Introduced a performance optimization to the React Fiber bridge (`slyBridge.ts`). By caching the resolved lyrics-toggle handler (`window.cachedToggleLyrics`), the extension now completely bypasses expensive recursive Fiber scans and upward walks once resolved, resulting in a virtually 0% idle CPU footprint during active lyrics display.
+
+### Changed
+- **DOM Rollback on Cache Healing**: Modified `verifyAndHealCache()` in `lib/core/lifecycleController.ts` to immediately invoke `applyLinesToDOM` with the freshly snapped `cache.original` lines when a song hash mismatch is healed. This rolls back DOM elements to native original text, corrects stale `data-sly-original` attributes, and avoids visual alignment glitches.
+
+### Fixed
+- **Observer Event Listener Cleanup**: Added a dedicated `removeEventListener` cleanup call inside the master DOM observer's `disconnect()` method to safely garbage collect the static `DOMContentLoaded` event listener on `document` during extension reloads or context invalidations, preventing memory leaks and duplicate handler execution.
+
+## [3.1.2] — 2026-05-11
+
+### Fixed
+- **Firefox "Blank Panel" Resolution**: Resolved a critical regression in Firefox where playing a previously cached song in a new session resulted in a blank lyrics panel. Implemented a `safeClone` utility to strip restricted Xray proxies from cross-world objects, ensuring the injection engine can safely enrich them with DOM metadata without crashing.
+- **Re-open Sync Restoration**: Fixed a bug where closing and re-opening the lyrics panel for an active song would leave the active line un-highlighted and un-scrolled until the next transition. The renderer now performs an instant sync jump on the first frame of a new DOM.
+- **Premature Shimmer Suppression**: Resolved a visual annoyance where skipping a song caused the *outgoing* track's lyrics to shimmer for a split second. The loading state is now decoupled; the UI pill enters a loading state immediately, while the lyrics shimmer is deferred until the new track's native text is visible in the DOM.
+- **Takeover Stutter (Skip Race Condition)**: Resolved a race condition where skipping tracks caused a momentary flash of native unsynced lyrics before the extension's synced lyrics could load. Implemented synchronous DOM-based track ID extraction in the song-change handler to eliminate the 600ms bridge-scanner latency.
+- **L0 Failure Caching**: Extended the session cache to store explicit "failed" lyric results. Repeated visits to tracks where lyrics are unavailable (even after fallbacks) are now instantaneous and flicker-free, skipping the fetch cycle entirely.
+- **Infinite Loop Remediation**: Introduced a dedicated `{ failed: true }` internal state to explicitly mark tracks with missing lyrics, preventing the Decision Engine from re-triggering the fetch cycle infinitely on repeated visits.
+- **Seamless Swap Optimization (Pill Glitch)**: Eliminated the "pop-in" effect of the mode selector pill during track swaps. The pill is now preserved in-place during seamless swaps, avoiding the redundant rescue-to-body cycle that caused it to briefly disappear and reappear.
+- **Synchronous Injection Guarding**: Hardened the injection pipeline with additional synchronous checks to ensure UI elements are correctly parented and visible before the first animation frame, preventing "ghost" lyrics or missing controls during fast navigation.
+- **Renderer Watchdog**: Implemented a self-termination safety net in the synced lyrics renderer. The sync loop now automatically shuts down after a 300-frame timeout if it cannot find its target DOM elements, preventing residual CPU drain during rapid track changes or background transitions.
+- **Malayalam Processing Restoration**: Resolved a critical bug where certain Malayalam lines (especially musical notation) were skipped or misaligned. Restored the robust "translation-as-fallback" logic from v3.0.5 and increased chunk context to prevent Google Translate misidentification.
+- **Romanization Normalization**: Standardized all romanized lyrics (Hindi, Chinese, Japanese, etc.) to "texting style" ASCII by implementing a global diacritic stripper. All macrons, tone marks, and dots are now removed for better readability.
+- **Instant Theme Architecture**: Eliminated the "one-second pop" in background colors for fetching and failure screens. Introduced a dual-layer theme cache (L0 Session + L2 Persistent) that allows vibrant backgrounds to appear synchronously from the very first frame for previously encountered tracks.
+- **Source Language Hinting**: Improved the accuracy of the auto-romanization pipeline by propagating song-level script detection as a hint to the translation engine, preventing mixed-language chunks from being misidentified as English.
+- **Playback Resume Sync**: Fixed a "time warp" position jump when resuming from a pause. The extrapolator now forces an immediate sync on play to prevent lyrics from flickering forward.
+- **Translation Rate-Limit Hardening**: Refactored the translation engine to use a hybrid sequential queue for chunks 2-N. This ensures the 120ms safety delay is strictly enforced, eliminating simultaneous request bursts and 429 errors.
+- **Zero-Latency Hijacking**: Corrected an operator precedence bug in the native detector. High-confidence cache hits now trigger UI injection instantly on page load, removing the previous 2-second "settling" delay.
+- **Safe-Release Navigation**: Resolved a critical redirect bug where clicking the custom lyrics button while on a fetched panel forced a browser navigation to the New Tab Page. Implemented a "Safe Release" mechanism that clears background Genetic Locks and performs property reversion on the Fiber tree before executing a safe `history.back()`, preventing Spotify's router from crashing due to state inconsistency.
+- **DOM Resilience (Scavenger v2)**: Replaced fragile hardcoded CSS class fallbacks with a robust, pattern-matching self-healing scavenger. This ensures the extension survives Spotify's dynamic class obfuscation across weekly deployments.
+- **Security & Hygiene**: Restricted `postMessage` origin to `window.location.origin` to prevent data leaks to third-party iframes, and removed global window pollution by refactoring the ad manager into a clean module export.
+- **Color Extraction Precision**: Reduced the pixel-sampling stride in color extraction to 4. This ensures dominant color accents on minimalist album covers are no longer missed.
+- **Retry Reliability**: Updated the fetch semaphore to respect the `forceRefresh` flag, allowing users to manually re-trigger stalled or failed fetches via the Status HUD.
+- **Fetch Continuity & Recovery**: Resolved a regression where closing the lyrics panel would prematurely clear the fetching state. Synchronized lyrics upgrades are now preserved across panel toggles for the same track. Fixed a race condition where fast-finishing fetches would hang on the loading screen due to asynchronous Bridge state latency.
+- **Transition Smoothness & Latency**: Eliminated the 50ms debounce in the content script and implemented "Pre-Injection Mirroring," ensuring background themes appear instantly without frame-yield flicker.
+- **Romanized Tab Casing**: Implemented an on-the-fly capitalization transform for processed lyrics, ensuring the first letter of each line is capitalized (e.g., "(dha-" -> "(Dha-") for both new and cached entries.
+- **Bridge Reliability (Flicker Guard)**: Tapered the bridge-level toggle timeout from 300ms to 100ms, improving responsiveness and preventing "double-toggle" races during rapid interactions.
+- **State Ownership Consolidation**: Fixed a state desync bug by unifying the `window` scope and module-import references under a single mutable object, ensuring all components see the same track metadata in real-time.
+- **Sync Button Restoration**: Surgically fixed a miswired activation call in the `TakeoverEngine` that prevented the floating "Sync" button from appearing on custom synced lyrics.
+- **Intentional Auto-Scroll Behavior**: Removed the 5-second inactivity timeout for auto-scrolling. Lyrics sync now remains paused indefinitely when the user scrolls away, allowing for uninterrupted reading.
+- **Context-Aware Auto-Resume**: Implemented auto-resume logic that intelligently snaps back to sync only when the user manually scrolls the active line back into view, or when the song naturally progresses into the user's current viewport.
+- **Systematic Audit Remediation**: Successfully completed a comprehensive 41-point technical audit and remediation, resolving all verified logic, security, and DOM stability findings.
+
+## [3.1.1] — 2026-05-08
+
+### Added
+- **Stability & Hardening Release**: Conducted a comprehensive lifecycle audit to resolve intermittent desync and timing issues across all supported browsers.
+
+### Fixed
+- **Musixmatch Background Migration**: Moved all Musixmatch network operations to the Background Service Worker. This resolves the `401: captcha` error by simulating official mobile client headers, ensuring reliable lyrics fetching even during high-traffic sessions.
+- **Firefox Lifecycle Hardening**: Resolved `TypeError: document.head is null` and `MutationObserver` crashes that occurred on Firefox during the initial page load. The extension now safely defers DOM injection until the browser environment is fully ready.
+- **Background Desync "Death Loop"**: Patched a critical circular dependency where the extension would accidentally read its own injected DOM while the tab was throttled in the background, causing it to incorrectly assume lyrics were unsynced.
+- **Self-Healing Recovery**: Pipeline A (Custom Lyrics) now actively monitors native synced state and will automatically "release" control back to Spotify if native synced lyrics are recovered mid-session.
+- **DataCloneError Correction**: Fixed a messaging bug where Promises were accidentally passed to `postMessage` before resolution.
+
+## [3.1.0] — 2026-04-30
+
+### Added
+- **Custom Lyrics Engine (`slyCore`)**: Introduced a massive new rendering engine that can fetch and display lyrics for songs that Spotify natively marks as "Missing" or "Unsynced". The extension now independently fetches lyrics from Musixmatch and seamlessly injects a custom, pixel-perfect synced lyrics UI (`#lyrics-root-sync`) directly into the page.
+- **Custom Synced Renderer**: Built a standalone `requestAnimationFrame` synced lyrics renderer to animate the new custom DOM, perfectly matching Spotify's native active/passed/future highlighting behavior.
+- **Status HUD**: Added a native-style Loading/Error HUD to provide visual feedback while custom lyrics are being fetched in the background.
+- **Design Overhaul**: Redesigned the lyrics controls to perfectly match Spotify's native pill-shaped design aesthetics, including dynamic backdrop-filter blur effects.
+- **Enhanced Loading State**: The shimmering loading effect is now more reliable, with strict teardown guarantees even when translations are aborted or fail.
+
+### Changed
+- **Architectural Rewrite**: Completely refactored the monolithic 40KB content script (`index.ts`) into a highly modular architecture within the new `lib/` directory to support the new `slyCore` engine.
+- **Separation of Concerns**: Split the core extension logic into `slyCore` (handling deep Spotify DOM manipulation and custom lyrics fetching/injection) and `Pipeline B` (handling mode pill orchestration, state management, and synced lyrics rendering).
+
+### Fixed
+- **Infinite Loop on Unsynced Lyrics**: Patched a critical bug where custom unsynced lyrics would cause the DOM to rapidly re-inject every 500ms due to an orphaned `sly:takeover` event.
+- **Stranded Mode Pill Bug**: Fixed a race condition where quickly skipping tracks would trap the extension's UI pill inside Spotify's hidden native container, effectively breaking all extension features until a reload.
+- **Race Condition Guard**: `Pipeline B` now actively aborts UI injection if `slyCore` is busy hijacking the DOM, preventing conflicting layout rendering.
+
 ## [3.0.5] — 2026-04-07
 
 ### Added

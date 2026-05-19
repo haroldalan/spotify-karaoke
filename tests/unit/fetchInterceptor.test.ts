@@ -14,16 +14,31 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
                 if (urlStr.includes('token.get')) {
                     return { json: async () => ({ message: { body: { user_token: 'test_token' } } }) };
                 }
-                // Mock Musixmatch API response for native lyrics
+                if (urlStr.includes('subtitle.get')) {
+                    // Well-formed subtitle_body with >10 native (Japanese) chars to pass forensic check
+                    const subtitleBody = JSON.stringify([
+                        { time: { total: 1.5 }, text: 'こんにちは世界、今日は良い天気ですね' },
+                        { time: { total: 5.0 }, text: 'さくらの花が咲いている' },
+                    ]);
+                    return {
+                        json: async () => ({
+                            message: { header: { status_code: 200 }, body: {
+                                subtitle: { subtitle_body: subtitleBody }
+                            }}
+                        })
+                    };
+                }
+                // Fallback: unsynced lyrics with >10 native chars
                 return {
                     json: async () => ({
                         message: { header: { status_code: 200 }, body: {
-                            lyrics: { lyrics_body: 'こんにちは\n\n世界' }
+                            lyrics: { lyrics_body: 'こんにちは世界、今日は良い天気ですね\nさくらの花が咲いている' }
                         }}
                     })
                 };
             }
             return {
+                ok: true,
                 clone: function() { return this; },
                 json: async () => {
                     if (url.includes('123')) {
@@ -33,14 +48,50 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
                         lyrics: {
                             language: 'hi',
                             isDenseTypeface: false,
-                            providerLyricsId: 'p123'
+                            providerLyricsId: 'p123',
+                            lines: [
+                                { words: 'नमस्ते दुनिया' }
+                            ]
                         }
                     };
                 }
             };
         });
 
-        vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+        const originalPostMessage = window.postMessage.bind(window);
+        vi.spyOn(window, 'postMessage').mockImplementation((message, targetOrigin, transfer) => {
+            originalPostMessage(message, targetOrigin || '*', transfer);
+        });
+
+        window.addEventListener('message', (event) => {
+            if (event.data?.source === 'SLY_ACTION_GATEWAY') {
+                const action = event.data.action;
+                if (action?.type === 'SLY_MXM_NEW_INTERCEPTION') {
+                    window.postMessage({
+                        source: 'SLY_ACTION_GATEWAY',
+                        action: {
+                            type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE',
+                            requestId: action.requestId,
+                            generation: 1
+                        }
+                    }, '*');
+                } else if (action?.type === 'SLY_MXM_FETCH_NATIVE') {
+                    window.postMessage({
+                        source: 'SLY_ACTION_GATEWAY',
+                        action: {
+                            type: 'SLY_MXM_FETCH_NATIVE_RESPONSE',
+                            requestId: action.requestId,
+                            ok: true,
+                            lines: [
+                                { words: 'こんにちは世界、今日は良い天気ですね' },
+                                { words: 'さくらの花が咲いている' }
+                            ]
+                        }
+                    }, '*');
+                }
+            }
+        });
+
         vi.resetModules();
     });
 
@@ -58,22 +109,47 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
         // wait an event loop tick for async Musixmatch API mocks
         await new Promise(r => setTimeout(r, 50));
 
+        // Fix (Issue 3): target origin is now window.location.origin, not '*'
         expect(window.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
-                type: 'SKL_NATIVE_LYRICS',
-                trackId: '4cOdK2wGLETKBW3PvgPWqT'
+                source: 'SLY_ACTION_GATEWAY',
+                action: expect.objectContaining({
+                    type: 'SKL_NATIVE_LYRICS',
+                    trackId: '4cOdK2wGLETKBW3PvgPWqT'
+                })
             }),
-            '*'
+            expect.any(String)
         );
     });
 
     it('ignores unsupported languages to save processing', async () => {
         await import('../../entrypoints/fetchInterceptor');
 
-        // 123 returns 'en'
+        // 123 returns 'en' (Latin) — the interceptor should fire lifecycle signals
+        // (SLY_FETCH_START, SLY_PREFETCH_REPORT, SLY_FETCH_END) so the DOM engine
+        // stays in sync, but must NOT fire upgrade signals (SLY_INTERCEPT_START,
+        // SKL_NATIVE_LYRICS) since no MXM upgrade is attempted for Latin tracks.
         await window.fetch('https://spclient.wg.spotify.com/color-lyrics/v2/track/123');
         await new Promise(r => setTimeout(r, 50));
 
-        expect(window.postMessage).not.toHaveBeenCalled();
+        // Lifecycle signals fire for all tracks (pre-fetch registry populated)
+        expect(window.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source: 'SLY_ACTION_GATEWAY',
+                action: expect.objectContaining({ type: 'SLY_FETCH_START', trackId: '123' })
+            }), '*'
+        );
+        expect(window.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source: 'SLY_ACTION_GATEWAY',
+                action: expect.objectContaining({ type: 'SLY_FETCH_END', trackId: '123' })
+            }), '*'
+        );
+
+        // Upgrade signals must NOT fire for Latin-script tracks
+        const allCalls = (window.postMessage as ReturnType<typeof vi.fn>).mock.calls;
+        const types = allCalls.map((c: any[]) => c[0]?.action?.type || c[0]?.type);
+        expect(types).not.toContain('SLY_INTERCEPT_START');
+        expect(types).not.toContain('SKL_NATIVE_LYRICS');
     });
 });

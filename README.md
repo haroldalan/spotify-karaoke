@@ -1,7 +1,7 @@
 <div align="center">
-  <h1><img src="assets/marquee-promo-tile.png" alt="Spotify Karaoke" width="500">
+  <h1><img src="assets/marquee-promo-tile.jpg" alt="Spotify Karaoke" width="500">
   </h1>
-  <p>Universal script romanization and real-time translation for 132 languages — right inside Spotify</p>
+  <p>Automatically fetches synced lyrics for songs that don't have it, and provides additional functionality like romanization for all scripts and translation into 132 languages — right inside Spotify</p>
   
   <a href="https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie" target="_blank"><img src="https://developer.chrome.com/static/docs/webstore/branding/image/iNEddTyWiMfLSwFD6qGq.png" alt="Chrome Web Store" height="52"/></a>
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/" target="_blank"><img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Firefox Add-ons" height="52"/></a>
@@ -21,6 +21,15 @@
 <tr>
 <td align="center">
 <br>
+<img src="https://api.iconify.design/lucide:search.svg?color=%231DB954" width="36" height="36">
+<br>
+<b>Smart Lyrics Fetch</b><br>
+When Spotify can't find lyrics, the extension fetches them automatically.<br><br>
+<code>Lyrics not available</code> → <code>Synced lyrics found</code>
+<br><br>
+</td>
+<td align="center">
+<br>
 <img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="36" height="36">
 <br>
 <b>Phonetic Romanization</b><br>
@@ -28,6 +37,8 @@ Universal support for any script, with optimized local engines for 16 major writ
 <code>안녕하세요</code> → <code>an-nyeong-ha-se-yo</code>
 <br><br>
 </td>
+</tr>
+<tr>
 <td align="center">
 <br>
 <img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="36" height="36">
@@ -57,15 +68,6 @@ Bypass low-quality fallbacks and restore original, high-fidelity native scripts 
 <tr>
 <td align="center">
 <br>
-<img src="https://api.iconify.design/lucide:search.svg?color=%23888888" width="36" height="36">
-<br>
-<b>Smart Fetch</b><br>
-Automatic lyrics discovery for songs that aren't officially supported by Spotify.<br><br>
-<code>Lyrics not available</code> → <code>Synced Lyrics found</code>
-<br><br>
-</td>
-<td align="center">
-<br>
 <img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="36" height="36">
 <br>
 <b>Ultimate Triple View</b><br>
@@ -84,17 +86,33 @@ https://github.com/user-attachments/assets/f6afc346-9dc0-4429-8733-5c8df94c8eaf
 
 ## What it does
 
-Spotify's built-in lyrics panel doesn't help you sing along to songs in languages you don't read. `Spotify Karaoke` fixes that. It adds three lyric display modes to the Spotify web player:
+Spotify's lyrics panel has two problems: it sometimes can't find lyrics at all, and when it does, it often can't help you understand them. `Spotify Karaoke` fixes both.
 
-- **Original** - lyrics as Spotify shows them, unchanged.
-- **Romanized** - any non-Latin script (Japanese, Korean, Arabic, Indic, Thai, etc.) rendered phonetically in the Latin alphabet for instant sing-along.
-- **Translated** - lyrics translated into any of 132 languages.
+**Smart lyrics fetching:** When Spotify shows "Lyrics not available," the extension quietly searches YouTube Music and LRCLIB in the background. If synced lyrics exist anywhere, they get injected directly into the Spotify lyrics panel — perfectly timed, visually integrated with Spotify's native UI. No user action required.
+
+<br>
+<p align="center">
+  <img src="assets/lyrics-fetching-hud.jpg" width="760" alt="Smart Lyrics Fetching HUD">
+</p>
+<br>
+
+**Romanization & Translation:** Once lyrics are on screen — whether fetched or native — you can switch between three display modes:
+
+- **Original** — lyrics as Spotify shows them, unchanged.
+- **Romanized** — any non-Latin script (Japanese, Korean, Arabic, Indic, Thai, etc.) rendered phonetically in the Latin alphabet for instant sing-along.
+- **Translated** — lyrics translated into any of 132 languages.
 
 Switch between modes using the floating pill controls injected directly into the lyrics panel, the popup, or keyboard shortcuts. No page reload, no flicker.
 
-**Native script restoration:** For global non-Latin scripts (Hindi, Thai, Arabic, CJK, etc.), Spotify often serves low-quality romanized fallback lyrics. This extension automatically intercepts and restores the original, high-fidelity native script — before Spotify even renders the page.
+**Native script restoration:** For global non-Latin scripts (Hindi, Thai, Arabic, CJK, etc.), Spotify often serves low-quality romanized fallback lyrics even when the original native-script version exists on Musixmatch. This extension automatically intercepts and restores the original, high-fidelity native script — before Spotify even renders the page. Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
-**Dual Lyrics mode** - in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference (suppressed when identical to the primary line). Sing along phonetically in Romanized, or follow the meaning in Translated, while always keeping the original in view.
+**Dual Lyrics mode** — in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference (suppressed when identical to the primary line).
+
+**Genetic Lock Shield** — keeps the lyrics panel permanently accessible, even for tracks where Spotify deliberately disables the lyrics button (e.g., instrumentals, podcasts).
+
+**Ad Intermission HUD** — includes a custom 'Intermission' screen during audio ads to maintain a seamless visual experience without breaking the UI.
+
+**Cross-device Sync** — preferences like your target language and display mode automatically sync across all your devices via `storage.sync`.
 
 | Dual Lyrics On | Dual Lyrics Off |
 | :---: | :---: |
@@ -107,6 +125,7 @@ Switch between modes using the floating pill controls injected directly into the
 | Translated |
 | :---: |
 | <img src="assets/mode-translated.jpg" width="380" alt="Translated lyrics"> |
+
 
 ---
 
@@ -135,7 +154,7 @@ Power users can toggle off the floating pill entirely via **Show Floating Contro
 
 ### 🌐 Official Browser Stores (Recommended)
 - **[Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie)** — Chrome, Brave, and other Chromium browsers.
-- **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/)** — Mozilla Firefox.
+- **[Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/)** — Mozilla Firefox (≥ 142.0 — requires MV2 with `browser.storage.session` support).
 - **[Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom)** — Microsoft Edge.
 
 ### 🛠️ Manual Installation (Developer Mode)
@@ -172,10 +191,9 @@ Spotify Karaoke fixes this automatically. When you play a supported song, the ex
 
 Romanize and Translate modes then operate on the correct native source, producing significantly more accurate results.
 
-> [!TIP]
-> **Initialization Note:** If the restoration doesn't trigger immediately after installation, simply refresh your Spotify tab. Once the interceptor "hits" for the first time, it remains active and captures 100% of future lyric requests in that session. (In the rare case that the restoration doesn't trigger, it either means that the native lyrics for this song don't exist on Musixmatch, or that something is seriously wrong. If it's the latter case, please raise an issue with me.)
-
 **Supported coverage:** Deep restoration and optimization for all major non-Latin scripts globally (Tamil, CJK, Hindi, Arabic, Thai, Cyrillic, Hebrew, etc.).
+
+**Forensic Verification:** Before injecting any Musixmatch payload, the extension runs a character-level audit — counting native script characters (Hangul, Devanagari, CJK, etc.) against Latin characters in the response. If Musixmatch itself returned a romanized fallback (a known edge case for some tracks), the injection is silently aborted, preventing the extension from overwriting Spotify's romanized lyrics with a different romanized version from a different source.
 
 ---
 
@@ -202,9 +220,16 @@ Romanize and Translate modes then operate on the correct native source, producin
 
 | Component | Detail |
 | :--- | :--- |
-| **Local romanization** | 10 libraries · zero API latency for 16 optimized scripts |
+| **Smart lyrics fetch** | YouTube Music synced → LRCLIB synced → YouTube Music plain → LRCLIB plain |
+| **Pre-fetch racing** | On every track change, the extension races Spotify to fetch lyrics and stores the result in a 10-minute sliding-window registry — so the hijack decision is already made before Spotify finishes rendering |
+| **Local romanization** | 10 bundled libraries covering 16+ writing systems |
 | **Interception point** | `document_start`, MAIN world — before React first paint |
-| **Cache** | 10-song RAM cache + unlimited SSD library (`browser.storage.local`) |
+| **Cache** | L1: 10-song RAM · L2: 200-song persistent (`browser.storage.local`, LRU-evicted) · L3: in-flight deduplication · L4: network |
+| **Cache upgrades** | Background worker silently re-queries YTM weekly for previously unsynced songs; upgrades to synced automatically if found |
+| **Forensic Verifier** | Before injecting a Musixmatch payload, counts non-Latin Unicode characters to confirm a true native script was returned — aborts injection if Musixmatch also returned a romanized fallback, preventing loops |
+| **React Fiber bridge** | `slyBridge.ts` scans Spotify's Fiber tree at 500ms intervals. Utilizes a target-optimized **Crawler Cache Gate** to completely stand down heavy signature scans once resolved, maintaining a virtually 0% CPU footprint during active lyrics display |
+| **Genetic Lock** | `Object.defineProperty` override on Spotify's internal lyrics button `disabled` prop + extraction of `toggleLyrics()` directly from memoized Fiber props — keeps the panel permanently accessible and programmatically controllable |
+| **Playback sync** | Wall-clock extrapolation via `performance.now()` for 60fps sub-second accuracy between Spotify's ~500ms UI ticks |
 | **Stale-cancel guards** | Generation Map + `processGen` parity counter (2 independent mechanisms) |
 | **Translation fallback** | Google Translate → MyMemory → original preserved |
 | **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
@@ -239,31 +264,64 @@ npm run test           # Run unit and component test suite
 
 ```
 entrypoints/
-  background.ts              # Service worker: romanization + translation orchestration
+  background.ts              # Service worker: lyrics fetching, romanization + translation orchestration, 4-layer cache
   fetchInterceptor.ts        # MAIN world unlisted script: fetch interceptor, native script restoration
+  slyBridge.ts               # MAIN world unlisted script: React Fiber scanner, Genetic Lock Shield, state broadcaster
   spotify-lyrics.content/
-    index.ts                 # DOM engine: MutationObserver, mode switching, caching
+    index.ts                 # Content script: bootstrapper, MutationObserver, mode switching, slyBridge wiring
     style.css
   popup/                     # Preact popup: mode pill, language selector, dual lyrics + visibility toggles
+
+lib/
+  core/                      # Pipeline B: lifecycle, mode controller, lyrics fetching, state store
+  dom/                       # Pipeline B: DOM surgery, lyrics observer, controls pill, toast
+  slyCore/                   # Pipeline A: custom DOM engine, playback sync, scavenger, status HUD, ad manager
+  lyricsProviders/           # YTM scraper, LRCLIB client, 4-layer cache
+  lyrics/                    # Script detector, local romanizer, lyrics processor
+  translate/                 # Google Translate API, MyMemory fallback
+  mxmClient.ts               # Musixmatch client for native script restoration
 ```
 
 ### How it works
 
-Spotify Karaoke uses an injected DOM engine and a service worker to process lyrics in real-time.
+Spotify Karaoke runs two parallel pipelines depending on what Spotify provides.
 
 <details>
 <summary>Technical deep-dive</summary>
 
-**Lyrics injection:** A `MutationObserver` watches `document.body` for song key updates (`aria-label`) and newly rendered lyric lines.
+**Pipeline B — Native lyrics exist:** A `MutationObserver` watches `document.body` for song key updates (`aria-label`) and newly rendered lyric lines. The observer processes mutations in two passes: **Pass 1** handles song key updates to ensure state coherence, and **Pass 2** handles DOM structure changes to detect lyric injection. This prevents race conditions where lyrics might be processed against the previous song's key.
 
-The observer processes mutations in two passes: **Pass 1** handles song key updates to ensure state coherence, and **Pass 2** handles DOM structure changes to detect lyric injection. This prevents race conditions where lyrics might be processed against the previous song's key.
+When lyrics are detected, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements — specifically overwriting Spotify's React Fiber nodes with `sly-main-line` and `sly-dual-line` `<span>` elements for Dual Lyrics rendering. Spotify's own React state is never touched.
 
-When lyrics are detected, the engine reads the current mode (Original / Romanized / Translated), fetches processed lyrics from cache or sends a `PROCESS` message to the background worker, and writes the result back into the existing DOM elements. Spotify's own React state is never touched.
+**Pipeline A — Lyrics missing or broken:** When Spotify reports "Lyrics not available," the `slyCore` engine takes over. It hides Spotify's native container entirely and injects a custom `#lyrics-root-sync` container in its place. Lyrics are fetched from YouTube Music or LRCLIB via the background service worker, then rendered with a `requestAnimationFrame` loop using wall-clock extrapolation for 60fps sync accuracy — completely decoupled from Spotify's own UI refresh cycle.
+
+**Pre-fetch racing:** The moment a track change is detected, the extension races Spotify to fetch external lyrics and stores the result in a 10-minute sliding-window registry (`preFetch`). By the time Spotify finishes rendering its UI, the extension already knows whether a fallback hijack is needed — making the transition feel instant.
 
 **Romanization & translation:** The background service worker receives an array of lyric strings, detects the script using Unicode range scoring, routes to the appropriate local library or Google Translate batch API, and returns both a translated array and a romanized array in a single response.
 
-**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute, solving previous race conditions. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses.
+**Native script restoration:** `entrypoints/fetchInterceptor.ts` is compiled as an unlisted script and registered in the extension manifest to run in the `MAIN` world at `document_start`. This ensures the interceptor is active before Spotify's application bundle even begins to execute. It monkey-patches `window.fetch` to intercept `color-lyrics/v2/track/*` responses, fetches the native-script version from Musixmatch, and runs a **Forensic Verifier** — counting non-Latin Unicode characters to confirm Musixmatch returned a true native script and not another romanized fallback — before swapping out Spotify's response. The swap happens before React renders, so Spotify's app is entirely unaware it received injected data.
+
+**React Fiber bridge:** `entrypoints/slyBridge.ts` runs in the `MAIN` world and traverses Spotify's React Fiber tree to extract live track metadata, access tokens, and the user's queue. It also maintains a **Genetic Lock** — an `Object.defineProperty` override on the internal `disabled` prop of Spotify's lyrics button that keeps it permanently enabled, even for tracks where Spotify would otherwise disable it. It additionally extracts Spotify's internal `toggleLyrics()` function directly from memoized Fiber props so the extension can open the lyrics panel programmatically.
+
+**Automatic cache upgrades:** If a song was previously cached with only unsynced lyrics, the background worker silently re-queries YouTube Music once a week to check whether a synced version has since become available, and automatically upgrades the local cache if so — with no user action required.
+
 </details>
+
+---
+
+## Troubleshooting
+
+**Why aren't lyrics showing?**
+Ensure the native Spotify lyrics panel is open. The extension injects into the native UI — click the microphone icon in the player bar to open it.
+
+**The lyrics panel is stuck or glitching.**
+If Spotify changes its internal class names or state becomes corrupt, open the extension popup and click **Reset Data**. This safely clears the local cache and resets your preferences.
+
+**A song is missing lyrics entirely.**
+When the extension cannot find lyrics on YouTube Music or LRCLIB, it will show a "Lyrics Not Found" screen. You can help the community by clicking the **Contribute to LRCLIB** link on that screen to upload the missing lyrics yourself.
+
+**I just uploaded lyrics, but they still aren't showing up!**
+To keep things fast, the extension caches the "missing" state for 7 days. If you've just contributed lyrics and want to see them immediately, open the extension popup and click **Reset Data**, then refresh Spotify to force a fresh search.
 
 ---
 
@@ -287,6 +345,16 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 > [!WARNING]
 > Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
+
+---
+
+## Support & Feedback
+
+<a href="https://discord.com/users/370486976643727360" target="_blank">
+  <img src="https://img.shields.io/badge/Discord-Ping_Me_on_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" />
+</a>
+
+If you encounter any bugs, have suggestions for new features, or just want to chat about the project, feel free to reach out!
 
 ---
 

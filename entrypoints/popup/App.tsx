@@ -1,263 +1,20 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 
-const LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'es', label: 'Spanish' },
-  { code: 'zh-CN', label: 'Chinese (Simplified)' },
-  { code: 'hi', label: 'Hindi' },
-  { code: 'fr', label: 'French' },
-  { code: 'de', label: 'German' },
-  { code: 'ja', label: 'Japanese' },
-  { code: 'ko', label: 'Korean' },
-  { code: 'pt', label: 'Portuguese' },
-  { code: 'ru', label: 'Russian' },
-];
-
-const ALL_LANGUAGES = [
-  { code: 'af', label: 'Afrikaans' },
-  { code: 'sq', label: 'Albanian' },
-  { code: 'am', label: 'Amharic' },
-  { code: 'ar', label: 'Arabic' },
-  { code: 'hy', label: 'Armenian' },
-  { code: 'as', label: 'Assamese' },
-  { code: 'ay', label: 'Aymara' },
-  { code: 'az', label: 'Azerbaijani' },
-  { code: 'bm', label: 'Bambara' },
-  { code: 'eu', label: 'Basque' },
-  { code: 'be', label: 'Belarusian' },
-  { code: 'bn', label: 'Bengali' },
-  { code: 'bho', label: 'Bhojpuri' },
-  { code: 'bs', label: 'Bosnian' },
-  { code: 'bg', label: 'Bulgarian' },
-  { code: 'ca', label: 'Catalan' },
-  { code: 'ceb', label: 'Cebuano' },
-  { code: 'zh-TW', label: 'Chinese (Traditional)' },
-  { code: 'co', label: 'Corsican' },
-  { code: 'hr', label: 'Croatian' },
-  { code: 'cs', label: 'Czech' },
-  { code: 'da', label: 'Danish' },
-  { code: 'dv', label: 'Dhivehi' },
-  { code: 'doi', label: 'Dogri' },
-  { code: 'nl', label: 'Dutch' },
-  { code: 'eo', label: 'Esperanto' },
-  { code: 'et', label: 'Estonian' },
-  { code: 'ee', label: 'Ewe' },
-  { code: 'fil', label: 'Filipino' },
-  { code: 'fi', label: 'Finnish' },
-  { code: 'fy', label: 'Frisian' },
-  { code: 'gl', label: 'Galician' },
-  { code: 'ka', label: 'Georgian' },
-  { code: 'el', label: 'Greek' },
-  { code: 'gn', label: 'Guarani' },
-  { code: 'gu', label: 'Gujarati' },
-  { code: 'ht', label: 'Haitian Creole' },
-  { code: 'ha', label: 'Hausa' },
-  { code: 'haw', label: 'Hawaiian' },
-  { code: 'iw', label: 'Hebrew' },
-  { code: 'hmn', label: 'Hmong' },
-  { code: 'hu', label: 'Hungarian' },
-  { code: 'is', label: 'Icelandic' },
-  { code: 'ig', label: 'Igbo' },
-  { code: 'ilo', label: 'Ilocano' },
-  { code: 'id', label: 'Indonesian' },
-  { code: 'ga', label: 'Irish' },
-  { code: 'it', label: 'Italian' },
-  { code: 'ja', label: 'Japanese' },
-  { code: 'jv', label: 'Javanese' },
-  { code: 'kn', label: 'Kannada' },
-  { code: 'kk', label: 'Kazakh' },
-  { code: 'km', label: 'Khmer' },
-  { code: 'rw', label: 'Kinyarwanda' },
-  { code: 'gom', label: 'Konkani' },
-  { code: 'ko', label: 'Korean' },
-  { code: 'kri', label: 'Krio' },
-  { code: 'ku', label: 'Kurdish (Kurmanji)' },
-  { code: 'ckb', label: 'Kurdish (Sorani)' },
-  { code: 'ky', label: 'Kyrgyz' },
-  { code: 'lo', label: 'Lao' },
-  { code: 'la', label: 'Latin' },
-  { code: 'lv', label: 'Latvian' },
-  { code: 'ln', label: 'Lingala' },
-  { code: 'lt', label: 'Lithuanian' },
-  { code: 'lg', label: 'Luganda' },
-  { code: 'lb', label: 'Luxembourgish' },
-  { code: 'mk', label: 'Macedonian' },
-  { code: 'mai', label: 'Maithili' },
-  { code: 'mg', label: 'Malagasy' },
-  { code: 'ms', label: 'Malay' },
-  { code: 'ml', label: 'Malayalam' },
-  { code: 'mt', label: 'Maltese' },
-  { code: 'mi', label: 'Māori' },
-  { code: 'mr', label: 'Marathi' },
-  { code: 'lus', label: 'Mizo' },
-  { code: 'mn', label: 'Mongolian' },
-  { code: 'my', label: 'Myanmar (Burmese)' },
-  { code: 'ne', label: 'Nepali' },
-  { code: 'no', label: 'Norwegian' },
-  { code: 'ny', label: 'Nyanja (Chichewa)' },
-  { code: 'or', label: 'Odia (Oriya)' },
-  { code: 'om', label: 'Oromo' },
-  { code: 'ps', label: 'Pashto' },
-  { code: 'fa', label: 'Persian' },
-  { code: 'pl', label: 'Polish' },
-  { code: 'pt', label: 'Portuguese' },
-  { code: 'pa', label: 'Punjabi' },
-  { code: 'qu', label: 'Quechua' },
-  { code: 'ro', label: 'Romanian' },
-  { code: 'ru', label: 'Russian' },
-  { code: 'sm', label: 'Samoan' },
-  { code: 'sa', label: 'Sanskrit' },
-  { code: 'gd', label: 'Scots Gaelic' },
-  { code: 'nso', label: 'Sepedi' },
-  { code: 'sr', label: 'Serbian' },
-  { code: 'st', label: 'Sesotho' },
-  { code: 'sn', label: 'Shona' },
-  { code: 'sd', label: 'Sindhi' },
-  { code: 'si', label: 'Sinhala' },
-  { code: 'sk', label: 'Slovak' },
-  { code: 'sl', label: 'Slovenian' },
-  { code: 'so', label: 'Somali' },
-  { code: 'es', label: 'Spanish' },
-  { code: 'su', label: 'Sundanese' },
-  { code: 'sw', label: 'Swahili' },
-  { code: 'sv', label: 'Swedish' },
-  { code: 'tg', label: 'Tajik' },
-  { code: 'ta', label: 'Tamil' },
-  { code: 'tt', label: 'Tatar' },
-  { code: 'te', label: 'Telugu' },
-  { code: 'th', label: 'Thai' },
-  { code: 'ti', label: 'Tigrinya' },
-  { code: 'ts', label: 'Tsonga' },
-  { code: 'tr', label: 'Turkish' },
-  { code: 'tk', label: 'Turkmen' },
-  { code: 'ak', label: 'Twi (Akan)' },
-  { code: 'uk', label: 'Ukrainian' },
-  { code: 'ur', label: 'Urdu' },
-  { code: 'ug', label: 'Uyghur' },
-  { code: 'uz', label: 'Uzbek' },
-  { code: 'vi', label: 'Vietnamese' },
-  { code: 'cy', label: 'Welsh' },
-  { code: 'xh', label: 'Xhosa' },
-  { code: 'yi', label: 'Yiddish' },
-  { code: 'yo', label: 'Yoruba' },
-  { code: 'zu', label: 'Zulu' },
-];
+import { ALL_LANGUAGES, QUICK_CODES, LANGUAGES } from '../../lib/utils/languages';
+import { SearchablePicker } from './components/SearchablePicker';
 
 function openTab(url: string) {
   browser.tabs.create({ url });
-}
-
-function SearchablePicker({
-  value,
-  onChange,
-  suggested,
-  all
-}: {
-  value: string;
-  onChange: (code: string) => void;
-  suggested: { code: string; label: string }[];
-  all: { code: string; label: string }[];
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const selectedLang = [...suggested, ...all].find(l => l.code === value);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      // Auto-focus search input when opening
-      setTimeout(() => inputRef.current?.focus(), 10);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
-
-  const filteredSuggested = suggested.filter(l =>
-    l.label.toLowerCase().includes(search.toLowerCase())
-  );
-  const filteredAll = all.filter(l =>
-    l.label.toLowerCase().includes(search.toLowerCase())
-  );
-
-  return (
-    <div className="sly-picker" ref={wrapperRef}>
-      <button
-        className={`sly-picker-trigger${isOpen ? ' active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
-        type="button"
-      >
-        <span className="sly-picker-label">{selectedLang?.label || 'Select Language'}</span>
-        <svg className="sly-picker-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path d="M2.5 4.5L6 8L9.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-
-      {isOpen && (
-        <div className="sly-picker-dropdown">
-          <div className="sly-picker-search-container">
-            <input
-              ref={inputRef}
-              type="text"
-              className="sly-picker-search"
-              placeholder="Search languages..."
-              value={search}
-              onInput={e => setSearch((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <div className="sly-picker-list">
-            {filteredSuggested.length > 0 && (
-              <div className="sly-picker-group">
-                <div className="sly-picker-group-label">Common</div>
-                {filteredSuggested.map(l => (
-                  <div
-                    className={`sly-picker-item${value === l.code ? ' selected' : ''}`}
-                    onClick={() => { onChange(l.code); setIsOpen(false); }}
-                  >
-                    {l.label}
-                    {value === l.code && <span className="sly-picker-check">✓</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {filteredAll.length > 0 && (
-              <div className="sly-picker-group">
-                <div className="sly-picker-group-label">All Languages</div>
-                {filteredAll.map(l => (
-                  <div
-                    className={`sly-picker-item${value === l.code ? ' selected' : ''}`}
-                    onClick={() => { onChange(l.code); setIsOpen(false); }}
-                  >
-                    {l.label}
-                    {value === l.code && <span className="sly-picker-check">✓</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {filteredSuggested.length === 0 && filteredAll.length === 0 && (
-              <div className="sly-picker-no-results">No languages found</div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function App() {
   const [isInitialHydrating, setIsInitialHydrating] = useState(true);
 
   // Synchronous initialization from localStorage (Zero-latency First Paint)
-  const [targetLang, setTargetLang] = useState(() => localStorage.getItem('sly_targetLang') || 'en');
-  const [dualLyrics, setDualLyrics] = useState(() => localStorage.getItem('sly_dualLyrics') !== 'false');
-  const [showPill, setShowPill] = useState(() => localStorage.getItem('sly_showPill') !== 'false');
-  const [preferredMode, setPreferredMode] = useState<string>(() => localStorage.getItem('sly_preferredMode') || 'original');
+  const [targetLang, setTargetLang] = useState(localStorage.getItem('sly_targetLang') || 'en');
+  const [dualLyrics, setDualLyrics] = useState(localStorage.getItem('sly_dualLyrics') !== 'false');
+  const [showPill, setShowPill] = useState(localStorage.getItem('sly_showPill') !== 'false');
+  const [preferredMode, setPreferredMode] = useState<string>(localStorage.getItem('sly_preferredMode') || 'original');
 
   const [syncInfo, setSyncInfo] = useState('Calculating...');
   const [localInfo, setLocalInfo] = useState('Calculating...');
@@ -265,8 +22,10 @@ export default function App() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
     // Cloud Sync: Reconcile local state with cross-device storage.sync
     browser.storage.sync.get(['targetLang', 'dualLyrics', 'showPill', 'preferredMode']).then((data) => {
+      if (!isMounted) return;
       if (data.targetLang) {
         setTargetLang(data.targetLang as string);
         localStorage.setItem('sly_targetLang', data.targetLang as string);
@@ -278,8 +37,8 @@ export default function App() {
         const finalDefault = matchedLang?.code || 'en';
 
         setTargetLang(finalDefault);
-        browser.storage.sync.set({ targetLang: finalDefault });
         localStorage.setItem('sly_targetLang', finalDefault);
+        browser.storage.sync.set({ targetLang: finalDefault });
       }
       if (data.preferredMode) {
         setPreferredMode(data.preferredMode as string);
@@ -303,9 +62,26 @@ export default function App() {
       }
 
       // Briefly keep transitions disabled to allow the state update to 'snap' instantly
-      setTimeout(() => setIsInitialHydrating(false), 50);
+      setTimeout(() => {
+        if (isMounted) setIsInitialHydrating(false);
+      }, 50);
     });
     refreshStorageInfo();
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => {
+    const listener = (
+      changes: Record<string, browser.storage.StorageChange>,
+      area: string
+    ) => {
+      if (area !== 'sync') return;
+      if ('preferredMode' in changes && changes.preferredMode.newValue !== undefined) {
+        setPreferredMode(changes.preferredMode.newValue as string);
+      }
+    };
+    browser.storage.onChanged.addListener(listener);
+    return () => browser.storage.onChanged.removeListener(listener);
   }, []);
 
   function formatBytes(bytes: number): string {
@@ -347,32 +123,56 @@ export default function App() {
   }
 
   async function handleLangChange(lang: string) {
+    const prev = targetLang;
     setTargetLang(lang);
     localStorage.setItem('sly_targetLang', lang);
-    await browser.storage.sync.set({ targetLang: lang });
-    flashSaved();
+    try {
+      await browser.storage.sync.set({ targetLang: lang });
+      flashSaved();
+    } catch {
+      setTargetLang(prev);
+      localStorage.setItem('sly_targetLang', prev);
+    }
   }
 
   async function handleDualLyricsChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
+    const prev = dualLyrics;
     setDualLyrics(checked);
     localStorage.setItem('sly_dualLyrics', String(checked));
-    await browser.storage.sync.set({ dualLyrics: checked });
-    flashSaved();
+    try {
+      await browser.storage.sync.set({ dualLyrics: checked });
+      flashSaved();
+    } catch {
+      setDualLyrics(prev);
+      localStorage.setItem('sly_dualLyrics', String(prev));
+    }
   }
 
   async function handleShowPillChange(e: Event) {
     const checked = (e.target as HTMLInputElement).checked;
+    const prev = showPill;
     setShowPill(checked);
     localStorage.setItem('sly_showPill', String(checked));
-    await browser.storage.sync.set({ showPill: checked });
-    flashSaved();
+    try {
+      await browser.storage.sync.set({ showPill: checked });
+      flashSaved();
+    } catch {
+      setShowPill(prev);
+      localStorage.setItem('sly_showPill', String(prev));
+    }
   }
 
   async function handleModeChange(mode: string) {
+    const prev = preferredMode;
     setPreferredMode(mode);
     localStorage.setItem('sly_preferredMode', mode);
-    await browser.storage.sync.set({ preferredMode: mode });
+    try {
+      await browser.storage.sync.set({ preferredMode: mode });
+    } catch {
+      setPreferredMode(prev);
+      localStorage.setItem('sly_preferredMode', prev);
+    }
   }
 
   async function handleReset(e: React.MouseEvent) {
@@ -382,23 +182,23 @@ export default function App() {
 
   async function executeReset() {
     setShowConfirmModal(false);
-    await browser.storage.sync.clear();
-    localStorage.clear();
-
+    
+    const syncKeys = ['targetLang', 'dualLyrics', 'showPill', 'preferredMode'];
+    
     // Write defaults explicitly so onChanged fires with real values
     await browser.storage.sync.set({ targetLang: 'en', dualLyrics: true, preferredMode: 'original', showPill: true });
-    localStorage.setItem('sly_targetLang', 'en');
-    localStorage.setItem('sly_dualLyrics', 'true');
-    localStorage.setItem('sly_preferredMode', 'original');
-    localStorage.setItem('sly_showPill', 'true');
 
-    // Clear lyrics cache from local storage via the index
+    // Clear all lyrics cache (L1 processed and L2 background) from local storage
     try {
-      const d = await browser.storage.local.get('lc_index');
-      const idx = (d['lc_index'] ?? {}) as Record<string, unknown>;
-      const lcKeys = Object.keys(idx).map((k) => `lc:${k}`);
-      if (lcKeys.length > 0) await browser.storage.local.remove(lcKeys);
-      await browser.storage.local.remove('lc_index');
+      const allLocal = await browser.storage.local.get(null);
+      const lyricsKeys = Object.keys(allLocal).filter(k => 
+        k.startsWith('lc:') || 
+        k === 'lc_index' || 
+        k === 'l2_index' || 
+        k.startsWith('spotify:track:') || 
+        k.includes('|') // title|artist keys
+      );
+      if (lyricsKeys.length > 0) await browser.storage.local.remove(lyricsKeys);
     } catch { /* ignore */ }
 
     setTargetLang('en');
@@ -444,7 +244,7 @@ export default function App() {
             value={targetLang}
             onChange={handleLangChange}
             suggested={LANGUAGES}
-            all={ALL_LANGUAGES}
+            all={ALL_LANGUAGES.filter(l => !QUICK_CODES.includes(l.code))}
           />
           <p className="description">Select the language for translation.</p>
         </div>

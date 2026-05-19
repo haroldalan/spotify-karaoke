@@ -1,0 +1,66 @@
+export async function googleTranslate(
+  text: string,
+  targetLang: string,
+  includeRomanization: boolean,
+  sourceLang: string = 'auto'
+): Promise<{ translated: string; romanized: string | null }> {
+  const params = new URLSearchParams({
+    client: 'gtx',
+    sl: sourceLang,
+    tl: targetLang,
+    q: text,
+  });
+  params.append('dt', 't');
+  if (includeRomanization) params.append('dt', 'rm');
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://translate.googleapis.com/translate_a/single?${params}`,
+      {
+        headers: {
+          Accept: 'application/json',
+          Referer: 'https://translate.google.com/',
+        },
+      }
+    );
+  } catch (err) {
+    // Firefox TypeError on cross-origin, or network error
+    throw new Error('Google network error or rate-limited');
+  }
+
+  if (res.status === 0 || !res.ok) {
+    throw new Error(`Google HTTP ${res.status}`);
+  }
+  const ct = res.headers.get('content-type') ?? '';
+  if (!ct.includes('application/json')) throw new Error('Google non-JSON (captcha)');
+
+  const data = (await res.json()) as any[];
+  const allSegments = ((data[0] as any[]) ?? []) as any[][];
+
+  // When dt=rm is present, Google appends a special romanization block as
+  // the LAST element of data[0], shaped: [null, null, null, "line1\nline2\n..."]
+  // All normal translation segments are shaped: ["translated", "original", ...]
+  // data[8] is the language detection array — NOT romanization — and contains
+  // null entries that would throw if we tried to iterate it. Never touch it.
+  let segments = allSegments;
+  let romanized: string | null = null;
+
+  if (includeRomanization && allSegments.length > 0) {
+    const lastBlock = allSegments[allSegments.length - 1];
+    // Google's romanization block is always a trailing array where the first few elements are null
+    // and the romanized text is the first string found (historically at index 3).
+    if (!lastBlock[0] && !lastBlock[1]) {
+      const firstString = lastBlock.find(val => typeof val === 'string');
+      if (firstString) {
+        romanized = firstString as string;
+        // Exclude the romanization block so it doesn't pollute the translated text
+        segments = allSegments.slice(0, -1);
+      }
+    }
+  }
+
+  const translated = segments.map((s) => (s[0] ?? '') as string).join('');
+
+  return { translated, romanized };
+}

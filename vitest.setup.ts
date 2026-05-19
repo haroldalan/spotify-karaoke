@@ -7,7 +7,7 @@ const browserMock = {
         onMessage: {
             addListener: vi.fn(),
         },
-        sendMessage: vi.fn(),
+        sendMessage: vi.fn().mockResolvedValue(undefined),
     },
     storage: {
         sync: {
@@ -22,6 +22,7 @@ const browserMock = {
         },
         onChanged: {
             addListener: vi.fn(),
+            removeListener: vi.fn(),
         }
     },
 };

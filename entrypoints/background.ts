@@ -1,22 +1,206 @@
-import Kuroshiro from '@sglkc/kuroshiro';
-import KuromojiAnalyzer from '@sglkc/kuroshiro-analyzer-kuromoji';
-import { pinyin } from 'pinyin-pro';
-import CyrillicToTranslit from 'cyrillic-to-translit-js';
-import Sanscript from '@indic-transliteration/sanscript';
-import { romanize as romanizeKorean } from '@romanize/korean';
-import romanizeThai from '@dehoist/romanize-thai';
-import { transliterate } from 'transliteration';
-import { romanize as romanizeTamil } from 'tamil-romanizer';
+import { enqueueStorageOperation } from '../lib/core/storageManager';
+import { safeBrowserCall } from '../lib/utils/browserUtils';
+import { processLines } from '../lib/lyrics/lyricsProcessor';
+import { lyricsCache } from '../lib/lyricsProviders/lyricsCache';
+import { lyricsPersistence } from '../lib/lyricsProviders/lyricsPersistence';
+import { getLyricsForTrack, getColorOnly } from '../lib/lyricsProviders/lyricsEngine';
+import { mxmProvider } from '../lib/lyricsProviders/mxm';
+import { hashString } from '../lib/utils/hashUtils';
 
 export default defineBackground(() => {
+  // 1. Dynamic TTL Resolution Logic
+  function getDynamicTTL(entry: any): number {
+    if (!entry) return 0;
+    // If failed/missing/placeholder
+    if (entry.isPlaceholder || !entry.ok || entry.prefetchState === 'MISSING') {
+      return 12 * 60 * 60 * 1000; // 12 hours
+    }
+    // If unsynced/romanized
+    if (entry.prefetchState === 'UNSYNCED' || entry.nativeStatus === 'ROMANIZED' || entry.nativeStatus === 'UNSYNCED') {
+      return 24 * 60 * 60 * 1000; // 24 hours
+    }
+    // Otherwise (Synced / NATIVE_OK)
+    return 30 * 24 * 60 * 60 * 1000; // 30 days
+  }
+
+  // 2. Lazy Upgrade Queue to avoid API rate limits
+  interface UpgradeQueueItem {
+    title: string;
+    artist: string;
+    albumArtUrl: string;
+    uri: string;
+    cacheKey: string;
+    fallbackKey?: string;
+    senderTabId?: number;
+  }
+
+  const upgradeQueue: UpgradeQueueItem[] = [];
+  let isProcessingQueue = false;
+
+  async function processUpgradeQueue() {
+    if (isProcessingQueue || upgradeQueue.length === 0) return;
+    isProcessingQueue = true;
+    
+    while (upgradeQueue.length > 0) {
+      const item = upgradeQueue.shift();
+      if (!item) continue;
+      
+      console.log(`[sly-upgrade] ⏳ Proactively/lazily upgrading track: "${item.title}" by ${item.artist}`);
+      try {
+        const fresh = await getLyricsForTrack(item.title, item.artist, item.albumArtUrl, item.uri);
+        if (fresh && fresh.ok) {
+          const current = lyricsCache.get(item.cacheKey) || await lyricsPersistence.get(item.cacheKey, item.fallbackKey);
+          if (current?.nativeStatus && !fresh.nativeStatus) {
+            fresh.nativeStatus = current.nativeStatus;
+          }
+          
+          fresh.prefetchState = fresh.data?.isSynced ? 'SYNCED' : 'UNSYNCED';
+          await lyricsPersistence.set(item.cacheKey, fresh);
+          lyricsCache.set(item.cacheKey, fresh);
+          
+          console.log(`[sly-upgrade] 🎉 Successful proactive upgrade for "${item.title}" to ${fresh.prefetchState}`);
+
+          // Send message to tab to hot-swap!
+          if (item.senderTabId) {
+            browser.tabs.sendMessage(item.senderTabId, {
+              type: 'LYRICS_UPGRADED',
+              payload: { cacheKey: item.cacheKey, data: fresh, uri: item.uri },
+            }).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn(`[sly-upgrade] ⚠️ Proactive upgrade failed for "${item.title}":`, err);
+      }
+      
+      // Stand-down between queries to be extremely polite
+      await new Promise(r => setTimeout(r, 4000));
+    }
+    isProcessingQueue = false;
+  }
+
+  function enqueueUpgrade(item: UpgradeQueueItem) {
+    if (upgradeQueue.some(x => x.cacheKey === item.cacheKey)) return;
+    upgradeQueue.push(item);
+    processUpgradeQueue();
+  }
+
   browser.runtime.onMessage.addListener(
     (
-      msg: { type: string; lines: string[]; targetLang?: string },
-      _sender,
-      sendResponse
+      msg: {
+        type: string;
+        // PROCESS fields
+        lines?: string[];
+        targetLang?: string;
+        // FETCH_LYRICS / PREFETCH_LYRICS / SLY_SAVE_L0_CACHE fields
+        payload?: { 
+          key?: string;
+          entry?: any;
+          PERSISTED_CACHE_MAX?: number;
+          title?: string; 
+          artist?: string; 
+          albumArtUrl?: string; 
+          uri?: string; 
+          forceRefresh?: boolean;
+          // MXM fields
+          trackId?: string;
+          providerLyricsId?: string | null;
+          hexGid?: string;
+          interceptId?: number;
+          name?: string;
+          status?: string;
+          nativeStatus?: string;
+        };
+      },
+      sender,
+      sendResponse,
     ) => {
+      // ----------------------------------------------------------------
+      // New handler: Centralized Storage Writes (BUG-A3)
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_SAVE_L0_CACHE') {
+        const { key, entry, PERSISTED_CACHE_MAX } = msg.payload ?? {};
+        if (!key || !entry) return false;
+
+        enqueueStorageOperation(async () => {
+          try {
+            const storageKey = `lc:${key}`;
+            const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
+            const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
+            idx[key] = { lastAccessed: Date.now() };
+
+            const keys = Object.keys(idx);
+            const max = PERSISTED_CACHE_MAX || 200;
+            if (keys.length > max) {
+              const sorted = keys.sort((a, b) => (idx[a].lastAccessed ?? 0) - (idx[b].lastAccessed ?? 0));
+              const toEvict = sorted.slice(0, keys.length - max);
+              for (const k of toEvict) {
+                delete idx[k];
+                await safeBrowserCall(() => browser.storage.local.remove(`lc:${k}`));
+              }
+            }
+
+            const setRes = await safeBrowserCall(() => browser.storage.local.set({ [storageKey]: entry, lc_index: idx }));
+            if (setRes === null) throw new Error('Storage write failed (quota or context issue)');
+
+            sendResponse({ ok: true });
+          } catch (err) {
+            console.error('[SKaraoke:BG] SLY_SAVE_L0_CACHE failed:', err);
+            sendResponse({ ok: false, error: (err as Error).message });
+          }
+        });
+        return true;
+      }
+
+      if (msg.type === 'SLY_DELETE_L0_CACHE') {
+        const { key } = msg.payload ?? {};
+        if (!key) return false;
+
+        enqueueStorageOperation(async () => {
+          try {
+            const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
+            const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
+            delete idx[key];
+            const rmRes = await safeBrowserCall(() => browser.storage.local.remove(`lc:${key}`));
+            const setRes = await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+            if (rmRes === null || setRes === null) throw new Error('Storage delete failed');
+
+            sendResponse({ ok: true });
+          } catch (err) {
+            console.error('[SKaraoke:BG] SLY_DELETE_L0_CACHE failed:', err);
+            sendResponse({ ok: false, error: (err as Error).message });
+          }
+        });
+        return true;
+      }
+
+      if (msg.type === 'SLY_UPDATE_L0_INDEX') {
+        const { key } = msg.payload ?? {};
+        if (!key) return false;
+
+        enqueueStorageOperation(async () => {
+          try {
+            const d = await safeBrowserCall(() => browser.storage.local.get('lc_index'));
+            const idx = (d?.['lc_index'] ?? {}) as Record<string, any>;
+            if (idx[key]) {
+              idx[key].lastAccessed = Date.now();
+              const setRes = await safeBrowserCall(() => browser.storage.local.set({ lc_index: idx }));
+              if (setRes === null) throw new Error('Index update failed');
+              sendResponse({ ok: true });
+            } else {
+              sendResponse({ ok: false, error: 'Key not found in index' });
+            }
+          } catch (err) {
+            sendResponse({ ok: false, error: (err as Error).message });
+          }
+        });
+        return true;
+      }
+
+      // ----------------------------------------------------------------
+      // Existing handler: romanization + translation pipeline
+      // ----------------------------------------------------------------
       if (msg.type === 'PROCESS') {
-        processLines(msg.lines, msg.targetLang ?? 'en')
+        processLines(msg.lines ?? [], msg.targetLang ?? 'en')
           .then(sendResponse)
           .catch((err) => {
             console.error('[SKaraoke:BG] PROCESS failed:', err);
@@ -25,436 +209,355 @@ export default defineBackground(() => {
           });
         return true;
       }
-    }
+
+      // ----------------------------------------------------------------
+      // New handler: fast-track album art color extraction
+      // ----------------------------------------------------------------
+      if (msg.type === 'GET_COLOR') {
+        getColorOnly(msg.payload?.albumArtUrl)
+          .then(color => {
+            sendResponse({ color });
+          })
+          .catch(err => {
+            console.error('[SKaraoke:BG] GET_COLOR failed:', err);
+            sendResponse({ color: null });
+          });
+        return true;
+      }
+
+      // ----------------------------------------------------------------
+      // New handler: Fetch Spotify CSS to bypass CORS for Deep Scavenger
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_FETCH_CSS') {
+        const url = (msg as any).url;
+        const isAllowed = typeof url === 'string' && (
+          url.startsWith('https://open.spotifycdn.com/') || 
+          url.startsWith('https://xpui.static.akamaized.net/')
+        );
+        if (!isAllowed) {
+          sendResponse({ success: false, error: 'Forbidden URL' });
+          return true;
+        }
+        fetch(url)
+          .then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.text();
+          })
+          .then(text => sendResponse({ success: true, cssText: text }))
+          .catch(err => sendResponse({ success: false, error: err.message }));
+        return true;
+      }
+
+      // ----------------------------------------------------------------
+      // New handler: fetch missing/unsynced lyrics from YTM + LRCLIB
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_CHECK_CACHE') {
+        const { title, artist, uri } = msg.payload ?? {};
+        if (!uri && (!title || !artist)) {
+          sendResponse({ ok: true, found: false });
+          return true;
+        }
+
+        // SLY FIX: Proactively notify Musixmatch of this track's metadata.
+        // This ensures the interceptor (MAIN world) has the metadata ready 
+        // if it needs to perform an upgrade search.
+        if (uri && title && artist) {
+          const trackId = uri.split(':').pop();
+          if (trackId) mxmProvider.notifyMetadata(trackId, title, artist);
+        }
+
+        const cacheKey = lyricsCache.getCacheKey(title!, artist!, uri);
+        const fallbackKey = uri ? lyricsCache.getCacheKey(title!, artist!) : undefined;
+        
+        (async () => {
+          let stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
+          if (stored) {
+             // Self-heal: If it was tagged ROMANIZED but plain lyrics contain no non-Latin script characters, correct it
+             if (stored.nativeStatus === 'ROMANIZED' && stored.data?.plainLyrics) {
+                 const hasNonLatin = /[\u0900-\u0DFF\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u08FF\u0E00-\u0E7F]/.test(stored.data.plainLyrics);
+                 if (!hasNonLatin) {
+                     console.log(`[sly-sw] 🩹 Self-healing stale ROMANIZED tag on cache check: "${title}" by ${artist}`);
+                     stored.nativeStatus = 'NATIVE_OK' as any;
+                     lyricsCache.set(cacheKey, stored);
+                     await lyricsPersistence.set(cacheKey, stored);
+                 }
+             }
+             console.log(`[sly-sw] Cache check for ${title}: Found. Native=${stored.nativeStatus || 'N/A'}, Custom=${stored.prefetchState || 'N/A'}`);
+             sendResponse({ ok: true, found: true, ...stored });
+          } else {
+             console.log(`[sly-sw] Cache check for ${title}: Not found.`);
+             sendResponse({ ok: true, found: false });
+          }
+        })();
+        return true;
+      }
+
+      if (msg.type === 'FETCH_LYRICS' || msg.type === 'PREFETCH_LYRICS') {
+        const { title, artist, albumArtUrl, uri, forceRefresh, nativeStatus } = msg.payload ?? {} as NonNullable<typeof msg.payload>;
+
+        if (!title || !artist) {
+          console.error(`[ServiceWorker] ❌ REJECTED: Missing metadata for fetch. Title: "${title}", Artist: "${artist}", URI: ${uri}`);
+          sendResponse({ ok: false, error: 'Missing metadata' });
+          return true;
+        }
+
+        const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
+
+        (async () => {
+          // 1. L1: Instant Memory Cache Hit
+          if (lyricsCache.has(cacheKey) && !forceRefresh) {
+            const cached = lyricsCache.get(cacheKey);
+            if (cached && !(cached as any).isPlaceholder) {
+              const age = Date.now() - (cached.persistedAt || 0);
+              const ttl = getDynamicTTL(cached);
+              if (age > ttl) {
+                console.log(`[ServiceWorker] L1 EXPIRED (Dynamic TTL: ${ttl / 3600000}h): ${title}`);
+                // Fall through to L2/Fetch path
+              } else {
+                console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
+                sendResponse(cached);
+                return;
+              }
+            }
+          }
+
+          // 2. L2: Persistent Storage Hit
+          const fallbackKey = uri ? lyricsCache.getCacheKey(title, artist) : undefined;
+          let stored = forceRefresh ? null : await lyricsPersistence.get(cacheKey, fallbackKey);
+          if (stored && !(stored as any).isPlaceholder) {
+            // Self-heal: If it was tagged ROMANIZED but plain lyrics contain no non-Latin script characters, correct it
+            if (stored.nativeStatus === 'ROMANIZED' && stored.data?.plainLyrics) {
+                const hasNonLatin = /[\u0900-\u0DFF\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u08FF\u0E00-\u0E7F]/.test(stored.data.plainLyrics);
+                if (!hasNonLatin) {
+                    console.log(`[sly-sw] 🩹 Self-healing stale ROMANIZED tag on L2 hit: "${title}" by ${artist}`);
+                    stored.nativeStatus = 'NATIVE_OK' as any;
+                    lyricsCache.set(cacheKey, stored);
+                    await lyricsPersistence.set(cacheKey, stored);
+                }
+            }
+
+            const age = Date.now() - (stored.persistedAt || 0);
+            const ttl = getDynamicTTL(stored);
+            
+            if (age > ttl) {
+              console.log(`[ServiceWorker] L2 EXPIRED (Dynamic TTL: ${ttl / 3600000}h): ${title} — triggering background refresh.`);
+              // If L2 is expired, we do NOT return the stale hit. We fall through to network fetch!
+            } else {
+              console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
+              
+              // Reconstruct prefetchState if missing (legacy cache support)
+              if (!stored.prefetchState) {
+                if (stored.ok && stored.data) {
+                  stored.prefetchState = stored.data.isSynced ? 'SYNCED' : 'UNSYNCED';
+                } else {
+                  stored.prefetchState = 'MISSING';
+                }
+              }
+
+              // Backwards compatibility: Promote old nativeMissing flag to new nativeStatus
+              if ((stored as any).nativeMissing && !stored.nativeStatus) {
+                stored.nativeStatus = 'MISSING';
+              }
+
+              lyricsCache.set(cacheKey, stored); // Promote to L1
+              
+              // SLY FIX: Look ahead for a processed cache entry (lc: prefix) 
+              // to eliminate the "shimmer" where original lyrics appear before romanized ones.
+              // STALE DATA GUARD: Only merge if the hash of the stored original lines
+              // matches the plainLyrics of the current fetch result. This prevents
+              // Unsynced romanization from being applied to Synced LRC lines (index shift).
+              if (uri && stored.ok && stored.data?.plainLyrics && !stored.processed) {
+                const lcKey = `lc:${uri}`;
+                const lcResult = await safeBrowserCall(() => browser.storage.local.get([lcKey]));
+                const lcEntry = lcResult?.[lcKey];
+                
+                if (lcEntry?.processed && lcEntry.originalHash) {
+                  // Compute hash of current plainLyrics to compare
+                  const currentPlain = stored.data.plainLyrics;
+                  const currentHash = hashString(currentPlain.split('\n').join('|'));
+                  
+                  if (lcEntry.originalHash === currentHash) {
+                    console.log(`[ServiceWorker] L2 PROCESSED HIT: Merging verified romanization for ${title}`);
+                    stored.processed = lcEntry.processed;
+                  } else {
+                    console.warn(`[ServiceWorker] L2 PROCESSED IGNORED: Hash mismatch for ${title} (Source lyrics changed).`);
+                  }
+                }
+              }
+
+              sendResponse(stored);
+
+              // --- UPGRADE LOGIC (Lazy Upgrade Queue) ---
+              const needsUpgrade = (!stored.ok && !stored.isPlaceholder) || (stored.data && stored.data.isSynced === false);
+              const lastCheck = stored.lastCheckedAt || 0;
+              const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
+              const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+              const retryThreshold = !stored.ok ? dayAgo : weekAgo;
+   
+              if (needsUpgrade && lastCheck < retryThreshold) {
+                enqueueUpgrade({
+                  title,
+                  artist,
+                  albumArtUrl: albumArtUrl || '',
+                  uri: uri || '',
+                  cacheKey,
+                  fallbackKey,
+                  senderTabId: sender.tab?.id
+                });
+              }
+              return;
+            }
+          }
+
+          // 3. L3: Join In-Flight Fetch (Deduplication)
+          const inFlight = lyricsCache.getInFlight(cacheKey);
+          if (inFlight) {
+            const res = await inFlight;
+            sendResponse(res);
+            return;
+          }
+
+          // 4. L4: Perform Network Fetch and Cache Result
+          const fetchTask = (async () => {
+            try {
+              const result = await getLyricsForTrack(title, artist, albumArtUrl, uri);
+              if (result) {
+                if (result.ok) {
+                  result.prefetchState = result.data?.isSynced ? 'SYNCED' : 'UNSYNCED';
+                } else {
+                  result.prefetchState = 'MISSING';
+                }
+                const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+                result.nativeStatus = result.nativeStatus || existing?.nativeStatus || nativeStatus;
+                lyricsCache.set(cacheKey, result);
+                await lyricsPersistence.set(cacheKey, result);
+              }
+              return result;
+            } catch (e) {
+              console.error('[ServiceWorker] Critical fetch error:', e);
+              return { ok: false, prefetchState: 'MISSING' } as any;
+            }
+          })();
+
+          lyricsCache.setInFlight(cacheKey, fetchTask);
+          const finalResult = await fetchTask;
+          sendResponse(finalResult);
+        })();
+
+        return true;
+      }
+
+      // ----------------------------------------------------------------
+      // New handler: Persistent Native Status Reporting
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_REPORT_NATIVE_STATUS') {
+        const { title, artist, uri, status } = msg.payload ?? {};
+        if (!title || !artist || !status) return false;
+
+        const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
+        (async () => {
+          const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
+          
+          if (!existing) {
+            const fresh = {
+              ok: false,
+              prefetchState: 'MISSING' as const,
+              nativeStatus: status as any,
+              isPlaceholder: true
+            };
+            lyricsCache.set(cacheKey, fresh);
+            await lyricsPersistence.set(cacheKey, fresh);
+          } else if (existing.nativeStatus !== status) {
+            existing.nativeStatus = status as any;
+            lyricsCache.set(cacheKey, existing);
+            await lyricsPersistence.set(cacheKey, existing);
+          }
+          sendResponse({ ok: true });
+        })();
+        return true;
+      }
+
+      // ----------------------------------------------------------------
+      // ROBUST MUSIXMATCH HANDLERS (Background-Centric)
+      // ----------------------------------------------------------------
+      
+      if (msg.type === 'SLY_MXM_WARMUP') {
+        mxmProvider.warmup();
+        return false; // No response needed
+      }
+
+      if (msg.type === 'SLY_MXM_NOTIFY_METADATA') {
+        const { trackId, name, artist } = msg.payload ?? {};
+        if (trackId && name && artist) {
+          mxmProvider.notifyMetadata(trackId, name, artist);
+        }
+        return false;
+      }
+
+      if (msg.type === 'SLY_MXM_NEW_INTERCEPTION') {
+        const { trackId } = msg.payload ?? {};
+        if (trackId) {
+          const gen = mxmProvider.newInterception(trackId);
+          sendResponse({ generation: gen });
+        }
+        return true;
+      }
+
+      if (msg.type === 'SLY_MXM_FETCH_NATIVE') {
+        const { providerLyricsId, trackId, hexGid, interceptId } = msg.payload ?? {};
+        mxmProvider.fetchNativeLines(
+          providerLyricsId ?? null,
+          trackId ?? '',
+          hexGid ?? '',
+          interceptId ?? 0
+        ).then(lines => {
+          sendResponse({ ok: !!lines, lines });
+        }).catch(err => {
+          console.error('[SKaraoke:BG] MXM Background Fetch failed:', err);
+          sendResponse({ ok: false, error: err.message });
+        });
+        return true;
+      }
+
+      // ----------------------------------------------------------------
+      // NEW: Stable Firefox Navigation Handler (with Safety Bounce)
+      // ----------------------------------------------------------------
+      if (msg.type === 'SLY_MARK_ENTRY_POINT') {
+        if (sender.tab?.id) {
+          const tabId = sender.tab.id;
+          browser.storage.local.get('slyEntryPoints').then((res) => {
+            const entryPoints = new Set(res.slyEntryPoints || []);
+            entryPoints.add(tabId);
+            browser.storage.local.set({ slyEntryPoints: Array.from(entryPoints) });
+          });
+        }
+        return false;
+      }
+
+      if (msg.type === 'SLY_NAV_BACK') {
+        if (sender.tab?.id) {
+          const tabId = sender.tab.id;
+          browser.storage.local.get('slyEntryPoints').then(async (res) => {
+            const entryPoints = new Set(res.slyEntryPoints || []);
+            const isEntryPoint = (msg as any).isEntryPoint || entryPoints.has(tabId);
+            
+            if (isEntryPoint) {
+              console.log('[sly-bg] Safety Bounce: Tab is entry point. Redirecting to Spotify Home.');
+              browser.tabs.update(tabId, { url: 'https://open.spotify.com/' }).catch(() => {});
+              entryPoints.delete(tabId);
+              await browser.storage.local.set({ slyEntryPoints: Array.from(entryPoints) });
+            } else {
+              console.log('[sly-bg] Requesting tabs.goBack for non-entry-point navigation.');
+              browser.tabs.goBack(tabId).catch((err) => {
+                console.warn('[sly-bg] tabs.goBack failed, falling back to Home:', err.message);
+                browser.tabs.update(tabId, { url: 'https://open.spotify.com/' }).catch(() => {});
+              });
+            }
+          });
+        }
+        return false;
+      }
+    },
   );
 });
 
-// ─── Script Detection ─────────────────────────────────────────────────────────
-
-type ScriptType =
-  | 'japanese' | 'chinese' | 'korean' | 'cyrillic'
-  | 'devanagari' | 'gujarati' | 'gurmukhi' | 'telugu' | 'kannada' | 'odia'
-  | 'tamil' | 'malayalam' | 'bengali'
-  | 'arabic' | 'hebrew' | 'thai'
-  | 'latin' | 'other';
-
-// These scripts use Google dt=rm — no adequate local library exists
-const GOOGLE_ROMANIZE_SCRIPTS = new Set<ScriptType>([
-  'malayalam', 'bengali', 'arabic', 'hebrew', 'other',
-]);
-
-export function detectScript(lines: string[]): ScriptType {
-  const text = lines.join('');
-
-  // Japanese: any kana is definitive — must check before CJK
-  // since Japanese text mixes kana and kanji
-  if (/[\u3040-\u30FF]/.test(text)) return 'japanese';
-
-  // Score every other script by character count, pick the dominant one
-  const scores: [ScriptType, number][] = [
-    ['chinese', (text.match(/[\u4E00-\u9FFF]/g) ?? []).length],
-    ['korean', (text.match(/[\uAC00-\uD7AF]/g) ?? []).length],
-    ['cyrillic', (text.match(/[\u0400-\u04FF]/g) ?? []).length],
-    ['devanagari', (text.match(/[\u0900-\u097F]/g) ?? []).length],
-    ['gujarati', (text.match(/[\u0A80-\u0AFF]/g) ?? []).length],
-    ['gurmukhi', (text.match(/[\u0A00-\u0A7F]/g) ?? []).length],
-    ['telugu', (text.match(/[\u0C00-\u0C7F]/g) ?? []).length],
-    ['kannada', (text.match(/[\u0C80-\u0CFF]/g) ?? []).length],
-    ['odia', (text.match(/[\u0B00-\u0B7F]/g) ?? []).length],
-    ['tamil', (text.match(/[\u0B80-\u0BFF]/g) ?? []).length],
-    ['malayalam', (text.match(/[\u0D00-\u0D7F]/g) ?? []).length],
-    ['bengali', (text.match(/[\u0980-\u09FF]/g) ?? []).length],
-    ['arabic', (text.match(/[\u0600-\u06FF]/g) ?? []).length],
-    ['hebrew', (text.match(/[\u0590-\u05FF]/g) ?? []).length],
-    ['thai', (text.match(/[\u0E00-\u0E7F]/g) ?? []).length],
-  ];
-
-  const dominant = scores.reduce((best, curr) => curr[1] > best[1] ? curr : best);
-  if (dominant[1] > 0) return dominant[0];
-  // No non-Latin script detected — treat as Latin if there are any letters at all.
-  // This covers English, French, Spanish, Portuguese, Italian, German, etc.
-  return /\p{L}/u.test(text) ? 'latin' : 'other';
-}
-
-// ─── Kuroshiro Lazy Init ──────────────────────────────────────────────────────
-
-let kuroshiroReady: Promise<Kuroshiro> | null = null;
-
-export async function getKuroshiro(): Promise<Kuroshiro> {
-  if (!kuroshiroReady) {
-    // The promise itself resolves to the initialized instance.
-    // All concurrent callers await the same promise and only
-    // proceed once init() has fully completed — no race condition.
-    kuroshiroReady = (async () => {
-      try {
-        const instance = new Kuroshiro();
-        await instance.init(
-          new KuromojiAnalyzer({
-            dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji/dict',
-          })
-        );
-        return instance;
-      } catch (e) {
-        kuroshiroReady = null; // Allow retry on next call
-        throw e;
-      }
-    })();
-  }
-  return kuroshiroReady;
-}
-
-// ─── Singletons ───────────────────────────────────────────────────────────────
-
-const cyrillicTranslitRu = CyrillicToTranslit({ preset: 'ru' });
-const cyrillicTranslitUk = CyrillicToTranslit({ preset: 'uk' });
-
-// @indic-transliteration/sanscript scheme IDs for each Indic script
-const SANSCRIPT_SCHEME: Partial<Record<ScriptType, string>> = {
-  devanagari: 'devanagari',
-  gujarati: 'gujarati',
-  gurmukhi: 'gurmukhi',
-  telugu: 'telugu',
-  kannada: 'kannada',
-  odia: 'oriya', // Package uses legacy name 'oriya' for Odia/Oriya script
-};
-
-// Check if the current Sanscript package actually supports the mapped keys.
-// This prevents silent failure if the package updates and 'oriya' -> 'odia' happens.
-const verifiedSchemes = new Set<string>();
-try {
-  // Sanscript.t is the primary transliteration function. If it doesn't have 
-  // 'schemes' exported, we skip this runtime validation.
-  const schemes = (Sanscript as any).schemes;
-  if (schemes) {
-    Object.entries(SANSCRIPT_SCHEME).forEach(([script, scheme]) => {
-      if (!schemes[scheme]) {
-        console.warn(`[SKaraoke:BG] Script mapping mismatch: '${script}' maps to '${scheme}' but Sanscript doesn't recognize it.`);
-      } else {
-        verifiedSchemes.add(script);
-      }
-    });
-  }
-} catch { /* ignore validation error */ }
-
-// Script types that map to exactly one Google Translate language code.
-// When targetLang matches, translation returns the original text unchanged
-// — so we skip the API call and return the original lines directly.
-// Scripts in GOOGLE_ROMANIZE_SCRIPTS are intentionally excluded: they still
-// need a fetch for dt=rm romanization, so we can't skip the call.
-const SCRIPT_NATIVE_LANG: Partial<Record<ScriptType, string>> = {
-  korean: 'ko',
-  japanese: 'ja',
-  thai: 'th',
-  telugu: 'te',
-  kannada: 'kn',
-  gujarati: 'gu',
-  gurmukhi: 'pa',
-  odia: 'or',
-  tamil: 'ta',
-  devanagari: 'hi', // Optimized for Hindi
-  cyrillic: 'ru',    // Optimized for Russian
-  // Partially covered — maps to the most common language only.
-  // Other variants (mr/sa/ne for devanagari, uk/bg/sr for cyrillic, zh-TW for chinese) still hit Google:
-};
-
-// ─── Main Orchestrator ────────────────────────────────────────────────────────
-
-export async function processLines(
-  lines: string[],
-  targetLang: string
-): Promise<{ 
-  translated: string[]; 
-  romanized: string[]; 
-  isLowQualityRomanization?: boolean;
-  wasTruncated?: boolean;
-}> {
-  const script = detectScript(lines);
-
-  if (script === 'latin') {
-    // Already Roman script — romanization is a no-op. Only translate.
-    const { translated, wasTruncated } = await googleProcess(lines, targetLang, false);
-    return { translated, romanized: lines, wasTruncated };
-  }
-
-  // Chinese fast-path: Maps to both zh-CN and zh-TW. If matched, skip API.
-  if (script === 'chinese' && (targetLang === 'zh-CN' || targetLang === 'zh-TW')) {
-    const romanized = await romanizeLocally(lines, script);
-    return { translated: lines, romanized };
-  }
-
-  // Translation no-op fast-path: script maps to exactly one language and it
-  // matches targetLang, so Google would return the original text unchanged.
-  // These scripts all have local romanizers, so we skip Google entirely.
-  if (SCRIPT_NATIVE_LANG[script] === targetLang) {
-    const romanized = await romanizeLocally(lines, script);
-    return { translated: lines, romanized };
-  }
-
-  if (GOOGLE_ROMANIZE_SCRIPTS.has(script)) {
-    // One Google call with dt=t&dt=rm → get translation AND romanization
-    return googleProcess(lines, targetLang, true);
-  }
-
-  // Specialized library for romanization + Google for translation, in parallel
-  const [{ translated, wasTruncated }, romanized] = await Promise.all([
-    googleProcess(lines, targetLang, false),
-    romanizeLocally(lines, script),
-  ]);
-
-  return { translated, romanized, wasTruncated };
-}
-
-// ─── Local Romanization ───────────────────────────────────────────────────────
-
-async function romanizeLocally(lines: string[], script: ScriptType): Promise<string[]> {
-  return Promise.all(lines.map((line) => romanizeLine(line, script)));
-}
-
-async function romanizeLine(line: string, script: ScriptType): Promise<string> {
-  // Skip blank lines and lines with no linguistic content (♪, etc.)
-  if (!line.trim() || !/\p{L}/u.test(line)) return line;
-
-  try {
-    switch (script) {
-      case 'japanese': {
-        const k = await getKuroshiro();
-        return k.convert(line, { to: 'romaji', mode: 'spaced' });
-      }
-      case 'chinese':
-        return pinyin(line, { toneType: 'symbol', type: 'string' });
-
-      case 'korean':
-        return romanizeKorean(line);
-
-      case 'cyrillic':
-        return /[іїєґ]/i.test(line) 
-          ? cyrillicTranslitUk.transform(line) 
-          : cyrillicTranslitRu.transform(line);
-
-      case 'devanagari':
-      case 'gujarati':
-      case 'gurmukhi':
-      case 'telugu':
-      case 'kannada':
-      case 'odia': {
-        const scheme = SANSCRIPT_SCHEME[script];
-        // 'iast' = International Alphabet of Sanskrit Transliteration
-        return scheme ? Sanscript.t(line, scheme, 'iast') : transliterate(line);
-      }
-      case 'tamil':
-        return romanizeTamil(line);
-
-      case 'thai':
-        return romanizeThai(line);
-
-      default:
-        return transliterate(line);
-    }
-  } catch (err) {
-    console.error(`[SKaraoke:BG] Romanize '${script}' failed, using fallback:`, err);
-    return transliterate(line);
-  }
-}
-
-// ─── Google Translate ─────────────────────────────────────────────────────────
-
-const GOOGLE_MAX_CHARS = 500;
-const MYMEMORY_MAX_CHARS = 450;
-// 120 ms inter-chunk delay — empirically keeps Google below its undocumented rate-limit threshold
-const CHUNK_DELAY_MS = 120;
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function googleProcess(
-  lines: string[],
-  targetLang: string,
-  includeRomanization: boolean
-): Promise<{ 
-  translated: string[]; 
-  romanized: string[]; 
-  isLowQualityRomanization?: boolean;
-  wasTruncated?: boolean;
-}> {
-  const translatableIndices: number[] = [];
-  const translatableLines: string[] = [];
-
-  lines.forEach((line, i) => {
-    if (line.trim() && /\p{L}/u.test(line)) {
-      translatableIndices.push(i);
-      translatableLines.push(line);
-    }
-  });
-
-  if (translatableLines.length === 0) {
-    return { translated: [...lines], romanized: [...lines] };
-  }
-
-  const { chunks, wasTruncated } = chunkByCharCount(translatableLines, GOOGLE_MAX_CHARS);
-  const translatedFlat: string[] = [];
-  const romanizedFlat: string[] = [];
-  let isLowQualityRomanization = false;
-
-  for (let i = 0; i < chunks.length; i++) {
-    if (i > 0) await delay(CHUNK_DELAY_MS);
-    const joined = chunks[i].join('\n');
-
-    try {
-      const result = await googleTranslate(joined, targetLang, includeRomanization);
-      translatedFlat.push(...result.translated.split('\n'));
-      // If Google didn't return romanization, fall back to translated text
-      romanizedFlat.push(...(result.romanized ?? result.translated).split('\n'));
-    } catch (googleErr) {
-      console.warn('[SKaraoke:BG] Google blocked, falling back to MyMemory:', googleErr);
-      isLowQualityRomanization = true;
-      try {
-        const { chunks: subChunks } = chunkByCharCount(chunks[i], MYMEMORY_MAX_CHARS);
-        for (let j = 0; j < subChunks.length; j++) {
-          if (j > 0) await delay(CHUNK_DELAY_MS);
-          const text = await myMemoryTranslate(subChunks[j].join('\n'), targetLang);
-          translatedFlat.push(...text.split('\n'));
-          romanizedFlat.push(...text.split('\n')); // MyMemory has no dt=rm equivalent
-        }
-      } catch (mmErr) {
-        console.error('[SKaraoke:BG] MyMemory also failed:', mmErr);
-        translatedFlat.push(...chunks[i]);
-        romanizedFlat.push(...chunks[i]);
-      }
-    }
-  }
-
-  const translatedOutput = [...lines];
-  const romanizedOutput = [...lines];
-  translatableIndices.forEach((originalIdx, i) => {
-    translatedOutput[originalIdx] = translatedFlat[i] ?? lines[originalIdx];
-    romanizedOutput[originalIdx] = romanizedFlat[i] ?? lines[originalIdx];
-  });
-
-  return { 
-    translated: translatedOutput, 
-    romanized: romanizedOutput, 
-    isLowQualityRomanization,
-    wasTruncated
-  };
-}
-
-async function googleTranslate(
-  text: string,
-  targetLang: string,
-  includeRomanization: boolean
-): Promise<{ translated: string; romanized: string | null }> {
-  const params = new URLSearchParams({
-    client: 'gtx',
-    sl: 'auto',
-    tl: targetLang,
-    q: text,
-  });
-  params.append('dt', 't');
-  if (includeRomanization) params.append('dt', 'rm');
-
-  let res: Response;
-  try {
-    res = await fetch(
-      `https://translate.googleapis.com/translate_a/single?${params}`,
-      {
-        headers: {
-          Referer: 'https://translate.google.com/',
-          Accept: 'application/json',
-        },
-      }
-    );
-  } catch (err) {
-    // Firefox TypeError on cross-origin, or network error
-    throw new Error('Google network error or rate-limited');
-  }
-
-  if (res.status === 0 || !res.ok) {
-    throw new Error(`Google HTTP ${res.status}`);
-  }
-  const ct = res.headers.get('content-type') ?? '';
-  if (!ct.includes('application/json')) throw new Error('Google non-JSON (captcha)');
-
-  const data = (await res.json()) as any[];
-  const allSegments = ((data[0] as any[]) ?? []) as any[][];
-
-  // When dt=rm is present, Google appends a special romanization block as
-  // the LAST element of data[0], shaped: [null, null, null, "line1\nline2\n..."]
-  // All normal translation segments are shaped: ["translated", "original", ...]
-  // data[8] is the language detection array — NOT romanization — and contains
-  // null entries that would throw if we tried to iterate it. Never touch it.
-  let segments = allSegments;
-  let romanized: string | null = null;
-
-  if (
-    includeRomanization &&
-    allSegments.length > 0 &&
-    allSegments[allSegments.length - 1][0] === null &&
-    allSegments[allSegments.length - 1][1] === null &&
-    typeof allSegments[allSegments.length - 1][3] === 'string'
-  ) {
-    const last = allSegments[allSegments.length - 1];
-    romanized = (last[3] as string | null | undefined) ?? null;
-    // Exclude the romanization block so it doesn't pollute the translated text
-    segments = allSegments.slice(0, -1);
-  }
-
-  const translated = segments.map((s) => (s[0] ?? '') as string).join('');
-
-  return { translated, romanized };
-}
-
-async function myMemoryTranslate(text: string, targetLang: string): Promise<string> {
-  const params = new URLSearchParams({
-    q: text,
-    langpair: `en|${targetLang}`,
-  });
-  const res = await fetch(`https://api.mymemory.translated.net/get?${params}`);
-  if (!res.ok) throw new Error(`MyMemory HTTP ${res.status}`);
-
-  const data = (await res.json()) as {
-    responseStatus: number;
-    responseData: { translatedText: string };
-    quotaFinished?: boolean;
-  };
-
-  if (data.quotaFinished) throw new Error('MyMemory daily quota exhausted');
-  if (data.responseStatus !== 200) throw new Error(`MyMemory status ${data.responseStatus}`);
-  return data.responseData.translatedText;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-export function chunkByCharCount(lines: string[], maxChars: number): { chunks: string[][], wasTruncated: boolean } {
-  const chunks: string[][] = [];
-  let current: string[] = [];
-  let currentLen = 0;
-  let wasTruncated = false;
-
-  for (const line of lines) {
-    if (line.length > maxChars) {
-      wasTruncated = true;
-      // Truncate to maxChars. Try to split at last space, else hard-slice at maxChars.
-      // This maintains 1:1 index alignment for the translation/romanization result arrays.
-      const truncated = line.slice(0, maxChars).replace(/\s+\S*$/, '…');
-      console.warn(`[SKaraoke:BG] Line too long, truncating to maintain index alignment: ${truncated}`);
-      
-      if (currentLen + truncated.length + 1 > maxChars && current.length > 0) {
-        chunks.push(current);
-        current = [truncated];
-        currentLen = truncated.length;
-      } else {
-        current.push(truncated);
-        currentLen += truncated.length + 1;
-      }
-      continue;
-    }
-    if (currentLen + line.length + 1 > maxChars && current.length > 0) {
-      chunks.push(current);
-      current = [line];
-      currentLen = line.length;
-    } else {
-      current.push(line);
-      currentLen += line.length + 1;
-    }
-  }
-  if (current.length > 0) chunks.push(current);
-  return { chunks, wasTruncated };
-}
