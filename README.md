@@ -1,5 +1,5 @@
 <div align="center">
-  <h1><img src="assets/marquee-promo-tile.png" alt="Spotify Karaoke" width="500">
+  <h1><img src="assets/marquee-promo-tile.jpg" alt="Spotify Karaoke" width="500">
   </h1>
   <p>Automatically fetches synced lyrics for songs that don't have it, and provides additional functionality like romanization for all scripts and translation into 132 languages — right inside Spotify</p>
   
@@ -90,6 +90,12 @@ Spotify's lyrics panel has two problems: it sometimes can't find lyrics at all, 
 
 **Smart lyrics fetching:** When Spotify shows "Lyrics not available," the extension quietly searches YouTube Music and LRCLIB in the background. If synced lyrics exist anywhere, they get injected directly into the Spotify lyrics panel — perfectly timed, visually integrated with Spotify's native UI. No user action required.
 
+<br>
+<p align="center">
+  <img src="assets/lyrics-fetching-hud.jpg" width="760" alt="Smart Lyrics Fetching HUD">
+</p>
+<br>
+
 **Romanization & Translation:** Once lyrics are on screen — whether fetched or native — you can switch between three display modes:
 
 - **Original** — lyrics as Spotify shows them, unchanged.
@@ -119,6 +125,7 @@ Switch between modes using the floating pill controls injected directly into the
 | Translated |
 | :---: |
 | <img src="assets/mode-translated.jpg" width="380" alt="Translated lyrics"> |
+
 
 ---
 
