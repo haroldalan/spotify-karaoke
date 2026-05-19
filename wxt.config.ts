@@ -12,8 +12,8 @@ export default defineConfig({
       include: ['@indic-transliteration/sanscript'],
     },
   }),
-  manifest: {
-    name: 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Songs',
+  manifest: ({ browser }) => ({
+    name: browser === 'firefox' ? 'Spotify Karaoke' : 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Songs',
     description: 'Automatically fetches missing synced lyrics, romanizes any script, and translates into 132 languages – all live inside Spotify.',
     icons: {
       16: "icon16.png",
@@ -68,5 +68,5 @@ export default defineConfig({
         },
       },
     },
-  },
+  }),
 });
