@@ -67,6 +67,38 @@ export function createModeController(opts: ModeControllerOpts) {
     console.groupEnd();
   };
 
+  function applyOriginalModeLyrics(): void {
+    const cache = opts.store.cache;
+    const nativeLines = getLyricsLines().map(el => {
+      const original = el.getAttribute('data-sly-original');
+      return original !== null ? original : (el.textContent ?? '');
+    });
+    const hasNativeRomanizedSpotify = nativeLines.length > 0 && isLatinScript(nativeLines);
+    const hasDeRomanizedCache = cache.original.length > 0 && !isLatinScript(cache.original);
+
+    if (hasNativeRomanizedSpotify && hasDeRomanizedCache) {
+      console.log(`[sly-audit] 📄 Spotify renders romanized native text, but cache contains de-romanized originals. Overriding DOM with cache.original.`);
+      const targets = getTargets();
+      const domElements = targets ?? getLyricsLines();
+      
+      opts.store.isApplying = true;
+      domElements.forEach((el, idx) => {
+        if (!el) return;
+        const textToSet = cache.original[idx];
+        if (textToSet === undefined) return;
+
+        if (!el.hasAttribute('data-sly-original')) {
+          el.setAttribute('data-sly-original', el.textContent ?? '');
+        }
+        el.textContent = textToSet;
+      });
+      setTimeout(() => { opts.store.isApplying = false; }, 50);
+    } else {
+      console.log(`[sly-audit] 📄 Reverting to pristine original lyrics and purging custom DOM elements.`);
+      purgeSlyDOM();
+    }
+  }
+
   async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false, cacheOverride?: SongCache): Promise<void> {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
@@ -118,8 +150,7 @@ export function createModeController(opts: ModeControllerOpts) {
           opts.store.preferredMode = next;
           safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
         }
-        console.log(`[sly-audit] 📄 Reverting to pristine original lyrics and purging custom DOM elements.`);
-        purgeSlyDOM();
+        applyOriginalModeLyrics();
         opts.store.lyricsAppliedForKey = opts.store.songKey;
         setLoadingState(false);
       } else {
@@ -185,7 +216,13 @@ export function createModeController(opts: ModeControllerOpts) {
     const cache = opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
 
-    if (mode === 'original' || opts.store.isSwitchingMode) return;
+    if (mode === 'original') {
+      if (opts.store.isSwitchingMode) return;
+      applyOriginalModeLyrics();
+      opts.store.lyricsAppliedForKey = opts.store.songKey;
+      return;
+    }
+    if (opts.store.isSwitchingMode) return;
 
     let processed = cache.processed.get(currentActiveLang);
     if (!processed && mode === 'romanized' && cache.processed.size > 0) {
@@ -244,8 +281,17 @@ export function createModeController(opts: ModeControllerOpts) {
     const preferredMode = opts.store.preferredMode;
     const cache = cacheOverride ?? opts.store.cache;
 
-    // Classic trigger: mode is still 'original' but user wants something else.
-    const modeNeedsSwitch = mode === 'original' && preferredMode !== 'original';
+    const nativeLines = getLyricsLines().map(el => {
+      const original = el.getAttribute('data-sly-original');
+      return original !== null ? original : (el.textContent ?? '');
+    });
+    const hasNativeRomanizedSpotify = nativeLines.length > 0 && isLatinScript(nativeLines);
+    const hasDeRomanizedCache = cache.original.length > 0 && !isLatinScript(cache.original);
+    const needsOriginalOverride = preferredMode === 'original' && hasNativeRomanizedSpotify && hasDeRomanizedCache;
+
+    // Classic trigger: mode is still 'original' but user wants something else,
+    // or preferredMode is 'original' but we need to apply the de-romanized override.
+    const modeNeedsSwitch = (mode === 'original' && preferredMode !== 'original') || needsOriginalOverride;
 
     // Shimmer trigger: fire as soon as preferredMode is non-original and the
     // processed cache is empty — regardless of whether we have original lines yet.

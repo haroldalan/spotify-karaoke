@@ -3,6 +3,18 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.3] — 2026-05-19
+
+### Added
+- **Crawler Cache Gate**: Introduced a performance optimization to the React Fiber bridge (`slyBridge.ts`). By caching the resolved lyrics-toggle handler (`window.cachedToggleLyrics`), the extension now completely bypasses expensive recursive Fiber scans and upward walks once resolved, resulting in a virtually 0% idle CPU footprint during active lyrics display.
+
+### Changed
+- **DOM Rollback on Cache Healing**: Modified `verifyAndHealCache()` in `lib/core/lifecycleController.ts` to immediately invoke `applyLinesToDOM` with the freshly snapped `cache.original` lines when a song hash mismatch is healed. This rolls back DOM elements to native original text, corrects stale `data-sly-original` attributes, and avoids visual alignment glitches.
+
+### Fixed
+- **Firefox CSP Original Lyrics Restorer**: Implemented a DOM-level fallback in `modeController.ts` that detects when Spotify natively renders romanized lyrics but the extension has high-quality de-romanized native script in the cache (due to the fetch interceptor being blocked by Firefox's CSP). It directly sets the `textContent` of the elements to the cached native lines without spans, bypassing the CSP limitation and keeping the MutationObserver happy.
+- **Observer Event Listener Cleanup**: Added a dedicated `removeEventListener` cleanup call inside the master DOM observer's `disconnect()` method to safely garbage collect the static `DOMContentLoaded` event listener on `document` during extension reloads or context invalidations, preventing memory leaks and duplicate handler execution.
+
 ## [3.1.2] — 2026-05-11
 
 ### Fixed
