@@ -43,6 +43,10 @@ window.slyParseLRC = function (lrc: string): { time: number; text: string }[] {
       }
     }
   }
+  // V9 Fix: Sort by timestamp to handle multi-timestamp and out-of-order LRC lines.
+  // Without this, lines like [01:23][03:45]text would insert at encounter order,
+  // breaking the binary-search assumption in slyUpdateSync.
+  result.sort((a, b) => a.time - b.time);
   return result;
 };
 
@@ -262,7 +266,15 @@ window.slyUpdateSync = function (): void {
   }
 
   const currentLyrics = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
-  if (!currentLyrics || !currentLyrics.isSynced || !window.slyInternalState.customRoot) return;
+  if (!currentLyrics || !currentLyrics.isSynced || !window.slyInternalState.customRoot) {
+    // V4 Fix: Always reschedule even when conditions aren't met. Without this,
+    // a transient null (e.g. customRoot briefly null during track transition)
+    // kills the loop permanently and synced lyrics never animate again.
+    if (localRef === window.slyUpdateSync) {
+      window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
+    }
+    return;
+  }
 
   // SLY FIX (BUG-M18): If the global reference changed (re-inject), terminate this ghost loop.
   if (localRef !== window.slyUpdateSync) return;

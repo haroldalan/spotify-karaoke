@@ -38,7 +38,7 @@ declare global {
     // Section 3 — Shield
     slyActivateShield: () => void;
     cachedToggleLyrics: ((...args: unknown[]) => unknown) | null;
-    slyConfigPool: Set<unknown>;
+    slyConfigPool: WeakSet<WeakKey>;
     SPOTIFY_CLASSES?: Record<string, string>;
     slyCloseTransitionActive?: boolean;
   }
@@ -324,14 +324,14 @@ window.slyOmniscientSearch = function (
   let btnObserver: MutationObserver | null = null;
 
   window.cachedToggleLyrics = null;
-  window.slyConfigPool = new Set();
+  window.slyConfigPool = new WeakSet();
 
   /**
    * TOTAL RECALL: Recursively scans the React fiber tree to find objects
    * that contain configuration properties related to lyrics.
    */
-  function totalRecall(fiber: unknown, visited: Set<unknown> = new Set()): void {
-    if (!fiber || visited.has(fiber)) return;
+  function totalRecall(fiber: unknown, visited: Set<unknown> = new Set(), depth = 0): void {
+    if (!fiber || visited.has(fiber) || depth > 100) return;
     visited.add(fiber);
 
     const f = fiber as Record<string, unknown>;
@@ -355,7 +355,7 @@ window.slyOmniscientSearch = function (
 
     let child = f.child as unknown;
     while (child) {
-      totalRecall(child, visited);
+      totalRecall(child, visited, depth + 1);
       child = (child as Record<string, unknown>).sibling;
     }
   }
@@ -418,6 +418,13 @@ window.slyOmniscientSearch = function (
   }
 
   window.slyActivateShield = function () {
+    // R2-Bug1 Fix: Sync closure variable with window-level state.
+    // The close handler clears window.slyShieldInterval but can't reach the
+    // closure's shieldInterval. Without this sync, the guard below would
+    // see a stale truthy value and refuse to restart the shield.
+    if (shieldInterval && !window.slyShieldInterval) {
+      shieldInterval = null;
+    }
     if (shieldInterval) return;
     console.log('>>> [sly] Shield Activated (Hybrid Fiber + Observer)');
 
@@ -496,9 +503,10 @@ window.slyOmniscientSearch = function (
             }
 
             if (!foundInWalk) {
-              // SLY FIX: Added 'onToggle' to priority signatures based on diag2.txt.
-              // We also prioritize toggleLyrics/onToggle over onClick for better precision.
-              const signatures = ['toggleLyrics', 'onToggle', 'onClick'];
+              // V15 Fix: Only use precise lyrics-related signatures.
+              // 'onClick' was removed because it can trap unrelated handlers
+              // (e.g., album art clicks, nav bar actions) that cause unexpected navigation.
+              const signatures = ['toggleLyrics', 'onToggle'];
               for (const sig of signatures) {
                 if (typeof p[sig] === 'function') {
                   window.cachedToggleLyrics = p[sig] as (...args: unknown[]) => unknown;
@@ -537,11 +545,11 @@ window.slyOmniscientSearch = function (
       }
 
       // Pool Correction (Genetic Shield)
-      window.slyConfigPool.forEach(obj => {
-        if ('lyricsHub' in (obj as object)) {
-          window.slyApplyGeneticLock(obj, 'lyricsHub', true);
-        }
-      });
+      // V2 Fix: slyConfigPool is now a WeakSet — we can't iterate it.
+      // Instead, apply the lock directly on the fiber props found above.
+      // The shield already applies locks during the fiber walk (lines 478-495),
+      // so this redundant forEach was only needed for objects that escaped the walk.
+      // With WeakSet, those stale objects are GC'd automatically.
       // 3. Genetic Lock Health Monitor
       if (btn) {
         const initialFiber = window.slyGetFiber(btn) as Record<string, unknown> | null;
@@ -602,8 +610,9 @@ window.slyOmniscientSearch = function (
       window.slyScannerInterval = null;
       window.slyShieldInterval = null;
 
-      // 2. MODULAR RELEASE: Nukes locks and performs context-aware atomic navigation
-      performAtomicRelease(window.slyConfigPool);
+      // V2 Fix: slyConfigPool is a WeakSet now (not iterable), so we don't pass it.
+      // The nuke() inside performAtomicRelease already handles lock cleanup via the fiber walk.
+      performAtomicRelease();
       return;
     }
 
@@ -612,6 +621,15 @@ window.slyOmniscientSearch = function (
 
       // Clear transition guard immediately so locks can take effect
       window.slyCloseTransitionActive = false;
+
+      // R2-Bug1 Fix: Restart the shield interval. The close handler kills it
+      // permanently (lines 601-604) to allow Spotify's native close animation.
+      // Without restarting, the Genetic Lock (disabled:false, hasLyrics:true)
+      // stays dead after a close. For no-lyrics songs, Spotify then hides/removes
+      // the lyrics button, causing clicks to miss and land on the queue button.
+      if (typeof window.slyActivateShield === 'function') {
+        window.slyActivateShield();
+      }
 
       if (typeof window.cachedToggleLyrics === 'function') {
         console.log('>>> [sly] Bridge: Invoking Native toggleLyrics()');

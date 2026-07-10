@@ -60,6 +60,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   // Only used within this function's closure — not shared with setupSlyBridge.
   let cacheReadyPromise: Promise<void> | null = null;
   let pollId: number | null = null;
+  let pendingKickTimer: ReturnType<typeof setTimeout> | null = null;
   function clearPoll() {
     if (pollId) {
       cancelAnimationFrame(pollId);
@@ -247,6 +248,23 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // Yield to Pipeline B if a HUD is active (godState) or lyrics data is pending (slyInternalState).
     if (store.godState === 'FETCHING' || store.godState === 'FAILED' || store.godState === 'AD' || slyInternalState.pendingLyricsData) {
       console.log('[sly-lifecycle] ⏳ Yielding trySetup: HUD active or pending lyrics.');
+      // BUG-1 Fix: Break the temporal deadlock. trySetup found the lyrics container
+      // (pollForLyricsContainer called us), but yields because pendingLyricsData is set.
+      // The injection gate in slyCheckNowPlaying may not have fired yet (it waits for
+      // isOnLyricsPage + non-LOADING lyrics state). Without this kick, neither side
+      // proceeds: trySetup yields on pendingLyricsData, injection gate waits for DOM.
+      // Schedule a delayed kick to give Spotify's React ~300ms to settle the DOM.
+      if (slyInternalState.pendingLyricsData && (window as any).slyCheckNowPlaying) {
+        const kickKey = opts.store.songKey;
+        if (pendingKickTimer) clearTimeout(pendingKickTimer);
+        pendingKickTimer = setTimeout(() => {
+          pendingKickTimer = null;
+          if (opts.store.songKey !== kickKey) return; // Song changed, abort
+          if (!slyInternalState.pendingLyricsData) return; // Already consumed
+          console.log('[sly-lifecycle] 🔄 BUG-1: Kicking injection gate after trySetup yield.');
+          (window as any).slyCheckNowPlaying();
+        }, 300);
+      }
       return;
     }
 
@@ -391,6 +409,18 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // Yield to Pipeline B if a HUD is active (godState) or lyrics data is pending (slyInternalState).
       if (store.godState === 'FETCHING' || store.godState === 'FAILED' || store.godState === 'AD' || slyInternalState.pendingLyricsData) {
         console.log('[sly-lifecycle] ⏳ Yielding syncSetup: HUD active or pending lyrics.');
+        // BUG-1 Fix: Same deadlock-breaking kick as trySetup (see above).
+        if (slyInternalState.pendingLyricsData && (window as any).slyCheckNowPlaying) {
+          const kickKey = opts.store.songKey;
+          if (pendingKickTimer) clearTimeout(pendingKickTimer);
+          pendingKickTimer = setTimeout(() => {
+            pendingKickTimer = null;
+            if (opts.store.songKey !== kickKey) return;
+            if (!slyInternalState.pendingLyricsData) return;
+            console.log('[sly-lifecycle] 🔄 BUG-1: Kicking injection gate after syncSetup yield.');
+            (window as any).slyCheckNowPlaying();
+          }, 300);
+        }
         return;
       }
 
@@ -617,9 +647,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const preferredMode = opts.store.preferredMode;
       if (preferredMode !== 'original') {
         const currentActiveLang = opts.store.currentActiveLang;
+        // V17 Fix: Use opts.store.cache consistently instead of mixing with
+        // the outer closure's 'cache' variable. They currently reference the same
+        // object, but this is fragile if store.cache is ever reassigned.
         let processed = opts.store.cache.processed.get(currentActiveLang);
         if (!processed && preferredMode === 'romanized' && opts.store.cache.processed.size > 0) {
-          const entries = Array.from(cache.processed.values());
+          const entries = Array.from(opts.store.cache.processed.values());
           processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
         }
 
@@ -1380,6 +1413,18 @@ export function setupSlyBridge(
     if (state === 'NATIVE_OK') {
       store.godState = 'NATIVE_OK';
       syncPill('NATIVE_OK');
+
+      // R2-Bug4 Fix: After panel close → reopen (same song), sly:release resets
+      // store.mode to 'original'. syncSetup/pollForLyricsContainer only run on
+      // song changes, so nobody triggers the switch back to the user's preferredMode.
+      // The pill shows the fakeout (Romanized highlighted) but lyrics stay Original.
+      // Fix: if the mode is stale, call autoSwitchIfNeeded() to apply processed
+      // lyrics from the hot cache. This is safe to call on every NATIVE_OK tick
+      // because autoSwitchIfNeeded has its own isSwitchingMode and mode guards —
+      // once mode matches preferredMode, it becomes a no-op.
+      if (store.mode !== store.preferredMode && store.preferredMode !== 'original') {
+        autoSwitchIfNeeded();
+      }
     } else if (state === 'FETCHING' || state === 'FAILED' || state === 'AD') {
       store.godState = state as any;
       // SLY FIX: Only hide the pill for terminal HUD states (FAILED, AD).

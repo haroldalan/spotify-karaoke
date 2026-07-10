@@ -8,33 +8,27 @@
 const SLY_RETURN_POINT = 'sly_return_point';
 
 export function findActiveViewport(): HTMLElement | null {
-  // 1. Search for ANY element with scroll in the entire document.
-  // This is the most reliable way in a complex SPA like Spotify.
-  const all = document.querySelectorAll('*');
-  let best = null;
+  // V3 Fix: Use targeted selectors instead of querySelectorAll('*')
+  // which iterated every DOM element and forced expensive layout reads.
+  const candidates = document.querySelectorAll(
+    '[data-overlayscrollbars-viewport], .os-viewport, .main-view-container__scroll-node, [data-testid="main-view-container"] > div'
+  );
+  
+  let best: HTMLElement | null = null;
   let maxScroll = 0;
   
-  const scrollCandidates: string[] = [];
-
-  for (let i = 0; i < all.length; i++) {
-    const el = all[i] as HTMLElement;
+  for (let i = 0; i < candidates.length; i++) {
+    const el = candidates[i] as HTMLElement;
     const s = el.scrollTop;
-    if (s > 0) {
-      scrollCandidates.push(`${el.tagName}.${el.className.split(' ').join('.')} (${s}px)`);
-      if (s > maxScroll) {
-        maxScroll = s;
-        best = el;
-      }
+    if (s > maxScroll) {
+      maxScroll = s;
+      best = el;
     }
-  }
-
-  if (scrollCandidates.length > 0) {
-    console.log(`>>> [sly-nav] Detected scrolling candidates:`, scrollCandidates);
   }
 
   if (best) return best;
 
-  // 2. Fallback to common Spotify containers if no active scroll is found (e.g. at the top)
+  // Fallback to common Spotify containers if no active scroll is found (e.g. at the top)
   return (document.querySelector('.os-viewport') as HTMLElement) || 
          (document.querySelector('main') as HTMLElement) || 
          document.documentElement;
@@ -71,7 +65,7 @@ export function captureReturnPoint(currentPath: string, lastPath: string): strin
  * Performs a "Safe Release" by executing an Atomic Navigation 
  * back to the original Spotify context.
  */
-export function performAtomicRelease(configPool?: Set<any>): void {
+export function performAtomicRelease(): void {
   console.log('>>> [sly-nav] Executing Atomic Safe Release...');
 
   // Helper: Nuclear Cleanup of Genetic Locks
@@ -96,15 +90,6 @@ export function performAtomicRelease(configPool?: Set<any>): void {
         }
         curr = curr.return;
       }
-    }
-    if (configPool) {
-      configPool.forEach((obj: any) => {
-        ['isActive', 'aria-pressed', 'lyricsHub'].forEach(key => {
-          if (key in obj) {
-            Object.defineProperty(obj, key, { value: false, configurable: true, enumerable: true });
-          }
-        });
-      });
     }
   };
 

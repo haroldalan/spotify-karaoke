@@ -97,8 +97,10 @@ document.addEventListener('sly:panel_close', () => {
   // if we are actively on the lyrics page and currently fetching or showing a failure HUD.
   // Spotify's React app temporarily clears the lyrics button's active attributes during track skips,
   // which falsely triggers this event and clears our active HUD.
-  const isOnLyricsPage = window.location.pathname.startsWith('/lyrics') || 
-                         document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
+  // V11 Fix: Use window.location.pathname exclusively here. The button's aria-pressed
+  // attribute is already 'false' by the time this MutationObserver callback fires
+  // (since its change IS what triggered this event), making it an unreliable signal.
+  const isOnLyricsPage = window.location.pathname.startsWith('/lyrics');
   if (isOnLyricsPage && (window.slyInternalState.isFetchingHUD || window.slyInternalState.statusHUDActive)) {
     console.log('[sly-lifecycle] 🛡️ Ignoring sly:panel_close during song transition to prevent HUD flicker.');
     return;
@@ -125,7 +127,8 @@ document.addEventListener('sly:panel_close', () => {
     // SLY FIX (BUG-35): Manually rescue the mode pill to document.body before removing the root.
     // This prevents the pill from being destroyed while allowing us to dispatch 'sly:release'
     // AFTER the DOM has settled, avoiding stale layout reads in Pipeline B.
-    const pill = document.getElementById('sly-mode-pill');
+    // BUG-2 Fix: Was using wrong ID 'sly-mode-pill' — actual ID is 'sly-lyrics-controls'.
+    const pill = document.getElementById('sly-lyrics-controls');
     if (pill) document.body.appendChild(pill);
 
     root.remove();
@@ -133,6 +136,16 @@ document.addEventListener('sly:panel_close', () => {
 
   // SLY FIX (BUG-35): Dispatch release AFTER removing root so listeners see the final DOM state.
   document.dispatchEvent(new CustomEvent('sly:release'));
+
+  // BUG-2 Fix: sly:release → parkPill() moves the pill to document.body with display:''
+  // (visible). That's correct for SONG TRANSITIONS where we want the pill to persist.
+  // But this is a PANEL CLOSE — no lyrics container exists, so the pill must be hidden.
+  // Without this, the pill's CSS (position:fixed/absolute) renders a visible sliver
+  // at the bottom of the viewport after the panel is closed.
+  const pillAfterRelease = document.getElementById('sly-lyrics-controls');
+  if (pillAfterRelease && pillAfterRelease.parentElement === document.body) {
+    pillAfterRelease.style.display = 'none';
+  }
 
   const syncBtn = document.getElementById('sly-sync-button');
   if (syncBtn) syncBtn.remove();

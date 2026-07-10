@@ -41,7 +41,10 @@ export class LyricsCache {
       .trim()
       .toLowerCase()
       .replace(/[\(\[\{].*?[\)\]\}]/g, '') // Remove (Remix), [Remaster], etc.
-      .replace(/[^\w\s]/g, '')             // Remove punctuation
+      // V16 Fix: Use Unicode-aware character classes instead of \w (which is [a-zA-Z0-9_]).
+      // \w strips ALL CJK, Cyrillic, Devanagari, etc., causing cache key collisions
+      // for non-Latin songs (e.g. "夜に駆ける" becomes "").
+      .replace(/[^\p{L}\p{N}\s]/gu, '')    // Remove punctuation, keep letters + numbers
       .replace(/\s+/g, ' ')                // Collapse whitespace
       .trim();
 

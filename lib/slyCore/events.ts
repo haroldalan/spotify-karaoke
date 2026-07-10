@@ -58,8 +58,16 @@ document.addEventListener('pointerdown', (e: Event) => {
     const label = btn.getAttribute('aria-label');
     console.log(`[sly-audit] 🖱️ Lyrics Button Pointerdown captured. IsPressed: ${isPressed}, Provider: ${provider}, Label: "${label}"`);
 
-    // Only hijack if Spotify has no lyrics provider, or if the button is in its default state
-    if (provider === null || label === 'Lyrics') {
+    // R2-Bug3 Fix: Always hijack CLOSE actions (isPressed === true).
+    // Spotify's native close handler calls history.back(). If the user opened
+    // a new tab directly at /lyrics, there's no previous history entry, so
+    // history.back() exits the tab entirely to the browser's new tab page.
+    // The old guard (provider === null || label === 'Lyrics') only covered
+    // no-lyrics songs; for songs WITH a provider, the hijack was skipped
+    // and Spotify's destructive native handler ran.
+    // The bypass is only safe for OPEN actions — Spotify's native open is harmless.
+    const shouldHijack = isPressed || provider === null || label === 'Lyrics';
+    if (shouldHijack) {
       // SLY FIX: Even if the button is already pressed, we MUST hijack the event.
       // Letting Spotify handle the "close" naturally is what triggers the New Tab Page redirect
       // because Spotify's native DOM click handler crashes when our Genetic Lock is active.
@@ -79,7 +87,7 @@ document.addEventListener('pointerdown', (e: Event) => {
       console.log(`[sly-audit] Hijacking event to prevent Spotify navigation hijack. Intent: ${intent} | Current Scroll: ${scrollPos}px`);
       window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: intent } }, '*');
     } else {
-      console.log('[sly-audit] Bypassing hijack because provider is not null and label is not "Lyrics".');
+      console.log('[sly-audit] Bypassing hijack for OPEN because provider is not null and label is not "Lyrics".');
     }
   }
 }, true); // Use capture phase to beat React's internal listeners
@@ -156,7 +164,9 @@ function initButtonFinder(): void {
   // Performance: Only use subtree: true if we have a narrow target. 
   // If we fall back to .Root or body, we use a less aggressive observation.
   const isBroadTarget = target === document.body || target?.classList.contains('Root');
-  buttonFinderObserver.observe(target, { childList: true, subtree: true });
+  // V10 Fix: Actually use isBroadTarget to limit observation scope.
+  // With subtree:true on document.body, every single DOM mutation fires the callback.
+  buttonFinderObserver.observe(target, { childList: true, subtree: !isBroadTarget });
   // Also try right away in case the button already exists at script load time
   attachLyricsButtonObserver();
 }

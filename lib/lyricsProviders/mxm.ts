@@ -146,12 +146,21 @@ async function getToken(forceNew = false): Promise<string | null> {
   return result;
 }
 
-// ─── API Helpers ─────────────────────────────────────────────────────────────
+// V7 Fix: Global 429 rate-limit tracking with escalating backoff
+let _rateLimitHitCount = 0;
+let _rateLimitCooldownUntil = 0;
 
 async function mxmFetch(
   path: string,
   params: Record<string, string | number | undefined>,
 ): Promise<any | null> {
+  // V7 Fix: Check global rate-limit cooldown before making any request
+  const now = Date.now();
+  if (now < _rateLimitCooldownUntil) {
+    console.warn('[MXM] Rate-limit cooldown active. Skipping request. Remaining:', Math.round((_rateLimitCooldownUntil - now) / 1000), 's');
+    return null;
+  }
+
   let token = await getToken();
   if (!token) return null;
 
@@ -178,11 +187,17 @@ async function mxmFetch(
     let data = await res.json() as any;
 
     if (res.status === 429 || data?.message?.header?.status_code === 429) {
-      console.warn('[MXM] Rate limited (429). Retrying in 2s...');
-      await new Promise(r => setTimeout(r, 2000));
-      res = await fetch(buildUrl(token), options);
-      data = await res.json();
+      // V7 Fix: Track 429 hits globally with escalating cooldown
+      _rateLimitHitCount++;
+      const cooldowns = [30000, 60000, 300000]; // 30s, 60s, 5min
+      const cooldown = cooldowns[Math.min(_rateLimitHitCount - 1, cooldowns.length - 1)];
+      _rateLimitCooldownUntil = Date.now() + cooldown;
+      console.warn(`[MXM] Rate limited (429). Hit #${_rateLimitHitCount}. Cooling down for ${cooldown / 1000}s.`);
+      return null;
     }
+
+    // Reset rate limit counter on any successful non-429 response
+    if (_rateLimitHitCount > 0) _rateLimitHitCount = 0;
 
     if (data?.message?.header?.status_code === 401 || data?.message?.header?.status_code === 402) {
       console.warn('[MXM] Token expired or invalid (401/402). Forcing refresh...');

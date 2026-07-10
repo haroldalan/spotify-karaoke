@@ -51,6 +51,9 @@ export class LyricsPersistence {
           const d = await safeBrowserCall(() => browser.storage.local.get({ l2_index: [] }));
           const l2_index = (d?.l2_index ?? []) as string[];
           const idx = l2_index.indexOf(key);
+          // V5 Fix: Only splice if the key is actually in the index.
+          // splice(-1, 1) removes the LAST element when indexOf returns -1,
+          // silently corrupting the index and evicting the wrong song.
           if (idx !== -1) {
             l2_index.splice(idx, 1);
             await safeBrowserCall(() => browser.storage.local.set({ l2_index }));

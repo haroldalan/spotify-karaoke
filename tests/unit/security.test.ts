@@ -17,10 +17,18 @@ import configObject from '../../wxt.config';
 // Since wxt.config.ts relies on the `wxt` import which is strictly parsed during build time,
 // we just analyze the static exported properties we care about here.
 
+function getManifest() {
+    const manifest = (configObject as any).manifest;
+    if (typeof manifest === 'function') {
+        return manifest({ browser: 'chrome' });
+    }
+    return manifest;
+}
+
 describe('Security and Permissions Audit', () => {
     it('should not contain any broad root host permissions (like *://*/*)', () => {
         // We expect the manifest to be present in our config object
-        const manifest = (configObject as any).manifest;
+        const manifest = getManifest();
         expect(manifest).toBeDefined();
 
         const hosts = manifest.host_permissions || [];
@@ -33,7 +41,7 @@ describe('Security and Permissions Audit', () => {
     });
 
     it('should only ask for strictly necessary permissions', () => {
-        const manifest = (configObject as any).manifest;
+        const manifest = getManifest();
         const permissions = manifest.permissions || [];
 
         // The extension needs:
@@ -54,7 +62,8 @@ describe('Security and Permissions Audit', () => {
     });
 
     it('should not inject scripts into unapproved domains', () => {
-        const webAccessible = (configObject as any).manifest.web_accessible_resources || [];
+        const manifest = getManifest();
+        const webAccessible = manifest.web_accessible_resources || [];
         expect(webAccessible.length).toBe(1);
 
         // Both MAIN world scripts (fetchInterceptor.js, slyBridge.js) MUST ONLY match open.spotify.com

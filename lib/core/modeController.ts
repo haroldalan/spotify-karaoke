@@ -113,6 +113,27 @@ export function createModeController(opts: ModeControllerOpts) {
     if (cache.original.length === 0) snapshotOriginals(cache);
 
     const isNativeLanguage = (window as any).SLY_NATIVE_LANGUAGES?.has((window as any).spotifyState?.language);
+
+    // BUG-4 Fix: Detect corrupted cache where Spotify's romanized text was saved as "originals".
+    // If the song IS a native (non-Latin) language but cache.original is entirely Latin,
+    // this cache entry was poisoned by snapshotting Spotify's own romanization.
+    // Clear the processed cache and skip the Latin shortcut to force a proper re-fetch.
+    // This catches corrupted entries that were persisted before the snapshotOriginals guard.
+    // IMPORTANT: Only fire for romanized/translated — switching to 'original' must ALWAYS
+    // be allowed. Original mode reads directly from the DOM, so corrupted cache doesn't matter.
+    // Blocking 'original' would trap the user permanently in romanized mode (Round 2, Bug 2).
+    if (next !== 'original' && isNativeLanguage && isLatinScript(cache.original) && cache.original.length > 0) {
+      console.warn(`[sly-mode] ⚠️ BUG-4: Cache originals are Latin but song language is non-Latin. Clearing corrupted cache.`);
+      cache.processed.clear();
+      cache.original = [];
+      // Don't proceed — mode stays as previousMode, let the lifecycle re-snapshot
+      // once Spotify renders native script or the interceptor provides canonical data.
+      opts.store.mode = previousMode;
+      syncButtonStates(previousMode);
+      setLoadingState(false);
+      return;
+    }
+
     if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original) && !isNativeLanguage) {
       opts.store.mode = next;
       if (preferredMode !== next) {
@@ -139,6 +160,14 @@ export function createModeController(opts: ModeControllerOpts) {
     opts.store.isSwitchingMode = true;
 
     if (next !== 'original' && cache.original.length === 0) {
+      // BUG-3 Fix: Roll back mode to prevent state corruption.
+      // store.mode was set to `next` on line 135 above, but we're about to return
+      // without applying any lyrics. If we leave mode as 'romanized', all future
+      // switchMode calls hit the `next === mode` guard (line 108) and become no-ops.
+      // The user sees Original lyrics but the pill says Romanized, and clicking
+      // any button does nothing.
+      opts.store.mode = previousMode;
+      syncButtonStates(previousMode);
       opts.store.isSwitchingMode = false;
       setLoadingState(false);
       return;
