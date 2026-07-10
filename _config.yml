@@ -1,0 +1,3 @@
+theme: jekyll-theme-cayman
+title: Spotify Karaoke
+description: Automatically fetches synced lyrics for songs that don't have it, romanizes any script, and translates into 132 languages — right inside Spotify.
