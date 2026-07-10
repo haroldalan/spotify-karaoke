@@ -201,7 +201,18 @@ export async function handleColorLyrics(
         }
         if (spotifyTrackId) slyPost('SLY_FETCH_END', spotifyTrackId);
 
-        if (data === null) return fallbackResponse;
+        // V14 Fix: When data is null (JSON parse failed on originalResponse),
+        // return a properly constructed Response instead of relying on fallbackResponse
+        // whose body stream may have been consumed in edge cases (retries, double-reads).
+        if (data === null) {
+            const safeHeaders = new Headers(fallbackResponse.headers);
+            safeHeaders.delete('content-encoding');
+            return new Response(null, {
+                status: fallbackResponse.status,
+                statusText: fallbackResponse.statusText,
+                headers: safeHeaders,
+            });
+        }
         const headers = new Headers(fallbackResponse.headers);
         headers.delete('content-encoding');
         headers.set('content-type', 'application/json');

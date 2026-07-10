@@ -3,6 +3,38 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.5] — 2026-07-10
+
+### Added
+- **Privacy Policy**: Added `PRIVACY_POLICY.md` for extension store compliance and Featured badge eligibility.
+- **Comprehensive Cache Test Suite**: Added 13 new test files covering every cache scenario — YTM/LRCLIB lyrics cache, missing lyrics cache, unsynced upgrade cache, failed fetch cache, de-romanized lyrics cache, and translated lyrics cache. Expanded `background.test.ts` and `security.test.ts` with additional assertions.
+
+### Fixed
+- **Cache Poisoning Guard (BUG-4)**: Prevented corrupted cache entries where Spotify's own romanized lyrics were snapshotted as "originals." `snapshotOriginals()` now detects when the DOM text is entirely Latin but the song language is non-Latin and refuses the snapshot. `switchMode()` additionally detects and clears any poisoned entries at mode-switch time.
+- **Mode State Corruption (BUG-3)**: Fixed a bug where `switchMode()` returned early without rolling back `store.mode` when `cache.original` was empty, leaving the pill showing "Romanized" while lyrics stayed Original — and making all subsequent mode switches no-ops.
+- **Panel Close Pill Leak (BUG-2)**: Fixed the panel-close handler using the wrong element ID (`sly-mode-pill` → `sly-lyrics-controls`). Also added explicit `display:none` on the pill after `sly:release` during panel close to prevent a visible CSS sliver at the bottom of the viewport.
+- **Post-close Injection Gate (BUG-1)**: Added a 300ms deferred retry kick in `syncSetup` when `pendingLyricsData` arrives after the injection gate has already evaluated, ensuring lyrics still appear after close→reopen transitions.
+- **Panel Reopen Mode Stickiness (R2-Bug4)**: After close→reopen on the same song, `sly:release` resets `store.mode` to 'original' but `syncSetup` doesn't re-run. Added an `autoSwitchIfNeeded()` call on every `NATIVE_OK` tick when mode differs from `preferredMode`, safely gated by existing `isSwitchingMode` guards.
+- **Close Button History Escape (R2-Bug3)**: The lyrics button close hijack was only active for no-lyrics songs. For songs with a provider, Spotify's native close handler called `history.back()`, which navigated away from the tab entirely when no history existed. Now all close actions are hijacked; bypass is limited to open actions only.
+- **Shield Restart After Close (R2-Bug1)**: The Genetic Lock shield interval was permanently killed on panel close. After reopening, the lyrics button could be disabled/removed for no-lyrics songs, causing clicks to land on the queue button instead. Now calls `slyActivateShield()` on reopen.
+- **Sync Loop Resurrection (V4)**: `slyUpdateSync` now always reschedules via `requestAnimationFrame` even when early-return conditions are met (e.g., `customRoot` transiently null during track transitions). Previously, a single transient null killed the animation loop permanently.
+- **L2 Index Corruption (V5)**: Fixed `LyricsPersistence.delete()` where `splice(-1, 1)` silently removed the last element when `indexOf` returned `-1`, corrupting the persistence index and evicting the wrong song.
+- **Missing `sendResponse` (V6)**: Fixed a code path in the `UPDATE_NATIVE_STATUS` handler where neither branch executed when `nativeStatus === status`, leaving `sendResponse` uncalled and causing "message port closed" warnings and potential Firefox hangs.
+- **MXM Rate Limit Escalation (V7)**: Replaced the naive 2-second retry on 429 responses with an escalating cooldown strategy (30s → 60s → 5min) and a global hit counter. Prevents request storms during extended rate limiting.
+- **LRC Timestamp Sorting (V9)**: `slyParseLRC()` now sorts parsed results by timestamp. Multi-timestamp lines like `[01:23][03:45]text` previously inserted at encounter order, breaking the binary-search assumption in `slyUpdateSync`.
+- **ButtonFinder Observer Scope (V10)**: The `isBroadTarget` variable was computed but never used — `subtree: true` was always passed. When the observer fell back to `document.body`, every single DOM mutation fired the callback. Now correctly passes `subtree: !isBroadTarget`.
+- **`<main>` Element Replacement (V12)**: Added a lightweight body-level observer that detects when Spotify's SPA router replaces the `<main>` element entirely, leaving `mainObserver` watching a detached node. Automatically re-binds the viewport observer to the new `<main>`.
+- **Stale `data-sly-original` Sweep (V13)**: `purgeSlyDOM()` now performs a global sweep for `data-sly-original` attributes. When Pipeline A's custom root was removed before purge, the targeted query returned 0 results but recycled React DOM nodes still carried the attribute, poisoning the next song's `snapshotOriginals()`.
+- **Consumed Response Body (V14)**: When JSON parse failed in `handleColorLyrics`, the fallback returned `fallbackResponse` whose body stream could already be consumed. Now constructs a fresh `Response` with safe headers.
+- **Interceptor Timeout Guards (V15)**: Added 15s and 30s timeouts to `newInterception()` and `fetchNativeLines()` in the fetch interceptor. Previously, if the content script was unloaded or the message was lost, the Promise hung forever, blocking the lyrics pipeline.
+- **Non-Latin Cache Key Collisions (V16)**: Cache key normalization used `\w` (which is `[a-zA-Z0-9_]`), stripping all CJK, Cyrillic, Devanagari, etc. characters. Replaced with Unicode-aware `\p{L}\p{N}` character classes to prevent key collisions for non-Latin songs.
+- **Fragile Store Reference (V17)**: Fixed `lifecycleController` mixing `cache.processed` (outer closure variable) with `opts.store.cache.processed` — currently the same object but fragile if `store.cache` is ever reassigned.
+
+### Changed
+- **Viewport Discovery (V3)**: Replaced `querySelectorAll('*')` full-DOM scan in `findActiveViewport()` with targeted selectors (`[data-overlayscrollbars-viewport]`, `.os-viewport`, etc.), eliminating expensive layout reads across thousands of elements.
+- **Atomic Release Cleanup (V2)**: Removed `configPool` parameter from `performAtomicRelease()`. `slyConfigPool` is now a `WeakSet` (not iterable), and the nuke logic inside the function already handles lock cleanup via the Fiber walk.
+- **Upgrade Queue Cap (V18)**: Capped the background upgrade queue at 15 items with FIFO eviction. MV3 service workers can be killed after 5 minutes idle, silently losing unbounded queues.
+
 ## [3.1.4] — 2026-05-19
 
 ### Fixed

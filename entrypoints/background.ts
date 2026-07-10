@@ -80,6 +80,13 @@ export default defineBackground(() => {
 
   function enqueueUpgrade(item: UpgradeQueueItem) {
     if (upgradeQueue.some(x => x.cacheKey === item.cacheKey)) return;
+    // V18 Fix: Cap queue at 15 to prevent unbounded memory growth.
+    // MV3 service workers can be killed after 5min idle, silently losing
+    // all pending items. A 15-item cap at 4s each = ~60s drain time.
+    if (upgradeQueue.length >= 15) {
+      console.warn('[sly-upgrade] Queue full (15). Dropping oldest item:', upgradeQueue[0]?.title);
+      upgradeQueue.shift();
+    }
     upgradeQueue.push(item);
     processUpgradeQueue();
   }
@@ -472,6 +479,9 @@ export default defineBackground(() => {
             lyricsCache.set(cacheKey, existing);
             await lyricsPersistence.set(cacheKey, existing);
           }
+          // V6 Fix: Always send a response. Previously, if existing.nativeStatus === status,
+          // neither branch ran and sendResponse was never called, causing
+          // "message port closed" warnings and potential Firefox hangs.
           sendResponse({ ok: true });
         })();
         return true;

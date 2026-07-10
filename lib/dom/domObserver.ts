@@ -30,6 +30,7 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
     if (barObserver) { barObserver.disconnect(); barObserver = null; }
     if (mainObserver) { mainObserver.disconnect(); mainObserver = null; }
     if (bootstrapObserver) { bootstrapObserver.disconnect(); bootstrapObserver = null; }
+    if (mainReplacementObserver) { mainReplacementObserver.disconnect(); mainReplacementObserver = null; }
   }
 
   // Override disconnect to clean up all active sub-observers
@@ -114,9 +115,14 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
     });
   }
 
+  // V12 Fix: Track the currently bound <main> element so we can detect replacement
+  let lastBoundMain: Element | null = null;
+  let mainReplacementObserver: MutationObserver | null = null;
+
   // 2. Viewport Observer: Watches <main> for lyrics line mounts and pill removals
   function setupViewportObserver(mainEl: Element) {
     if (mainObserver) mainObserver.disconnect();
+    lastBoundMain = mainEl;
 
     mainObserver = new MutationObserver((mutations) => {
       if (!checkContext()) return;
@@ -167,6 +173,25 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
     const hasExisting = Array.from(lines).some(l => !l.closest('#lyrics-root-sync'));
     if (hasExisting) {
       opts.onLyricsInjected();
+    }
+
+    // V12 Fix: Start a lightweight observer on document.body to detect <main> replacement.
+    // Spotify's SPA router can swap <main> entirely during navigation, leaving our
+    // mainObserver watching a detached element that never receives mutations.
+    if (!mainReplacementObserver) {
+      mainReplacementObserver = new MutationObserver(() => {
+        if (!checkContext()) {
+          mainReplacementObserver?.disconnect();
+          mainReplacementObserver = null;
+          return;
+        }
+        const currentMain = document.querySelector('main');
+        if (currentMain && currentMain !== lastBoundMain) {
+          console.log('[sly-perf] <main> element was replaced by SPA navigation. Re-binding viewport observer.');
+          setupViewportObserver(currentMain);
+        }
+      });
+      mainReplacementObserver.observe(document.body, { childList: true });
     }
   }
 

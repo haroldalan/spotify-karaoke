@@ -12,8 +12,14 @@ export default defineUnlistedScript(() => {
         async newInterception(trackId: string): Promise<number> {
             return new Promise((resolve) => {
                 const requestId = Math.random().toString(36).slice(2);
+                const timeoutId = setTimeout(() => {
+                    window.removeEventListener('message', handler);
+                    console.warn('[SKaraoke:Interceptor] newInterception timed out after 15s. Resolving with fallback generation 0.');
+                    resolve(0);
+                }, 15000);
                 const handler = (event: MessageEvent) => {
                     if (event.data?.source === 'SLY_ACTION_GATEWAY' && event.data.action?.type === 'SLY_MXM_NEW_INTERCEPTION_RESPONSE' && event.data.action.requestId === requestId) {
+                        clearTimeout(timeoutId);
                         window.removeEventListener('message', handler);
                         resolve(event.data.action.generation);
                     }
@@ -27,8 +33,14 @@ export default defineUnlistedScript(() => {
             const id = interceptId;
             return new Promise((resolve) => {
                 const requestId = Math.random().toString(36).slice(2);
+                const timeoutId = setTimeout(() => {
+                    window.removeEventListener('message', handler);
+                    console.warn('[SKaraoke:Interceptor] fetchNativeLines timed out after 30s. Resolving with null.');
+                    resolve(null);
+                }, 30000);
                 const handler = (event: MessageEvent) => {
                     if (event.data?.source === 'SLY_ACTION_GATEWAY' && event.data.action?.type === 'SLY_MXM_FETCH_NATIVE_RESPONSE' && event.data.action.requestId === requestId) {
+                        clearTimeout(timeoutId);
                         window.removeEventListener('message', handler);
                         resolve(event.data.action.ok ? event.data.action.lines : null);
                     }

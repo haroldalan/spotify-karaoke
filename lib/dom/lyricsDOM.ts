@@ -1,5 +1,6 @@
 import type { SongCache } from '../core/lyricsTypes';
 import { getLyricsLines, getNowPlayingKey } from './domQueries';
+import { isLatinScript } from '../lyrics/scriptDetector';
 
 /**
  * Physically removes all extension-injected elements and attributes from the 
@@ -37,6 +38,22 @@ export function purgeSlyDOM(): void {
     el.classList.remove('sly-active');
   });
   console.groupEnd();
+
+  // V13 Fix: Global sweep for stale data-sly-original attributes.
+  // When Pipeline A's #lyrics-root-sync is removed before purgeSlyDOM runs,
+  // the '[data-testid="lyrics-line"] > div' query returns 0 results.
+  // But React may recycle native DOM elements that still carry our attribute,
+  // causing the next song's snapshotOriginals() to skip those lines
+  // (it early-returns on hasAttribute('data-sly-original')), poisoning the cache.
+  const staleAttrs = document.querySelectorAll('[data-sly-original]');
+  if (staleAttrs.length > 0) {
+    console.log(`[sly-purge] 🧹 Global sweep: found ${staleAttrs.length} stale data-sly-original attributes.`);
+    staleAttrs.forEach(el => {
+      el.textContent = el.getAttribute('data-sly-original') || '';
+      el.removeAttribute('data-sly-original');
+    });
+  }
+
   console.log('[sly-purge] 🧹 DOM purge finished.');
 }
 
@@ -61,6 +78,23 @@ export function snapshotOriginals(cache: SongCache): void {
 
   const hasContent = snapped.filter(l => l.trim().length > 0).length >= 3;
   if (!hasContent) return;
+
+  // BUG-4 Fix: Detect Spotify's own romanization before saving to cache.
+  // If the song's language is non-Latin (e.g., Japanese, Hindi, Korean) but the
+  // DOM text is entirely Latin script, Spotify is displaying romanized lyrics.
+  // Snapshotting these as "originals" poisons the cache permanently — the
+  // romanization API returns the same Latin text unchanged, all modes show
+  // identical text, and this corrupted entry survives refreshes.
+  // Refuse the snapshot so a later attempt (after Spotify renders native script,
+  // or after the interceptor provides canonical data) captures the correct text.
+  const songLang = (window as any).spotifyState?.language as string | undefined;
+  const isNonLatinLang = songLang && (window as any).SLY_NATIVE_LANGUAGES?.has(songLang);
+  if (isNonLatinLang && isLatinScript(snapped)) {
+    console.warn(`[sly-snapshot] ⚠️ BUG-4 guard: DOM text is Latin but song language is "${songLang}" (non-Latin). Spotify is showing romanized lyrics. Refusing snapshot to prevent cache poisoning.`);
+    // Clean up the data-sly-original attributes we just set — they contain the wrong text.
+    lines.forEach((el) => el.removeAttribute('data-sly-original'));
+    return;
+  }
 
   cache.original = snapped;
 }
