@@ -80,7 +80,7 @@ Stacked lyrics (<code>君を愛してる</code> / <code>Kimi o aishiteru</code> 
 
 ## Demo reel
 
-https://github.com/user-attachments/assets/f6afc346-9dc0-4429-8733-5c8df94c8eaf
+<video src="https://github.com/user-attachments/assets/f6afc346-9dc0-4429-8733-5c8df94c8eaf" controls="controls" muted="muted" style="max-width: 100%;"></video>
 
 ---
 
