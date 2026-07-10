@@ -7,7 +7,7 @@
   <a href="https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/" target="_blank"><img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Firefox Add-ons" height="52"/></a>
   <a href="https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom" target="_blank"><img src="https://github.com/user-attachments/assets/9fcd04a5-3d1c-43d2-9253-d3e2b9510030" alt="Microsoft Edge Add-ons" height="52"/></a>
   <br><br>
-  ![License](https://img.shields.io/github/license/haroldalan/spotify-karaoke?style=flat-square)
+  ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
   ![GitHub release](https://img.shields.io/github/v/release/haroldalan/spotify-karaoke?style=flat-square)
   ![Chrome users](https://img.shields.io/chrome-web-store/users/bhhkohameknlmcgdfafkjplpjalfedie?style=flat-square&label=Chrome%20users&color=1DB954)
   ![Chrome rating](https://img.shields.io/chrome-web-store/rating/bhhkohameknlmcgdfafkjplpjalfedie?style=flat-square&color=1DB954)
@@ -341,7 +341,7 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 ## Privacy & Disclaimer
 
 > [!NOTE]
-> **No personal data is collected.** Settings are stored in `browser.storage.sync`. Processed lyrics are cached locally in `browser.storage.local` and never leave your device. Lyric text is sent to Google Translate or MyMemory only when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/doc/tos.php).
+> **No personal data is collected.** Settings are stored in `browser.storage.sync`. Processed lyrics are cached locally in `browser.storage.local` and never leave your device. Lyric text is sent to Google Translate or MyMemory only when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/terms-and-conditions).
 
 > [!WARNING]
 > Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
@@ -360,7 +360,7 @@ If you encounter any bugs, have suggestions for new features, or just want to ch
 
 <div align="center">
 
-[![MIT License](https://img.shields.io/github/license/haroldalan/spotify-karaoke?style=flat)](LICENSE)
+[![MIT License](https://img.shields.io/badge/License-MIT-blue?style=flat)](LICENSE)
 [![Ko-fi](https://img.shields.io/badge/Buy_Me_A_Coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/haroldalan)
 [![Chrome Review](https://img.shields.io/badge/Chrome-Leave_a_Review-yellow?logo=googlechrome&logoColor=white&style=flat)](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie/reviews)
 [![Firefox Review](https://img.shields.io/badge/Firefox-Leave_a_Review-orange?logo=firefox&logoColor=white&style=flat)](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/reviews)
