@@ -139,7 +139,7 @@ There are three ways to switch between Original, Romanized, and Translated:
 | **Extension popup** | The same pill is replicated inside the popup - acts as a remote control and always reflects the current mode, even if the floating pill is hidden. |
 | **Keyboard shortcuts** | While the lyrics panel is open, press `O` (Original), `R` (Romanized), or `T` (Translated). Safe to use - shortcuts are ignored when focus is in a text input or search bar. |
 
-> [!NOTE]
+> **Note:**
 > Floating controls and keyboard shortcuts only function when Spotify's lyrics panel is open. Click the microphone icon in the player to open it.
 
 Power users can toggle off the floating pill entirely via **Show Floating Controls** in the popup, then use keyboard shortcuts or the popup pill for a completely unobstructed lyrics view.
@@ -168,7 +168,7 @@ If you wish to test the latest features before they hit the stores, you can inst
 4. Click **Load unpacked** and select the folder where you extracted the extension.
 
 #### Mozilla Firefox
-> [!IMPORTANT]
+> **Important:**
 > **Firefox Limitation:** Temporary add-ons are removed when the browser restarts. For a permanent install, please use the [Firefox Add-ons store](#-official-browser-stores-recommended).
 1. Download and extract the latest release `.zip`.
 2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`.
@@ -286,8 +286,8 @@ lib/
 
 Spotify Karaoke runs two parallel pipelines depending on what Spotify provides.
 
-<details>
-<summary>Technical deep-dive</summary>
+<details markdown="1">
+<summary markdown="1">Technical deep-dive</summary>
 
 **Pipeline B — Native lyrics exist:** A `MutationObserver` watches `document.body` for song key updates (`aria-label`) and newly rendered lyric lines. The observer processes mutations in two passes: **Pass 1** handles song key updates to ensure state coherence, and **Pass 2** handles DOM structure changes to detect lyric injection. This prevents race conditions where lyrics might be processed against the previous song's key.
 
@@ -340,10 +340,10 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 
 ## Privacy & Disclaimer
 
-> [!NOTE]
+> **Note:**
 > **No personal data is collected.** Settings are stored in `browser.storage.sync`. Processed lyrics are cached locally in `browser.storage.local` and never leave your device. Lyric text is sent to Google Translate or MyMemory only when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy) and [MyMemory's Terms](https://mymemory.translated.net/doc/tos.php).
 
-> [!WARNING]
+> **Warning:**
 > Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
 
 ---
