@@ -12,7 +12,8 @@ import { isLatinScript } from '../lyrics/scriptDetector';
  */
 export function purgeSlyDOM(): void {
   console.log('[sly-purge] 🧹 Beginning DOM purge. Querying target elements...');
-  const lines = document.querySelectorAll('[data-testid="lyrics-line"] > div');
+  const lines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"] > div'))
+    .filter(el => !el.closest('[data-testid="now-playing-bar"], footer, [data-testid="now-playing-widget"]'));
   console.log(`[sly-purge] 🧹 Found ${lines.length} elements to evaluate for purging.`);
   
   console.groupCollapsed(`[sly-purge] 🧹 Detailed elements purging evaluation (${lines.length} elements)`);

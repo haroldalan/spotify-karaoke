@@ -18,6 +18,8 @@ export interface DetectorState {
   preFetch: import('./preFetch').PreFetchEntry | null;
 }
 
+let lastDetectionDebugSignature = '';
+
 declare global {
   interface Window {
     slyDetectNativeState: () => Promise<DetectorState>;
@@ -66,13 +68,25 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
                !!adLink || !!adWidget || !!adBar;
 
   // 0.1 PAGE DETECTION (Dynamic)
+  // 2026 UI: lyrics live in aside sidebar overlay, pathname stays
+  // /collection/tracks etc. Keep legacy /lyrics path as fallback for A/B.
   const containerClass = window.SPOTIFY_CLASSES?.container;
   const mainClass = window.SPOTIFY_CLASSES?.mainContainer;
 
   // We check URL, Button states (Main), and Native Container presence.
-  const onLyricsPath = window.location.pathname === '/lyrics';
-  const mainBtnPressed = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
-  const nativeFound = !!(mainClass && containerClass && document.querySelector(`main.${mainClass} .${containerClass}:not(#lyrics-root-sync)`));
+  const onLyricsPath = window.location.pathname === '/lyrics' || window.location.pathname.startsWith('/lyrics');
+  const mainBtnPressed = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true' ||
+                         document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('data-active') === 'true';
+  // Do not treat the persistent Now Playing preview or a mounted-but-closed
+  // themed shell as the full lyrics panel. In the new UI, the button's active
+  // state is authoritative; DOM evidence is only a fallback for old layouts
+  // where Spotify removes/replaces the button.
+  const lyricsPreviewSelector = 'aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer, [data-testid="now-playing-widget"]';
+  const fullPanelLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+    .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector));
+  const legacyPanel = document.querySelector(`main.${mainClass || 'J6wP3V0xzh0Hj_MS'} .${containerClass || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`);
+  const nativeFound = !document.querySelector('[data-testid="lyrics-button"]') &&
+    (fullPanelLines.some(el => el.getClientRects().length > 0) || !!legacyPanel?.getClientRects().length);
 
   const isInCooldown = Date.now() < (window.slyInternalState.panelIntentCooldown || 0);
   state.isOnLyricsPage = !isInCooldown && (onLyricsPath || mainBtnPressed || nativeFound);
@@ -123,7 +137,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // If the class-based queries fail, we scan the lyrics container for "unavailable" text.
   let structuralError: HTMLElement | null = null;
   if (!errorEl && !errorElAlt) {
-    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
+    const main = document.querySelector('div#main') ?? document.querySelector('main');
     if (main) {
       // Find elements with text matching common error patterns
       const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
@@ -157,7 +171,30 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   }
 
   state.hasNativeLines = !isSettling && !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-                                 .find(el => !el.closest('#lyrics-root-sync'));
+                                 .find(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector));
+
+  const debugLineElements = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+    .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector));
+  const lyricsButton = document.querySelector('[data-testid="lyrics-button"]');
+  const lyricsButtonActive = lyricsButton?.getAttribute('data-active') === 'true' || lyricsButton?.getAttribute('aria-pressed') === 'true';
+  const panelRoot = Array.from(document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'))
+    .find(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView'));
+  const previewLineCount = document.querySelectorAll('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]').length;
+  const debugSignature = [state.title, state.currentTrackId, state.isOnLyricsPage, lyricsButtonActive, debugLineElements.length, !!panelRoot, previewLineCount].join('|');
+  if (debugSignature !== lastDetectionDebugSignature) {
+    lastDetectionDebugSignature = debugSignature;
+    console.info('[sly-debug] Panel/track state', {
+      title: state.title,
+      trackId: state.currentTrackId,
+      path: location.pathname,
+      panelOpen: state.isOnLyricsPage,
+      lyricsButtonActive,
+      fullPanelLineCount: debugLineElements.length,
+      themedPanelFound: !!panelRoot,
+      nowPlayingPreviewLineCount: previewLineCount,
+      firstPanelLines: debugLineElements.slice(0, 3).map(el => el.textContent?.trim()),
+    });
+  }
 
   // 3. GRACE PERIOD HANDLING
 
@@ -175,11 +212,38 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // Consult the registry populated by the Background script/Interceptor
   state.preFetch = (window as any).slyPreFetchRegistry?.getState(state.currentUri ?? '') ?? null;
 
+  // Live full-panel lyrics are stronger evidence than a previously persisted
+  // MISSING result. NPV preview lines are excluded from hasNativeLines above.
+  // Clear the stale fallback flag before it can force Pipeline A to fetch again.
+  if (state.hasNativeLines && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING')) {
+    console.log(`[sly-detector] 🩹 Live native lines override stale MISSING cache for ${state.currentUri}.`);
+    window.slyInternalState.forceFallback = false;
+    state.preFetch.nativeStatus = 'NATIVE_OK';
+    state.preFetch.state = 'NATIVE_OK';
+    if (state.currentUri) {
+      window.slyPreFetchRegistry?.register(state.currentUri, 'NATIVE_OK', {
+        title: state.title,
+        artist: state.artist,
+        uri: state.currentUri,
+        nativeStatus: 'NATIVE_OK',
+        reason: 'Self-Heal (Live full-panel DOM evidence)',
+      });
+      window.slyInternalState.l0Cache?.delete(state.currentUri);
+    }
+    if (state.currentUri && typeof browser !== 'undefined' && browser.runtime?.id) {
+      await browser.runtime.sendMessage({
+        type: 'SLY_REPORT_NATIVE_STATUS',
+        payload: { title: state.title, artist: state.artist, uri: state.currentUri, status: 'NATIVE_OK', source: 'native' },
+      }).catch(() => {});
+    }
+  }
+
   if (state.preFetch && (state.preFetch.nativeStatus === 'MISSING' || state.preFetch.nativeStatus === 'UNSYNCED')) {
     const reason = `PERSISTED_NATIVE_${state.preFetch.nativeStatus}`;
     state.lyricsState = reason; 
 
-    if (!window.slyInternalState.forceFallback) {
+    const alreadyFailedThisSession = !!state.currentUri && window.slyInternalState.failedFetchUris?.has(state.currentUri);
+    if (!window.slyInternalState.forceFallback && !alreadyFailedThisSession) {
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
@@ -199,7 +263,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // Strictly gate forensic scanning by the confirmed Language Tag.
   if (isNativeLanguage && state.hasNativeLines && timeSinceOpen > 1000 && !window.slyInternalState.forceFallback) {
     const nativeLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-                            .filter(el => !el.closest('#lyrics-root-sync'))
+                            .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector))
                             .slice(0, 5)
                             .map(el => el.textContent)
                             .join(' ');
@@ -283,7 +347,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     
     // SELF-HEALING: If we see native lines but the registry thought it was MISSING or ROMANIZED,
     // we have proof the registry is stale/wrong. Fix it.
-    if (state.currentUri && !state.isAd && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.nativeStatus === 'ROMANIZED')) {
+    if (state.currentUri && !state.isAd && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING' || state.preFetch?.nativeStatus === 'ROMANIZED')) {
       console.log(`[sly-detector] 🩹 SELF-HEAL: Native lines found for track ${state.currentUri} which was tagged ${state.preFetch.nativeStatus}. Updating registry to NATIVE_OK.`);
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'NATIVE_OK' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
@@ -385,6 +449,15 @@ export function resolveTrackState(
     } else if (detector.hasUnavailableMessage) {
       spotifyStatus = 'MISSING';
     }
+  }
+
+  // 2026 UI: live DOM truth wins over stale preFetch MISSING.
+  // Startup NPV failure reports MISSING to the background (7-day cache); when the
+  // user later opens the lyrics panel with 37 native lines, preFetch still says
+  // MISSING and forces a fetch loop + suppresses the pill. hasNativeLines already
+  // excludes NPV preview/aside, so it is authoritative for the full panel.
+  if (detector.hasNativeLines && spotifyStatus === 'MISSING') {
+    spotifyStatus = 'SYNCED';
   }
 
   resolution.sourceState = spotifyStatus;

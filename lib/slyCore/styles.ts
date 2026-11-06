@@ -26,9 +26,17 @@ export function slyGetCoreStyles(): string {
             position: fixed; left: 50%; transform: translateX(-50%); z-index: 100000;
             cursor: pointer; transition: transform 0.2s cubic-bezier(0.3, 0, 0, 1), opacity 0.2s ease, visibility 0.2s ease;
             visibility: hidden; opacity: 0; border: none; background: none; padding: 0;
+            width: max-content !important; min-width: max-content !important;
+            white-space: nowrap !important; flex-wrap: nowrap !important;
         }
         #sly-sync-button.visible { visibility: visible; opacity: 1; }
         #sly-sync-button { border-radius: 500px; display: flex; align-items: center; justify-content: center; }
+        #sly-sync-button > span {
+            display: inline-flex !important; align-items: center; justify-content: center;
+            width: max-content !important; min-width: max-content !important;
+            white-space: nowrap !important; flex-wrap: nowrap !important;
+        }
+        #sly-sync-button .encore-button__icon-wrapper { flex: 0 0 auto; }
         #sly-sync-button:hover { transform: translateX(-50%) scale(1.04) !important; opacity: 0.95 !important; }
         #sly-sync-button:active { transform: translateX(-50%) scale(0.98); }
 

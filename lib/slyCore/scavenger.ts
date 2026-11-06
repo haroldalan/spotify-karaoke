@@ -22,10 +22,12 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
   paddingLineHelper: 'aLaX8poOH8kdbmGf',
   footerGrid:        'T0IQrE6mvz4Fs7rc',
   errorContainer:    'hfTlyhd7WCIk9xmP',
-  btnPrimary:        'e-10451-legacy-button e-10451-legacy-button-primary',
-  btnPrimaryInner:   'e-10451-button-primary__inner',
-  btnSecondary:      'e-10451-legacy-button e-10451-legacy-button-secondary',
-  btnSecondaryInner: 'e-10451-button-secondary__inner',
+  // Encore version bump: e-10451 (2025) -> e-10860 (2026). Scavenger auto-learns
+  // live classes, these defaults only matter before first scavenge.
+  btnPrimary:        'e-10860-legacy-button e-10860-legacy-button-primary',
+  btnPrimaryInner:   'e-10860-button-primary__inner',
+  btnSecondary:      'e-10860-legacy-button e-10860-legacy-button-secondary',
+  btnSecondaryInner: 'e-10860-button-secondary__inner',
   topSpacer:         'nIWoY9ePLgi1am10',
   footerInner1:      'KBRwz1uoWl0AAEsT',
   footerInner2:      'g5l1TSALoQMUlKhS',
@@ -35,7 +37,14 @@ window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
 
 // Helper to strip directional icon classes that cause asymmetrical padding
 const sanitizeBtn = (cls: string) => cls.split(' ')
-  .filter(c => !c.includes('--leading') && !c.includes('--trailing') && !c.includes('--icon'))
+  .filter(c =>
+    !c.includes('--leading') &&
+    !c.includes('--trailing') &&
+    !c.includes('--icon') &&
+    !c.includes('icon-only') &&
+    !c.endsWith('--small') &&
+    !c.endsWith('--medium')
+  )
   .join(' ');
 
 /**
@@ -44,9 +53,6 @@ const sanitizeBtn = (cls: string) => cls.split(' ')
  * This allows the extension to survive Spotify updates without a manual patch.
  */
 export const slyScavengeClasses = function (): void {
-  // Performance Guard: If we are already taking over, do not perform heavy scavenging.
-  if (document.getElementById('lyrics-root-sync')) return;
-
   console.log('[sly-scavenger] Inspecting DOM for class updates...');
 
   // Helper: Find the hashed class in a list. 
@@ -54,38 +60,56 @@ export const slyScavengeClasses = function (): void {
   const findHash = (list: DOMTokenList, fallbackIdx = 0) => 
     Array.from(list).find(c => c.length >= 8 && !c.includes('-') && !c.includes('encore-')) || list[fallbackIdx];
 
-  // 1. Main View Wrapper
+  // 1. Legacy <main> wrapper only. The 2026 app uses DIV#main; its class list
+  // must not be mistaken for Spotify's old lyrics-view class fingerprint.
   const main = document.querySelector('main');
   if (main && main.classList.length > 0) {
     window.SPOTIFY_CLASSES.mainContainer = findHash(main.classList);
   }
 
-  // 2. Lyrics Container (Anchor: Inline CSS Variables)
-  const nativeContainer = document.querySelector('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)') as HTMLElement | null;
+  // 2. The full lyrics panel and the NPV lyrics preview both use the same CSS
+  // variables. The preview has a small, different component tree; fingerprinting
+  // it gives lyricsList the line class (MFEB...) instead of the real list class
+  // (t3jT...). Exclude NPV/bar ancestry and prefer the panel with most lyric rows.
+  const nativeContainer = Array.from(
+    document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)')
+  )
+    .filter(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer'))
+    .sort((a, b) => b.querySelectorAll('[data-testid="lyrics-line"]').length - a.querySelectorAll('[data-testid="lyrics-line"]').length)[0] as HTMLElement | undefined;
   
   if (nativeContainer) {
     window.SPOTIFY_CLASSES.container = findHash(nativeContainer.classList) || window.SPOTIFY_CLASSES.container;
+    // Preserve all layout/state classes, not just the first hash. The 2026
+    // panel's second container class scopes sizing for its top spacer; dropping
+    // it made the cloned spacer resolve to thousands of pixels tall.
+    window.SPOTIFY_CLASSES.containerClasses = nativeContainer.className;
 
     // 3. Structural Children
     if (nativeContainer.children.length > 0) {
       window.SPOTIFY_CLASSES.topSpacer = findHash(nativeContainer.children[0].classList) || window.SPOTIFY_CLASSES.topSpacer;
     }
 
-    if (nativeContainer.children.length > 1) {
-      const secondChild = nativeContainer.children[1] as HTMLElement;
-      
-      // If the second child has NO lyrics lines, it could be the Error Container or a loading spinner.
-      if (secondChild.querySelectorAll('[data-testid="lyrics-line"]').length === 0) {
-        const txt = (secondChild.textContent || '').trim().toLowerCase();
-        if (txt.length > 0 && !txt.includes('loading')) {
-          const oldError = window.SPOTIFY_CLASSES.errorContainer;
-          window.SPOTIFY_CLASSES.errorContainer = findHash(secondChild.classList) || window.SPOTIFY_CLASSES.errorContainer;
-          console.log(`[sly-audit] Scavenged errorContainer: "${window.SPOTIFY_CLASSES.errorContainer}" (was: "${oldError}")`);
-        }
-      } else {
-        window.SPOTIFY_CLASSES.wrapper = findHash(secondChild.classList) || window.SPOTIFY_CLASSES.wrapper;
-        const list = secondChild.children[0] as HTMLElement | undefined;
-        if (list) window.SPOTIFY_CLASSES.lyricsList = findHash(list.classList) || window.SPOTIFY_CLASSES.lyricsList;
+    const firstLine = nativeContainer.querySelector('[data-testid="lyrics-line"]');
+    if (firstLine) {
+      // Discover structure from the line's actual ancestry instead of fixed
+      // child indexes, which changed in Spotify's new lyrics layout.
+      const list = firstLine.parentElement?.parentElement;
+      const wrapper = list?.parentElement;
+      if (list) {
+        window.SPOTIFY_CLASSES.lyricsList = findHash(list.classList) || window.SPOTIFY_CLASSES.lyricsList;
+        window.SPOTIFY_CLASSES.lyricsListClasses = list.className;
+      }
+      if (wrapper) {
+        window.SPOTIFY_CLASSES.wrapper = findHash(wrapper.classList) || window.SPOTIFY_CLASSES.wrapper;
+        window.SPOTIFY_CLASSES.wrapperClasses = wrapper.className;
+      }
+    } else if (nativeContainer.children.length > 1) {
+      const errorCandidate = nativeContainer.children[1] as HTMLElement;
+      const txt = (errorCandidate.textContent || '').trim().toLowerCase();
+      if (txt && !txt.includes('loading')) {
+        const oldError = window.SPOTIFY_CLASSES.errorContainer;
+        window.SPOTIFY_CLASSES.errorContainer = findHash(errorCandidate.classList) || window.SPOTIFY_CLASSES.errorContainer;
+        console.log(`[sly-audit] Scavenged errorContainer: "${window.SPOTIFY_CLASSES.errorContainer}" (was: "${oldError}")`);
       }
     }
 
@@ -102,7 +126,7 @@ export const slyScavengeClasses = function (): void {
     const lines = nativeContainer.querySelectorAll('[data-testid="lyrics-line"]');
     if (lines.length > 0) {
       window.SPOTIFY_CLASSES.lineBase = findHash(lines[0].classList) || window.SPOTIFY_CLASSES.lineBase;
-      const inner = lines[0].querySelector('div');
+      const inner = lines[0].querySelector(':scope > div');
       if (inner) window.SPOTIFY_CLASSES.textInner = findHash(inner.classList) || window.SPOTIFY_CLASSES.textInner;
 
       // HACK: Find the padding helper class by looking for lines with no text (spacers)

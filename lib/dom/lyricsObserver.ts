@@ -69,14 +69,70 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
 
     console.log(`[sly-observer] 🔍 Evaluating needsReapply for ${domLines.length} DOM elements against processed length=${lines.length}...`);
 
+    // Spacer-aware matching (mirrors applyLinesToDOM). The DOM list includes
+    // padding/spacer rows the processed array doesn't, so raw-index comparison
+    // (domLines[i] vs lines[i]) false-fires on spacers and drifts alignment.
+    const paddingLineClass = (window as any).SPOTIFY_CLASSES?.paddingLineHelper || 'aLaX8poOH8kdbmGf';
+    const normalize = (t: string): string =>
+      (t || '').toLowerCase().replace(/[.,/#!$%\^&\*;:{}=\-_`~()♪?…\s]/g, '').trim();
+    let originalsPointer = 0;
+    let processedPointer = 0;
+
     const needsReapply = domLines.some((el, i) => {
-      if (lines[i] === undefined) {
-        console.log(`[sly-observer] [${i}] Processed line is undefined. No reapply needed.`);
+      const rawAttrOriginal = el.getAttribute('data-sly-original');
+      const isProcessedEl = el.querySelector('.sly-main-line, .sly-dual-line') !== null;
+      const domText = (isProcessedEl ? (rawAttrOriginal ?? '') : (el.textContent ?? '')).replace(/\s+/g, ' ').trim();
+      const isSpacer = el.classList.contains(paddingLineClass) ||
+        el.parentElement?.classList.contains(paddingLineClass) ||
+        (i < 2 && domText === '');
+      if (isSpacer) {
+        // Spacers must stay empty and span-free; anything else needs cleanup.
+        const hasSpans = el.querySelector('.sly-main-line, .sly-dual-line') !== null;
+        const hasText = (el.textContent ?? '').trim() !== '';
+        if (hasSpans || hasText) {
+          console.log(`[sly-observer] [${i}] Spacer has content/spans -> Triggering reapply.`);
+          return true;
+        }
         return false;
       }
-      const expected = capitalizeLine(lines[i]);
 
-      const shouldHaveDual = dualLyricsEnabled && originals?.[i] !== undefined && originals[i] !== lines[i];
+      // Resolve which processed index this DOM row corresponds to via the
+      // original text, not the raw DOM position.
+      let matchIndex = -1;
+      const normDom = normalize(domText);
+      if (normDom !== '') {
+        const searchLimit = Math.min(originalsPointer + 15, originals.length);
+        for (let j = originalsPointer; j < searchLimit; j++) {
+          if (normalize(originals[j] ?? '') === normDom) { matchIndex = j; break; }
+        }
+        if (matchIndex === -1) {
+          for (let j = 0; j < originals.length; j++) {
+            if (normalize(originals[j] ?? '') === normDom) { matchIndex = j; break; }
+          }
+        }
+      } else {
+        // Empty/instrumental row: advance to next empty original.
+        for (let j = originalsPointer; j < originals.length; j++) {
+          const t = (originals[j] ?? '').replace(/\s+/g, ' ').trim();
+          if (t === '' || t === '♪') { matchIndex = j; break; }
+        }
+      }
+      if (matchIndex === -1) {
+        // No confident mapping — fall back to sequential processed order so a
+        // single unmapped row can't force a full rewrite loop.
+        matchIndex = processedPointer;
+      }
+      // Advance sequential pointers past the consumed slot.
+      processedPointer = Math.max(processedPointer, matchIndex + 1);
+      originalsPointer = Math.max(originalsPointer, matchIndex + 1);
+
+      if (lines[matchIndex] === undefined) {
+        console.log(`[sly-observer] [${i}] Processed line is undefined (mapped=${matchIndex}). No reapply needed.`);
+        return false;
+      }
+      const expected = capitalizeLine(lines[matchIndex]);
+
+      const shouldHaveDual = dualLyricsEnabled && originals?.[matchIndex] !== undefined && originals[matchIndex] !== lines[matchIndex];
       const hasDual = !!el.querySelector('.sly-dual-line');
       
       if (shouldHaveDual !== hasDual) {

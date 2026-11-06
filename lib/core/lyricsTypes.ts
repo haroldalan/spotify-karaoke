@@ -3,6 +3,8 @@ export type LyricsMode = 'original' | 'romanized' | 'translated';
 export interface ProcessedCache {
   translated: string[];
   romanized: string[];
+  /** Hash of the exact source lyric lines used to generate this result. */
+  sourceHash?: number;
   isLowQualityRomanization?: boolean;
   wasTruncated?: boolean;
 }
@@ -87,5 +89,4 @@ export type SlyAction =
   | { type: 'SLY_TRIGGER_NATIVE_CLOSE' }
   | { type: 'SLY_TRIGGER_NATIVE_OPEN' }
   | { type: 'SLY_NAV_CHANGE' };
-
 

@@ -92,15 +92,17 @@ document.addEventListener('sly:lyrics_injected', async () => {
 // Pipeline B's domObserver dispatches this when [data-testid="lyrics-button"] loses
 // its data-active="true" attribute. Handles panel close cleanup immediately instead
 // of waiting up to 500ms for the poll.
+// 2026 UI: pathname no longer changes to /lyrics (aside overlay), so use button state.
 document.addEventListener('sly:panel_close', () => {
   // SLY RACE-CONDITION FIX: Ignore panel close events triggered during song transitions
   // if we are actively on the lyrics page and currently fetching or showing a failure HUD.
   // Spotify's React app temporarily clears the lyrics button's active attributes during track skips,
   // which falsely triggers this event and clears our active HUD.
-  // V11 Fix: Use window.location.pathname exclusively here. The button's aria-pressed
-  // attribute is already 'false' by the time this MutationObserver callback fires
-  // (since its change IS what triggered this event), making it an unreliable signal.
-  const isOnLyricsPage = window.location.pathname.startsWith('/lyrics');
+  // Panel-open = button active OR aside panel showing lyrics lines (pathname is dead in 2026 UI).
+  const btnNow = document.querySelector('[data-testid="lyrics-button"]');
+  const btnActiveNow = btnNow?.getAttribute('data-active') === 'true' || btnNow?.getAttribute('aria-pressed') === 'true';
+  const asideHasLines = !!document.querySelector('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]');
+  const isOnLyricsPage = window.location.pathname.startsWith('/lyrics') || btnActiveNow || asideHasLines;
   if (isOnLyricsPage && (window.slyInternalState.isFetchingHUD || window.slyInternalState.statusHUDActive)) {
     console.log('[sly-lifecycle] 🛡️ Ignoring sly:panel_close during song transition to prevent HUD flicker.');
     return;
@@ -156,6 +158,8 @@ document.addEventListener('sly:panel_close', () => {
     main.classList.remove('sly-hud-active');
     main.style.display = ''; 
   }
+  document.querySelector('aside[aria-label="Now playing view"]')?.classList.remove('sly-active');
+  document.querySelector('aside[aria-label="Now playing view"]')?.classList.remove('sly-hud-active');
   
   const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
   const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';
@@ -447,7 +451,8 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
                                    lyricsState.includes('ROMANIZED') || 
                                    window.slyInternalState.forceFallback) && 
                                   lyricsState !== 'LOADING';
-      if (isMissingOrUnsynced && !window.slyInternalState.currentLyrics && !window.slyInternalState.fetchingForTitle && !window.slyInternalState.pendingLyricsData) {
+      const fetchAlreadyFailed = !!fullUri && window.slyInternalState.failedFetchUris?.has(fullUri);
+      if (isMissingOrUnsynced && !fetchAlreadyFailed && !window.slyInternalState.currentLyrics && !window.slyInternalState.fetchingForTitle && !window.slyInternalState.pendingLyricsData) {
         const registryIsEmpty = !(window as any).slyPreFetchRegistry?.getState(fullUri || '');
         const onlyDomEvidence = detection.hasUnavailableMessage && !detection.preFetch;
         const timeSinceSongChange = Date.now() - window.slyInternalState.songChangeTime;
@@ -588,7 +593,8 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         if (main) main.classList.add('sly-active');
 
         document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => ((n as HTMLElement).style.display = 'none'));
-        const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`) as HTMLElement | null;
+        const nativeContainer = (document.querySelector(`div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)`) ??
+          document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`)) as HTMLElement | null;
         if (nativeContainer) {
           nativeContainer.style.display = 'none';
           // Re-mirror theme to handle transitions (e.g. MISSING -> UNSYNCED)

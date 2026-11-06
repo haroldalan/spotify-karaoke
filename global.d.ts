@@ -21,8 +21,11 @@ declare module 'cyrillic-to-translit-js' {
 interface SpotifyClasses {
   mainContainer: string;
   container: string;
+  containerClasses?: string;
   wrapper: string;
+  wrapperClasses?: string;
   lyricsList: string;
+  lyricsListClasses?: string;
   lineBase: string;
   passedLine: string;
   activeLine: string;

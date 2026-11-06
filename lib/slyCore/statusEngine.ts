@@ -15,8 +15,9 @@ export const StatusEngine = {
     const root = window.slyPrepareContainer();
     if (!root) return;
 
-    // 1. Theme Mirroring
-    const nativeRef = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
+    // 1. Theme Mirroring (2026 UI: themed DIV under DIV#root, not main tag)
+    const nativeRef = (document.querySelector('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)') ??
+      document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`)) as HTMLElement | null;
     
     // Check sessionStorage for late-arriving or persistent theme colors
     const sessionKey = `sly_theme_${metadata?.albumArtUrl}`;

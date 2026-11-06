@@ -1,6 +1,7 @@
 import { safeBrowserCall } from '../utils/browserUtils';
 import { saveSongCache } from './lyricsCache';
 import { showToast } from '../dom/toast';
+import { hashString } from '../utils/hashUtils';
 import type { ProcessedCache, SongCache, LyricsCacheEntry } from './lyricsTypes';
 
 export async function fetchProcessed(
@@ -13,8 +14,12 @@ export async function fetchProcessed(
 ): Promise<ProcessedCache | null> {
   if (lines.length === 0 || !lines.some(l => l.trim().length > 0)) return null;
 
+  const sourceHash = hashString(lines.join('|'));
   if (cache.processed.has(lang)) {
-    return cache.processed.get(lang)!;
+    const cached = cache.processed.get(lang)!;
+    if (cached.sourceHash === sourceHash) return cached;
+    console.warn(`[sly-audit] 🧹 Rejecting processed cache for ${lang}: source lyrics hash does not match.`);
+    cache.processed.delete(lang);
   }
 
   const gen = ++processGenRef.value;
@@ -34,6 +39,7 @@ export async function fetchProcessed(
   }
 
   console.log(`[sly-audit] ✅ Background processing complete!`);
+  result.sourceHash = sourceHash;
   cache.processed.set(lang, result);
   saveSongCache(songKey, cache, runtimeCache);
   return result;

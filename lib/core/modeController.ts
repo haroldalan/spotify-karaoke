@@ -7,6 +7,7 @@ import { isLatinScript } from '../lyrics/scriptDetector';
 import { showToast, hideToast } from '../dom/toast';
 import type { LyricsMode, SongCache, ProcessedCache, LyricsCacheEntry } from './lyricsTypes';
 import { StateStore } from './store';
+import { hashString } from '../utils/hashUtils';
 
 export interface ModeControllerOpts {
   store: StateStore;
@@ -31,6 +32,17 @@ export function createModeController(opts: ModeControllerOpts) {
   const hasAlignedProcessedLines = (processed: ProcessedCache, mode: LyricsMode, expected: number): boolean => {
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
     return Array.isArray(lines) && lines.length === expected;
+  };
+
+  const discardStaleProcessedCache = (cache: SongCache): void => {
+    if (cache.original.length === 0) return;
+    const expectedSourceHash = hashString(cache.original.join('|'));
+    for (const [lang, entry] of cache.processed) {
+      if (entry.sourceHash !== expectedSourceHash) {
+        console.warn(`[sly-mode] 🧹 Rejecting processed cache for ${lang}: source lyrics hash is missing or mismatched.`);
+        cache.processed.delete(lang);
+      }
+    }
   };
 
   const logEntireLyrics = (next: LyricsMode, cache: SongCache, lang: string): void => {
@@ -111,6 +123,7 @@ export function createModeController(opts: ModeControllerOpts) {
     const previousMode = mode;
     console.log(`[sly-audit] 🔄 Mode Change Requested: "${previousMode}" ➡️ "${next}"`);
     if (cache.original.length === 0) snapshotOriginals(cache);
+    discardStaleProcessedCache(cache);
 
     const isNativeLanguage = (window as any).SLY_NATIVE_LANGUAGES?.has((window as any).spotifyState?.language);
 
@@ -132,6 +145,19 @@ export function createModeController(opts: ModeControllerOpts) {
       syncButtonStates(previousMode);
       setLoadingState(false);
       return;
+    }
+
+    // A cache entry must be derived from this song's exact lyric text, not
+    // merely have the same number of lines. This prevents an old track's
+    // romanization (e.g. Korean) being painted over a new source (e.g. Japanese).
+    if (cache.original.length > 0) {
+      const expectedSourceHash = hashString(cache.original.join('|'));
+      for (const [lang, entry] of cache.processed) {
+        if (entry.sourceHash !== expectedSourceHash) {
+          console.warn(`[sly-mode] 🧹 Rejecting stale processed lyrics for ${lang}: source hash mismatch/missing.`);
+          cache.processed.delete(lang);
+        }
+      }
     }
 
     if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original) && !isNativeLanguage) {
@@ -244,6 +270,7 @@ export function createModeController(opts: ModeControllerOpts) {
     const currentActiveLang = opts.store.currentActiveLang;
     const cache = opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
+    discardStaleProcessedCache(cache);
 
     if (mode === 'original') {
       if (opts.store.isSwitchingMode) return;
@@ -309,6 +336,7 @@ export function createModeController(opts: ModeControllerOpts) {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     const cache = cacheOverride ?? opts.store.cache;
+    discardStaleProcessedCache(cache);
 
     const nativeLines = getLyricsLines().map(el => {
       const original = el.getAttribute('data-sly-original');

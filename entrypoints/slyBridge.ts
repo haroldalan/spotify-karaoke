@@ -173,13 +173,15 @@ window.slyOmniscientSearch = function (
     }
 
     const lineNode = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-      .find(el => !el.closest('#lyrics-root-sync'));
+      .find(el => !el.closest('#lyrics-root-sync') && !el.closest('[data-testid="now-playing-bar"], footer, [data-testid="now-playing-widget"]'));
     
     const errorCls = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
 
     const failNode = document.querySelector('.' + errorCls) || 
                      document.querySelector('.bRNotDNzO2suN6vM') || 
-                     Array.from(document.querySelectorAll('main div[style*="--lyrics-color-active"]:not(#lyrics-root-sync) > div'))
+                     Array.from(document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'))
+                       .filter(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView'))
+                       .flatMap(el => Array.from(el.querySelectorAll(':scope > div')))
                        .find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
     const trackNode = document.querySelector('[data-testid="context-item-info-title"]');
     const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
@@ -631,6 +633,27 @@ window.slyOmniscientSearch = function (
         window.slyActivateShield();
       }
 
+      // 2026 UI: cachedToggleLyrics is a generic mode:"panel" toggle (fiber-verified —
+      // no toggleLyrics/onToggle on the lyrics-button chain). Invoking it opens the
+      // wrong tab (queue). Prefer a native button click; use trapped toggle only as fallback.
+      const nativeBtn = document.querySelector('[data-testid="lyrics-button"]') as HTMLElement | null;
+      if (nativeBtn) {
+        console.log('>>> [sly] Bridge: Clicking lyrics button natively (generic toggle unsafe).');
+        nativeBtn.click();
+
+        setTimeout(() => {
+          const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
+          const isPressed = activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true';
+          const hasPanelLines = !!document.querySelector('div[style*="--lyrics-color-active"] [data-testid="lyrics-line"]');
+          console.log(`>>> [sly-audit] Flicker Guard executing. Is active button pressed? ${isPressed}. Attributes: data-active="${activeBtn?.getAttribute('data-active')}", aria-pressed="${activeBtn?.getAttribute('aria-pressed')}"`);
+          if (!isPressed && !hasPanelLines && typeof window.cachedToggleLyrics === 'function') {
+            console.warn('>>> [sly-audit] 🚨 Flicker Guard: panel not open. Re-invoking trapped toggle as last resort.');
+            (window.cachedToggleLyrics as () => void)();
+          }
+        }, 600);
+        return;
+      }
+
       if (typeof window.cachedToggleLyrics === 'function') {
         console.log('>>> [sly] Bridge: Invoking Native toggleLyrics()');
         window.cachedToggleLyrics();
@@ -644,23 +667,27 @@ window.slyOmniscientSearch = function (
         setTimeout(() => {
           const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
           const isPressed = activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true';
+          const hasPanelLines = !!document.querySelector('div[style*="--lyrics-color-active"] [data-testid="lyrics-line"]');
           console.log(`>>> [sly-audit] Flicker Guard executing. Is active button pressed? ${isPressed}. Attributes: data-active="${activeBtn?.getAttribute('data-active')}", aria-pressed="${activeBtn?.getAttribute('aria-pressed')}"`);
-          if (!isPressed) {
+          // 2026 UI: panel animation is slower than 100ms; re-invoking that fast
+          // double-toggles (open→close). Only re-invoke if neither button nor panel confirms open.
+          if (!isPressed && !hasPanelLines) {
             console.warn('>>> [sly-audit] 🚨 Flicker Guard: Button state is not pressed. Re-invoking native toggleLyrics().');
             (window.cachedToggleLyrics as () => void)();
           }
-        }, 100);
+        }, 600);
       } else {
-        // SLY FIX: If we are already on /lyrics, DO NOT pushState again.
-        // This prevents the weird NTP redirect if Spotify's router is in a fragile state.
-        if (window.location.pathname === '/lyrics') {
-          console.warn('>>> [sly] Bridge: toggleLyrics not found, but already on /lyrics. Aborting fallback navigation.');
+        // 2026 UI: panel is an aside overlay, pathname never becomes /lyrics.
+        // pushState('/lyrics') would navigate away from /collection/tracks etc.
+        // If toggle handler is missing, click the button directly as fallback.
+        const btn = document.querySelector('[data-testid="lyrics-button"]') as HTMLElement | null;
+        if (btn) {
+          console.warn('>>> [sly] Bridge: toggleLyrics not found. Clicking lyrics button directly.');
+          btn.click();
           return;
         }
 
-        console.error('>>> [sly] Bridge: toggleLyrics not found. Safe-routing to /lyrics');
-        history.pushState(null, '', '/lyrics');
-        window.dispatchEvent(new PopStateEvent('popstate'));
+        console.error('>>> [sly] Bridge: toggleLyrics not found and no lyrics button in DOM. Aborting (no pushState fallback in sidebar UI).');
       }
     }
   });

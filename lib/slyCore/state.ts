@@ -26,6 +26,7 @@ export interface SlyInternalState {
   lastActiveIndex: number;
   fetchingForTitle: string;
   fetchingForUri: Set<string>;
+  failedFetchUris: Set<string>;
   pendingLyricsData: unknown | null;
   songChangeTime: number;
   songSettlingUntil: number;
@@ -115,6 +116,7 @@ export const slyInternalState: SlyInternalState = {
   lastActiveIndex: -1,
   fetchingForTitle: '',
   fetchingForUri: new Set<string>(),
+  failedFetchUris: new Set<string>(),
   pendingLyricsData: null,
   songChangeTime: Date.now(),
   songSettlingUntil: 0,
@@ -174,4 +176,3 @@ export function initSlyState(): void {
 
   console.log('[sly] State Module: SLY_BRIDGE Listener Active.');
 }
-

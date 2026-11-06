@@ -66,6 +66,7 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.currentLyrics = null;
   window.slyInternalState.fetchingForTitle = '';
   window.slyInternalState.fetchingForUri.clear();
+  window.slyInternalState.failedFetchUris?.clear();
   window.slyInternalState.isUserScrolling = false;
   if (window.slyInternalState.userScrollTimeout) {
     clearTimeout(window.slyInternalState.userScrollTimeout);
@@ -126,10 +127,16 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
     main.style.display = '';
     main.style.position = '';
   }
+  const asidePanel = document.querySelector('aside[aria-label="Now playing view"]') as HTMLElement | null;
+  if (asidePanel && !isTakeoverHit) {
+    asidePanel.classList.remove('sly-active');
+    asidePanel.classList.remove('sly-hud-active');
+  }
 
-  // 3. Restore Spotify Native UI visibility
+  // 3. Restore Spotify Native UI visibility (themed DIV first, legacy main fallback)
   const containerClass = window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x';
-  const nativeContainer = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`) as HTMLElement | null;
+  const nativeContainer = (document.querySelector(`div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)`) ??
+    document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`)) as HTMLElement | null;
   if (nativeContainer && !isTakeoverHit) {
     nativeContainer.style.display = '';
     nativeContainer.style.opacity = '';
@@ -166,7 +173,9 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
       preFetch.state === 'UNSYNCED'
     );
     const isOnLyricsPage = window.location.pathname === '/lyrics' ||
-                           document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true';
+                           window.location.pathname.startsWith('/lyrics') ||
+                           document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true' ||
+                           !!document.querySelector('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]');
 
     if (isMissingOrUnsynced && isOnLyricsPage) {
       const meta = MetadataEngine.getNowPlaying();

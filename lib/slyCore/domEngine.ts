@@ -64,17 +64,40 @@ window.slyInjectCoreStyles = function (): void {
  * Prepares the main #lyrics-root-sync container.
  */
 window.slyPrepareContainer = function (): HTMLElement | null {
-  const rootParent = document.querySelector(`main.${window.SPOTIFY_CLASSES.mainContainer}`) as HTMLElement | null;
+  // 2026 UI (clean-DOM verified): panel lives under DIV#main > DIV#root, themed
+  // container carries --lyrics-color-*. Never use <main> tag or NPV aside.
+  // Return null unless the lyrics panel is actually open (button active or
+  // panel lines present) — otherwise HUD/takeover fires in NPV on startup.
+  const btn = document.querySelector('[data-testid="lyrics-button"]');
+  const btnActive = btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true';
+  const themed = Array.from(
+    document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)')
+  ).filter(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView'))[0] as HTMLElement | null;
+  const hasPanelLines = !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+    .find(el => !el.closest('#lyrics-root-sync') && !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer'));
+  if (!btnActive && !themed && !hasPanelLines) return null;
+  if (!btnActive && !themed) return null;
+  const rootParent = (themed?.parentElement ??
+    document.querySelector('div#root') ??
+    document.querySelector('div#main') ??
+    document.querySelector(`main.${window.SPOTIFY_CLASSES.mainContainer}`)) as HTMLElement | null;
   if (!rootParent) return null;
 
   let root = document.getElementById('lyrics-root-sync') as HTMLElement | null;
   if (!root) {
     root = document.createElement('div');
-    root.className = window.SPOTIFY_CLASSES.container;
     root.id = 'lyrics-root-sync';
     root.style.minHeight = '100%';
     root.style.display = 'flex';
     root.style.flexDirection = 'column';
+  }
+  root.className = window.SPOTIFY_CLASSES.containerClasses || window.SPOTIFY_CLASSES.container;
+  // Replace the native lyrics panel in its actual slot. Appending to the
+  // parent puts the custom root after Spotify's ~704px `oos...` layout spacer,
+  // leaving that spacer above the injected panel even when native lyrics are hidden.
+  if (themed?.parentElement === rootParent) {
+    rootParent.insertBefore(root, themed);
+  } else if (root.parentElement !== rootParent) {
     rootParent.appendChild(root);
   }
   rootParent.classList.add('sly-active');
@@ -223,10 +246,10 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   root.appendChild(topSpacer);
 
   const wrapper = document.createElement('div');
-  wrapper.className = window.SPOTIFY_CLASSES.wrapper;
+  wrapper.className = window.SPOTIFY_CLASSES.wrapperClasses || window.SPOTIFY_CLASSES.wrapper;
 
   const list = document.createElement('div');
-  list.className = window.SPOTIFY_CLASSES.lyricsList;
+  list.className = window.SPOTIFY_CLASSES.lyricsListClasses || window.SPOTIFY_CLASSES.lyricsList;
 
   // Synced lyrics have an inner div, Unsynced lyrics append directly to list
   const targetWrapper = isSynced ? document.createElement('div') : list;
@@ -236,7 +259,7 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
 
   if (!isSynced) {
     const header = document.createElement('p');
-    header.className = `e-10451-text encore-text-body-small ${window.SPOTIFY_CLASSES.unsyncedMessage}`;
+    header.className = `encore-text-body-small ${window.SPOTIFY_CLASSES.unsyncedMessage}`;
     header.setAttribute('data-encore-id', 'text');
     header.dir = 'auto';
     header.textContent = "These lyrics aren't synced to the song yet.";
@@ -302,11 +325,18 @@ window.slySetupSyncButton = function (lyricsObj: Record<string, unknown>): void 
   if (!syncBtn) {
     syncBtn = document.createElement('button');
     syncBtn.id = 'sly-sync-button';
-    syncBtn.className = `encore-text-body-medium-bold ${window.SPOTIFY_CLASSES.btnPrimary}`;
+    const encorePrefix = window.SPOTIFY_CLASSES.btnPrimaryInner.match(/e-\d+-/)?.[0] || 'e-10860-';
+    const mediumButtonClass = `${encorePrefix}legacy-button--medium`;
+    const uniqueClasses = (...classNames: string[]) => [...new Set(classNames.flatMap(value => value.split(/\s+/).filter(Boolean)))].join(' ');
+    syncBtn.className = uniqueClasses(
+      'encore-text-body-medium-bold',
+      window.SPOTIFY_CLASSES.btnPrimary,
+      mediumButtonClass,
+    );
     syncBtn.innerHTML = `
-            <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES.btnPrimaryInner} encore-inverted-light-set e-10451-legacy-button--medium e-10451-button--leading">
-                <span aria-hidden="true" class="e-10451-button__icon-wrapper">
-                    <svg data-encore-id="icon" role="img" aria-hidden="true" class="e-10451-icon" viewBox="0 0 24 24" style="--encore-icon-height: var(--encore-graphic-size-decorative-base); --encore-icon-width: var(--encore-graphic-size-decorative-base);">
+            <span class="${uniqueClasses(window.SPOTIFY_CLASSES.btnPrimaryInner, mediumButtonClass, `${encorePrefix}button--leading`, 'encore-inverted-light-set')}">
+                <span aria-hidden="true" class="${encorePrefix}button__icon-wrapper">
+                    <svg data-encore-id="icon" role="img" aria-hidden="true" class="${encorePrefix}icon" viewBox="0 0 24 24" style="--encore-icon-height: var(--encore-graphic-size-decorative-base); --encore-icon-width: var(--encore-graphic-size-decorative-base);">
                         <path d="M12 0a1 1 0 0 1 1 1v22a1 1 0 1 1-2 0V1a1 1 0 0 1 1-1m5 4a1 1 0 0 1 1 1v14a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1M1 9v6a1 1 0 1 0 2 0V9a1 1 0 1 0-2 0m20 6V9a1 1 0 1 1 2 0v6a1 1 0 1 1-2 0M8 5a1 1 0 0 0-2 0v14a1 1 0 1 0 2 0z"></path>
                     </svg>
                 </span>

@@ -119,7 +119,8 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
   let lastBoundMain: Element | null = null;
   let mainReplacementObserver: MutationObserver | null = null;
 
-  // 2. Viewport Observer: Watches <main> for lyrics line mounts and pill removals
+  // 2. Viewport Observer: Watches lyrics panel for line mounts and pill removals.
+  // 2026 UI: panel lives in aside sidebar, not main. Observe both.
   function setupViewportObserver(mainEl: Element) {
     if (mainObserver) mainObserver.disconnect();
     lastBoundMain = mainEl;
@@ -168,6 +169,21 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
       subtree: true,
     });
 
+    // 2026 UI: lyrics panel is under DIV#main/DIV#root with --lyrics-color vars,
+    // not <main> tag. Observe themed container too so panel mounts fire.
+    const themedPanel = document.querySelector('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)');
+    if (themedPanel && themedPanel !== mainEl) {
+      try {
+        mainObserver.observe(themedPanel, { childList: true, subtree: true });
+      } catch {}
+    }
+    const appRoot = document.querySelector('div#root');
+    if (appRoot && appRoot !== mainEl && appRoot !== themedPanel) {
+      try {
+        mainObserver.observe(appRoot, { childList: true, subtree: true });
+      } catch {}
+    }
+
     // Check if the lines already exist at setup time
     const lines = mainEl.querySelectorAll('[data-testid="lyrics-line"]');
     const hasExisting = Array.from(lines).some(l => !l.closest('#lyrics-root-sync'));
@@ -196,10 +212,11 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
   }
 
   // 3. Bootstrap Watcher: safely binds targeted observers once DOM target containers are loaded
+  // 2026 UI: lyrics panel lives under DIV#main > DIV#root, not <main> tag.
   function bootstrap() {
     if (!checkContext()) return;
 
-    const mainEl = document.querySelector('main');
+    const mainEl = document.querySelector('div#main') ?? document.querySelector('main');
     const barEl = document.querySelector('[data-testid="now-playing-bar"]');
 
     if (mainEl && barEl) {
@@ -247,7 +264,7 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
 
   masterObserver.connectViewport = () => {
     if (mainObserver) return; // already connected
-    const mainEl = document.querySelector('main');
+    const mainEl = document.querySelector('div#main') ?? document.querySelector('main');
     if (mainEl) {
       setupViewportObserver(mainEl);
       console.log('[sly-perf] Viewport Observer connected dynamically.');

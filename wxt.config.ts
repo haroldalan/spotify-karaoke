@@ -2,11 +2,13 @@ import { defineConfig } from 'wxt';
 import preact from '@preact/preset-vite';
 import removeConsole from 'vite-plugin-remove-console';
 
+const keepDebugLogs = process.env.SLY_DEBUG === '1';
+
 export default defineConfig({
   vite: (configEnv) => ({
     plugins: [
       preact(),
-      ...(configEnv.mode === 'production' ? [removeConsole({ includes: ['debug', 'info', 'log', 'table', 'group', 'groupCollapsed', 'groupEnd'] })] : []),
+      ...(configEnv.mode === 'production' && !keepDebugLogs ? [removeConsole({ includes: ['debug', 'info', 'log', 'table', 'group', 'groupCollapsed', 'groupEnd'] })] : []),
     ],
     optimizeDeps: {
       include: ['@indic-transliteration/sanscript'],

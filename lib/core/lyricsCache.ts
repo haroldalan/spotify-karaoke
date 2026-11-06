@@ -155,7 +155,12 @@ export async function loadSongCache(
         cache.original = [...entry.original];
     }
 
+    const sourceHash = hashString(cache.original.join('|'));
     for (const [lang, processed] of Object.entries(entry.processed)) {
+        if ((processed as any)?.sourceHash !== sourceHash) {
+          console.warn(`[SKaraoke:Content] loadSongCache: Rejecting legacy/stale processed result for ${lang}; source hash is missing or mismatched.`);
+          continue;
+        }
         cache.processed.set(lang, processed as any);
     }
 

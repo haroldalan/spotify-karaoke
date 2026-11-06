@@ -58,15 +58,12 @@ document.addEventListener('pointerdown', (e: Event) => {
     const label = btn.getAttribute('aria-label');
     console.log(`[sly-audit] 🖱️ Lyrics Button Pointerdown captured. IsPressed: ${isPressed}, Provider: ${provider}, Label: "${label}"`);
 
-    // R2-Bug3 Fix: Always hijack CLOSE actions (isPressed === true).
-    // Spotify's native close handler calls history.back(). If the user opened
-    // a new tab directly at /lyrics, there's no previous history entry, so
-    // history.back() exits the tab entirely to the browser's new tab page.
-    // The old guard (provider === null || label === 'Lyrics') only covered
-    // no-lyrics songs; for songs WITH a provider, the hijack was skipped
-    // and Spotify's destructive native handler ran.
-    // The bypass is only safe for OPEN actions — Spotify's native open is harmless.
-    const shouldHijack = isPressed || provider === null || label === 'Lyrics';
+    // 2026 UI (fiber-verified): lyrics-button fiber chain carries only generic
+    // onClick handlers (depths 8-11), no toggleLyrics/onToggle. The bridge's
+    // omniscient search therefore traps a generic mode:"panel" toggle — invoking
+    // it opens the wrong sidebar tab (queue). Native onClick opens lyrics correctly.
+    // Rule: hijack CLOSE only (isPressed). Never hijack OPEN; let native onClick run.
+    const shouldHijack = isPressed;
     if (shouldHijack) {
       // SLY FIX: Even if the button is already pressed, we MUST hijack the event.
       // Letting Spotify handle the "close" naturally is what triggers the New Tab Page redirect

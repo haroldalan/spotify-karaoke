@@ -18,6 +18,10 @@ export const FetchEngine = {
   triggerFetch(title: string, artist: string, albumArtUrl: string, uri: string, forceRefresh = false, album?: string, duration?: number) {
     // 1. Validation & Throttle
     if (!uri || uri === 'ad' || uri === 'N/A') return;
+    if (!forceRefresh && slyInternalState.failedFetchUris?.has(uri)) {
+      console.info(`[FetchEngine] ⏭️ Automatic retry suppressed for ${uri}; use Retry Fetch to try again.`);
+      return;
+    }
     if (!forceRefresh && (slyInternalState.fetchingForUri.has(uri) || (slyInternalState.lastUri === uri && slyInternalState.currentLyrics?.lines))) return;
 
     // Use MetadataEngine to ensure we have valid fields
@@ -26,6 +30,7 @@ export const FetchEngine = {
 
     if (forceRefresh) {
       slyInternalState.fetchGeneration++;
+      slyInternalState.failedFetchUris?.delete(uri);
     }
 
     const myGeneration = slyInternalState.fetchGeneration;
@@ -210,6 +215,7 @@ export const FetchEngine = {
     setLoadingState(false);
     slyInternalState.fetchingForTitle = ''; // BUG-F1 Fix: Clear title flag immediately
     slyInternalState.fetchingForUri.delete(uri);
+    slyInternalState.failedFetchUris?.add(uri);
     console.warn(`[FetchEngine] ❌ FAILURE: "${title}" — no lyrics found.`);
 
     // Check for native stand-down

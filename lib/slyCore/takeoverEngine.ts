@@ -45,10 +45,16 @@ export const TakeoverEngine = {
     
     // 2. PRE-INJECTION MIRRORING (Sync)
     // We do this BEFORE any async yields to eliminate the "background flash".
+    // 2026 UI: themed container is DIV[style*="--lyrics-color-active"] under DIV#root.
+    // Refresh classes while native full-panel markup is still present. The NPV
+    // preview has a different tree and must never seed the custom renderer's layout.
+    if (typeof sly.slyScavengeClasses === 'function') sly.slyScavengeClasses();
     const root: HTMLElement | null = sly.slyPrepareContainer?.();
-    const nativeRef = document.querySelector(
+    const nativeRef = (document.querySelector(
+      'div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'
+    ) ?? document.querySelector(
       `main.${sly.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${sly.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
-    ) as HTMLElement | null;
+    )) as HTMLElement | null;
 
     if (root) {
       store.godState = 'PIPELINE_A';
@@ -70,10 +76,12 @@ export const TakeoverEngine = {
 
     // 4. PANEL OPEN VALIDATION
     // If the user closed the panel during the 1-frame async yield, abort.
+    // 2026 UI: panel is an aside overlay, pathname no longer changes to /lyrics.
     const btn = document.querySelector('[data-testid="lyrics-button"]');
     const isReallyOpen = btn?.getAttribute('data-active') === 'true' || 
                          btn?.getAttribute('aria-pressed') === 'true' || 
-                         location.pathname.includes('/lyrics');
+                         location.pathname.includes('/lyrics') ||
+                         !!document.querySelector('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]');
 
     if (!isReallyOpen) {
       console.log('[TakeoverEngine] ⏹️ CANCELLED: Panel closed during render stabilization.');
@@ -132,10 +140,12 @@ export const TakeoverEngine = {
 
     console.log('[TakeoverEngine] 🧹 Synchronously purging custom container.');
     
-    // 1. Restore native container visibility
-    const nativeRef = document.querySelector(
+    // 1. Restore native container visibility (themed DIV first, legacy main fallback)
+    const nativeRef = (document.querySelector(
+      `div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)`
+    ) ?? document.querySelector(
       `main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`
-    ) as HTMLElement | null;
+    )) as HTMLElement | null;
     
     if (nativeRef) {
       nativeRef.style.display = '';
