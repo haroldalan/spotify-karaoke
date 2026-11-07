@@ -1,6 +1,6 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/dom-engine.js
-export {};
+import { getThemedPanelContainer, isLyricsButtonActive, isPreviewLine } from '../dom/domQueries';
 /* modules/dom-engine.js: sly DOM Construction & Theme Engine */
 
 /* Note: SPOTIFY_CLASSES and slyScavengeClasses have been moved to scavenger.ts */
@@ -13,11 +13,86 @@ declare global {
     slyMirrorNativeTheme: (root: HTMLElement, lyricsObj: Record<string, unknown>, nativeReference: HTMLElement | null) => void;
     slyBuildLyricsList: (root: HTMLElement, lyricsObj: Record<string, unknown>) => void;
     slySetupSyncButton: (lyricsObj: Record<string, unknown>) => void;
+    slyGetLayoutHost: () => HTMLElement | null;
+    slyTagLayoutHost: (...classNames: string[]) => HTMLElement | null;
+    slyUntagLayoutHost: (...classNames: string[]) => void;
+    slyGetNativePanel: () => HTMLElement | null;
+    slyGetEncorePrefix: () => string;
     // Forward refs from ui.js (not yet ported — guarded in source)
     slyParseLRC?: (lrc: string) => { time: number; text: string }[];
     slyUpdateSync?: () => void;
   }
 }
+
+const SLY_LAYOUT_CLASSES = ['sly-active', 'sly-hud-active'];
+
+/** The element we last put a layout class on, so cleanup can untag that exact node
+ *  even if React has since unmounted the themed container. */
+let slyTaggedLayoutHost: HTMLElement | null = null;
+
+/**
+ * K11: the element that carries the "sly-active" / "sly-hud-active" layout classes.
+ * 2026 UI: the themed panel container's parent (the overlay slot that also holds
+ * #lyrics-root-sync). Legacy UI: main.<mainContainer>, only when no themed container exists.
+ */
+export function slyGetLayoutHost(): HTMLElement | null {
+  const themed = getThemedPanelContainer() as HTMLElement | null;
+  if (themed?.parentElement) return themed.parentElement;
+  return document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
+}
+
+/** Adds layout classes to the K11 element and remembers it for cleanup. */
+export function slyTagLayoutHost(...classNames: string[]): HTMLElement | null {
+  const host = slyGetLayoutHost();
+  if (!host) return null;
+  if (slyTaggedLayoutHost && slyTaggedLayoutHost !== host) {
+    // The slot moved (panel re-mounted): our classes move with it, so only one node carries them.
+    const carry = SLY_LAYOUT_CLASSES.filter(c => slyTaggedLayoutHost!.classList.contains(c));
+    slyTaggedLayoutHost.classList.remove(...SLY_LAYOUT_CLASSES);
+    if (carry.length) host.classList.add(...carry);
+  }
+  host.classList.add(...classNames);
+  slyTaggedLayoutHost = host;
+  return host;
+}
+
+/** Removes layout classes (default: all of ours) from the K11 element and from the node we tagged. */
+export function slyUntagLayoutHost(...classNames: string[]): void {
+  const names = classNames.length ? classNames : SLY_LAYOUT_CLASSES;
+  const current = slyGetLayoutHost();
+  current?.classList.remove(...names);
+  if (slyTaggedLayoutHost) {
+    slyTaggedLayoutHost.classList.remove(...names);
+    if (!SLY_LAYOUT_CLASSES.some(c => slyTaggedLayoutHost!.classList.contains(c))) slyTaggedLayoutHost = null;
+  }
+}
+
+/** The native lyrics container we hide while our root is up: themed panel first, legacy selector as fallback. */
+export function slyGetNativePanel(): HTMLElement | null {
+  return ((getThemedPanelContainer() as HTMLElement | null) ??
+    document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`)) as HTMLElement | null;
+}
+
+/**
+ * Encore class prefix (e.g. "e-101040-") of the running Spotify build, read from a live
+ * [data-encore-id] element. Falls back to the scavenged button classes, then e-101040- (2026-11).
+ */
+export function slyGetEncorePrefix(): string {
+  const prefixRe = /(?:^|\s)(e-\d+-)/;
+  for (const el of Array.from(document.querySelectorAll('[data-encore-id]'))) {
+    // getAttribute: className is an SVGAnimatedString on <svg data-encore-id="icon">.
+    const m = (el.getAttribute('class') || '').match(prefixRe);
+    if (m) return m[1];
+  }
+  const scavenged = `${window.SPOTIFY_CLASSES?.btnPrimaryInner || ''} ${window.SPOTIFY_CLASSES?.btnPrimary || ''}`.match(prefixRe);
+  return scavenged?.[1] || 'e-101040-';
+}
+
+window.slyGetLayoutHost = slyGetLayoutHost;
+window.slyTagLayoutHost = slyTagLayoutHost;
+window.slyUntagLayoutHost = slyUntagLayoutHost;
+window.slyGetNativePanel = slyGetNativePanel;
+window.slyGetEncorePrefix = slyGetEncorePrefix;
 
 /**
  * Creates a single line of lyrics (synced or unsynced).
@@ -64,21 +139,18 @@ window.slyInjectCoreStyles = function (): void {
  * Prepares the main #lyrics-root-sync container.
  */
 window.slyPrepareContainer = function (): HTMLElement | null {
-  // 2026 UI (clean-DOM verified): panel lives under DIV#main > DIV#root, themed
+  // 2026 UI (clean-DOM verified): panel lives under DIV#main > [data-testid="root"], themed
   // container carries --lyrics-color-*. Never use <main> tag or NPV aside.
   // Return null unless the lyrics panel is actually open (button active or
   // panel lines present) — otherwise HUD/takeover fires in NPV on startup.
-  const btn = document.querySelector('[data-testid="lyrics-button"]');
-  const btnActive = btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true';
-  const themed = Array.from(
-    document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)')
-  ).filter(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView'))[0] as HTMLElement | null;
+  const btnActive = isLyricsButtonActive();
+  const themed = getThemedPanelContainer() as HTMLElement | null;
   const hasPanelLines = !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-    .find(el => !el.closest('#lyrics-root-sync') && !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer'));
+    .find(el => !el.closest('#lyrics-root-sync') && !isPreviewLine(el));
   if (!btnActive && !themed && !hasPanelLines) return null;
   if (!btnActive && !themed) return null;
   const rootParent = (themed?.parentElement ??
-    document.querySelector('div#root') ??
+    document.querySelector('[data-testid="root"]') ??
     document.querySelector('div#main') ??
     document.querySelector(`main.${window.SPOTIFY_CLASSES.mainContainer}`)) as HTMLElement | null;
   if (!rootParent) return null;
@@ -100,7 +172,10 @@ window.slyPrepareContainer = function (): HTMLElement | null {
   } else if (root.parentElement !== rootParent) {
     rootParent.appendChild(root);
   }
-  rootParent.classList.add('sly-active');
+  // K11: layout state lives on the themed container's parent (legacy: main.<mainContainer>).
+  slyTagLayoutHost('sly-active');
+  // Single source of truth for slyUpdateSync / scroll tracking (was never assigned).
+  if (window.slyInternalState) window.slyInternalState.customRoot = root;
   return root;
 };
 
@@ -310,8 +385,17 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   root.appendChild(foot);
 
   // BUG-27 Fix: Ensure the sync loop starts when a new list is constructed.
+  // Only one chain may run: a live chain always parks its pending frame id in
+  // syncAnimFrame, so cancel it before starting the new one.
   if (isSynced && typeof window.slyUpdateSync === 'function') {
-    requestAnimationFrame(window.slyUpdateSync);
+    const st = window.slyInternalState;
+    if (st?.syncAnimFrame) cancelAnimationFrame(st.syncAnimFrame);
+    if (window.antigravitySyncAnimFrame && window.antigravitySyncAnimFrame !== st?.syncAnimFrame) {
+      cancelAnimationFrame(window.antigravitySyncAnimFrame);
+    }
+    const frameId = requestAnimationFrame(window.slyUpdateSync);
+    if (st) st.syncAnimFrame = frameId;
+    window.antigravitySyncAnimFrame = frameId;
   }
 };
 
@@ -325,7 +409,7 @@ window.slySetupSyncButton = function (lyricsObj: Record<string, unknown>): void 
   if (!syncBtn) {
     syncBtn = document.createElement('button');
     syncBtn.id = 'sly-sync-button';
-    const encorePrefix = window.SPOTIFY_CLASSES.btnPrimaryInner.match(/e-\d+-/)?.[0] || 'e-10860-';
+    const encorePrefix = slyGetEncorePrefix();
     const mediumButtonClass = `${encorePrefix}legacy-button--medium`;
     const uniqueClasses = (...classNames: string[]) => [...new Set(classNames.flatMap(value => value.split(/\s+/).filter(Boolean)))].join(' ');
     syncBtn.className = uniqueClasses(

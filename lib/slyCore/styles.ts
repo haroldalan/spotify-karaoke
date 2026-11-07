@@ -56,8 +56,10 @@ export function slyGetCoreStyles(): string {
             /* Inherit native layout unless HUD is active */
         }
 
-        /* Lock main parent scrolling and force layout ONLY when HUD (Loading/Error) is active */
-        main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}.sly-hud-active {
+        /* Lock the layout host's scrolling and force layout ONLY when HUD (Loading/Error) is active.
+           The host is the themed lyrics panel's parent (legacy UI: main.<mainContainer>), so this
+           is keyed on our own class only, not on a Spotify tag/class. */
+        .sly-hud-active {
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;

@@ -22,18 +22,35 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
   paddingLineHelper: 'aLaX8poOH8kdbmGf',
   footerGrid:        'T0IQrE6mvz4Fs7rc',
   errorContainer:    'hfTlyhd7WCIk9xmP',
-  // Encore version bump: e-10451 (2025) -> e-10860 (2026). Scavenger auto-learns
-  // live classes, these defaults only matter before first scavenge.
-  btnPrimary:        'e-10860-legacy-button e-10860-legacy-button-primary',
-  btnPrimaryInner:   'e-10860-button-primary__inner',
-  btnSecondary:      'e-10860-legacy-button e-10860-legacy-button-secondary',
-  btnSecondaryInner: 'e-10860-button-secondary__inner',
+  // Encore prefix as of 2026-11 is e-101040-; realignEncorePrefix() rewrites these to the
+  // live build's prefix on every scavenge, so the value here only matters before that.
+  btnPrimary:        'e-101040-legacy-button e-101040-legacy-button-primary',
+  btnPrimaryInner:   'e-101040-button-primary__inner',
+  btnSecondary:      'e-101040-legacy-button e-101040-legacy-button-secondary',
+  btnSecondaryInner: 'e-101040-button-secondary__inner',
   topSpacer:         'nIWoY9ePLgi1am10',
   footerInner1:      'KBRwz1uoWl0AAEsT',
   footerInner2:      'g5l1TSALoQMUlKhS',
 };
 
 window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
+
+const ENCORE_PREFIX_RE = /(?:^|\s)(e-\d+-)/;
+const BUTTON_CLASS_KEYS = ['btnPrimary', 'btnPrimaryInner', 'btnSecondary', 'btnSecondaryInner'] as const;
+
+/** Rewrites stale e-NNNNN- prefixes in the button class defaults to the prefix of the running build. */
+export function realignEncorePrefix(): void {
+  let live: string | null = null;
+  for (const el of Array.from(document.querySelectorAll('[data-encore-id]'))) {
+    const m = (el.getAttribute('class') || '').match(ENCORE_PREFIX_RE);
+    if (m) { live = m[1]; break; }
+  }
+  if (!live) return;
+  for (const key of BUTTON_CLASS_KEYS) {
+    const current = window.SPOTIFY_CLASSES[key];
+    if (typeof current === 'string') window.SPOTIFY_CLASSES[key] = current.replace(/\be-\d+-/g, live);
+  }
+}
 
 // Helper to strip directional icon classes that cause asymmetrical padding
 const sanitizeBtn = (cls: string) => cls.split(' ')
@@ -55,6 +72,11 @@ const sanitizeBtn = (cls: string) => cls.split(' ')
 export const slyScavengeClasses = function (): void {
   console.log('[sly-scavenger] Inspecting DOM for class updates...');
 
+  // Encore bumps its class prefix often (e-10451 -> e-10860 -> e-101040 within 2025-26).
+  // Re-prefix the button defaults to the live build's prefix so HUD/Sync buttons keep
+  // Spotify's styling even when no live button is found to learn from below.
+  realignEncorePrefix();
+
   // Helper: Find the hashed class in a list. 
   // Spotify hashes are usually 8+ chars and alphanumeric. Utilities often have dashes.
   const findHash = (list: DOMTokenList, fallbackIdx = 0) => 
@@ -74,7 +96,7 @@ export const slyScavengeClasses = function (): void {
   const nativeContainer = Array.from(
     document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)')
   )
-    .filter(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer'))
+    .filter(el => !el.closest('#Desktop_PanelContainer_Id, [data-testid="lyrics-npv-section"], aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer'))
     .sort((a, b) => b.querySelectorAll('[data-testid="lyrics-line"]').length - a.querySelectorAll('[data-testid="lyrics-line"]').length)[0] as HTMLElement | undefined;
   
   if (nativeContainer) {

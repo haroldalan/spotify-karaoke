@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { slyInternalState, spotifyState } from './state';
-import { getNowPlayingTrackId } from '../dom/domQueries';
+import { getNowPlayingTrackId, isLyricsButtonActive } from '../dom/domQueries';
+import { slyGetNativePanel, slyUntagLayoutHost } from './domEngine';
 
 /**
  * TakeoverEngine: The orchestrator for the "0ms Swap" and DOM injection.
@@ -45,16 +46,13 @@ export const TakeoverEngine = {
     
     // 2. PRE-INJECTION MIRRORING (Sync)
     // We do this BEFORE any async yields to eliminate the "background flash".
-    // 2026 UI: themed container is DIV[style*="--lyrics-color-active"] under DIV#root.
+    // 2026 UI: themed container is DIV[style*="--lyrics-color-active"] in the overlay (no DIV#root exists).
     // Refresh classes while native full-panel markup is still present. The NPV
     // preview has a different tree and must never seed the custom renderer's layout.
     if (typeof sly.slyScavengeClasses === 'function') sly.slyScavengeClasses();
     const root: HTMLElement | null = sly.slyPrepareContainer?.();
-    const nativeRef = (document.querySelector(
-      'div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'
-    ) ?? document.querySelector(
-      `main.${sly.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${sly.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`
-    )) as HTMLElement | null;
+    // Full-panel themed container (NPV preview excluded); legacy main selector as fallback.
+    const nativeRef = slyGetNativePanel();
 
     if (root) {
       store.godState = 'PIPELINE_A';
@@ -76,12 +74,9 @@ export const TakeoverEngine = {
 
     // 4. PANEL OPEN VALIDATION
     // If the user closed the panel during the 1-frame async yield, abort.
-    // 2026 UI: panel is an aside overlay, pathname no longer changes to /lyrics.
-    const btn = document.querySelector('[data-testid="lyrics-button"]');
-    const isReallyOpen = btn?.getAttribute('data-active') === 'true' || 
-                         btn?.getAttribute('aria-pressed') === 'true' || 
-                         location.pathname.includes('/lyrics') ||
-                         !!document.querySelector('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]');
+    // 2026 UI: the panel is an overlay, pathname no longer changes to /lyrics (kept as a legacy OR).
+    // NPV preview lines in the aside do NOT mean the panel is open.
+    const isReallyOpen = isLyricsButtonActive() || location.pathname.startsWith('/lyrics');
 
     if (!isReallyOpen) {
       console.log('[TakeoverEngine] ⏹️ CANCELLED: Panel closed during render stabilization.');
@@ -141,11 +136,7 @@ export const TakeoverEngine = {
     console.log('[TakeoverEngine] 🧹 Synchronously purging custom container.');
     
     // 1. Restore native container visibility (themed DIV first, legacy main fallback)
-    const nativeRef = (document.querySelector(
-      `div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)`
-    ) ?? document.querySelector(
-      `main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`
-    )) as HTMLElement | null;
+    const nativeRef = slyGetNativePanel();
     
     if (nativeRef) {
       nativeRef.style.display = '';
@@ -153,10 +144,11 @@ export const TakeoverEngine = {
       nativeRef.style.visibility = 'visible';
     }
 
-    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
-    if (main) main.classList.remove('sly-active');
+    // K11: sly-active lives on the themed panel's parent (legacy fallback: main.<mainContainer>).
+    slyUntagLayoutHost('sly-active');
 
     // 2. Remove custom root
     root.remove();
+    if (slyInternalState.customRoot === root) slyInternalState.customRoot = null;
   }
 };

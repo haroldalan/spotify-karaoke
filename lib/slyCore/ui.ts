@@ -3,6 +3,8 @@
 import { MetadataEngine } from './metadataEngine';
 import { StatusEngine } from './statusEngine';
 import { purgeSlyDOM } from '../dom/lyricsDOM';
+import { isLyricsButtonActive } from '../dom/domQueries';
+import { slyGetLayoutHost, slyGetNativePanel, slyUntagLayoutHost } from './domEngine';
 export {};
 /* modules/core/ui.js: Synchronized Lyrics UI Controller */
 /* Note: findMediaRecursively, slySeekTo, and slyGetPlaybackSeconds have been moved to modules/playback-engine.js */
@@ -120,8 +122,13 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
     purgeSlyDOM();
   }
 
+  if (!isTakeoverHit) {
+    // K11: layout classes live on the themed panel's parent (legacy fallback: main.<mainContainer>).
+    slyUntagLayoutHost('sly-active', 'sly-hud-active');
+  }
   const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
   if (main && !isTakeoverHit) {
+    // Legacy <main>: also drop classes older code paths may still put here.
     main.classList.remove('sly-active');
     main.classList.remove('sly-hud-active');
     main.style.display = '';
@@ -133,10 +140,8 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
     asidePanel.classList.remove('sly-hud-active');
   }
 
-  // 3. Restore Spotify Native UI visibility (themed DIV first, legacy main fallback)
-  const containerClass = window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x';
-  const nativeContainer = (document.querySelector(`div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)`) ??
-    document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${containerClass}:not(#lyrics-root-sync)`)) as HTMLElement | null;
+  // 3. Restore Spotify Native UI visibility (full-panel themed DIV first, legacy main fallback)
+  const nativeContainer = slyGetNativePanel();
   if (nativeContainer && !isTakeoverHit) {
     nativeContainer.style.display = '';
     nativeContainer.style.opacity = '';
@@ -172,10 +177,9 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
       preFetch.state === 'MISSING' ||
       preFetch.state === 'UNSYNCED'
     );
-    const isOnLyricsPage = window.location.pathname === '/lyrics' ||
-                           window.location.pathname.startsWith('/lyrics') ||
-                           document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true' ||
-                           !!document.querySelector('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]');
+    // Panel open = lyrics button active (2026 overlay); /lyrics route kept as a legacy OR.
+    // NPV preview lines in the aside do NOT mean the panel is open.
+    const isOnLyricsPage = isLyricsButtonActive() || window.location.pathname.startsWith('/lyrics');
 
     if (isMissingOrUnsynced && isOnLyricsPage) {
       const meta = MetadataEngine.getNowPlaying();
@@ -212,8 +216,11 @@ window.slyUpdateSyncButton = function (): void {
 
   // Self-Destruct Guard: If the lyrics panel was closed (either by our cleanup or
   // by React unmounting the full-page route), this button is an orphan. Remove it.
+  // customRoot is now assigned by slyPrepareContainer; ignore it once it is detached so
+  // an orphaned button still self-destructs after the root is removed.
+  const storedRoot = window.slyInternalState.customRoot as HTMLElement | null;
   const lyricsRoot = (document.getElementById('lyrics-root-sync') as HTMLElement | null)
-    ?? (window.slyInternalState.customRoot as HTMLElement | null);
+    ?? (storedRoot?.isConnected ? storedRoot : null);
   if (!lyricsRoot) {
     syncBtn.remove();
     return;
@@ -235,7 +242,7 @@ window.slyUpdateSyncButton = function (): void {
     // Use lyricsRoot calculated at the top for viewport rect math.
     const viewportRect =
       lyricsRoot?.closest('[data-overlayscrollbars-viewport]')?.getBoundingClientRect()
-      ?? document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`)?.getBoundingClientRect()
+      ?? slyGetLayoutHost()?.getBoundingClientRect()
       ?? (lyricsRoot ?? activeEl).getBoundingClientRect();
 
     const screenBottom = window.innerHeight;
@@ -262,6 +269,9 @@ window.slyUpdateSyncButton = function (): void {
 window.slyUpdateSync = function (): void {
   const localRef = window.slyUpdateSync;
 
+  // GHOST LOOP PROTECTION: stop if the extension context was invalidated (mirrors slyUpdateSyncButton).
+  if (typeof browser === 'undefined' || !browser.runtime?.id) return;
+
   // Yield to Pipeline B's syncedLyricsRenderer when it's active.
   // Without this, both RAF loops would fight over className on the same elements.
   // BUG-27 Fix: Always reschedule the next frame even when yielding, so the loop
@@ -275,7 +285,14 @@ window.slyUpdateSync = function (): void {
   }
 
   const currentLyrics = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
-  if (!currentLyrics || !currentLyrics.isSynced || !window.slyInternalState.customRoot) {
+  // Resolve the live custom root: the one in the document wins over a stale stored reference.
+  const storedRoot = window.slyInternalState.customRoot as HTMLElement | null;
+  const customRoot = (document.getElementById('lyrics-root-sync') as HTMLElement | null)
+    ?? (storedRoot?.isConnected ? storedRoot : null);
+  if (customRoot && storedRoot !== customRoot) window.slyInternalState.customRoot = customRoot;
+  const lines = currentLyrics?.lines as { time: number; text: string }[] | undefined;
+  const domElements = currentLyrics?.domElements as HTMLElement[] | undefined;
+  if (!currentLyrics || !currentLyrics.isSynced || !customRoot || !Array.isArray(lines) || !Array.isArray(domElements)) {
     // V4 Fix: Always reschedule even when conditions aren't met. Without this,
     // a transient null (e.g. customRoot briefly null during track transition)
     // kills the loop permanently and synced lyrics never animate again.
@@ -288,15 +305,14 @@ window.slyUpdateSync = function (): void {
   // SLY FIX (BUG-M18): If the global reference changed (re-inject), terminate this ghost loop.
   if (localRef !== window.slyUpdateSync) return;
 
-  const btn = document.querySelector('[data-testid="lyrics-button"]');
-  const isPanelOpen = btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true';
-  if (document.visibilityState !== 'visible' || !isPanelOpen || window.slyInternalState.customRoot.style.display === 'none') {
+  const isPanelOpen = isLyricsButtonActive() || window.location.pathname.startsWith('/lyrics');
+  if (document.visibilityState !== 'visible' || !isPanelOpen || customRoot.style.display === 'none') {
     window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
     return;
   }
 
-  const listObj = window.slyInternalState.customRoot.querySelector(`.${window.SPOTIFY_CLASSES.lyricsList}`);
-  const wrapperObj = window.slyInternalState.customRoot.querySelector(`.${window.SPOTIFY_CLASSES.wrapper}`);
+  const listObj = customRoot.querySelector(`.${window.SPOTIFY_CLASSES.lyricsList}`);
+  const wrapperObj = customRoot.querySelector(`.${window.SPOTIFY_CLASSES.wrapper}`);
 
   if (!listObj || !wrapperObj) {
     window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
@@ -305,14 +321,12 @@ window.slyUpdateSync = function (): void {
 
   const t = window.slyGetPlaybackSeconds();
   let activeIndex = 0;
-  const lines = currentLyrics.lines as { time: number; text: string }[];
   for (let i = 0; i < lines.length; i++) {
     if (t >= lines[i].time) activeIndex = i;
     else break;
   }
 
   const previousIndex = window.slyInternalState.lastActiveIndex;
-  const domElements = currentLyrics.domElements as HTMLElement[];
   if (activeIndex !== window.slyInternalState.lastActiveIndex) {
     domElements.forEach((el, i) => {
       if (i === activeIndex) {

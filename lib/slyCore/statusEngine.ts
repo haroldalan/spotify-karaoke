@@ -1,5 +1,10 @@
 // @ts-nocheck
 import { slyInternalState } from './state';
+import { slyGetNativePanel, slyTagLayoutHost, slyUntagLayoutHost, slyGetEncorePrefix } from './domEngine';
+import { NOW_PLAYING_WIDGET } from '../dom/domQueries';
+
+/** The native container show() hid, so clear() can give back exactly that element. */
+let hudHiddenNativeRef: HTMLElement | null = null;
 
 /**
  * StatusEngine: Manages the lifecycle of the extension's Status HUD.
@@ -15,10 +20,9 @@ export const StatusEngine = {
     const root = window.slyPrepareContainer();
     if (!root) return;
 
-    // 1. Theme Mirroring (2026 UI: themed DIV under DIV#root, not main tag)
-    const nativeRef = (document.querySelector('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)') ??
-      document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`)) as HTMLElement | null;
-    
+    // 1. Theme Mirroring (2026 UI: full-panel themed DIV, NPV preview excluded; legacy main selector as fallback)
+    const nativeRef = slyGetNativePanel();
+
     // Check sessionStorage for late-arriving or persistent theme colors
     const sessionKey = `sly_theme_${metadata?.albumArtUrl}`;
     const l0Color = metadata?.albumArtUrl ? sessionStorage.getItem(sessionKey) : null;
@@ -29,11 +33,13 @@ export const StatusEngine = {
                            (slyInternalState.currentLyrics as Record<string, any> | null)?.extractedColor;
 
     window.slyMirrorNativeTheme(root, { extractedColor }, nativeRef);
-    
-    // SLY FIX: Explicitly mark the main container as HUD-active to trigger layout locking.
+    // slyMirrorNativeTheme hid nativeRef; remember it so clear() restores this exact node.
+    if (nativeRef) hudHiddenNativeRef = nativeRef;
+
+    // SLY FIX: Explicitly mark the layout host as HUD-active to trigger layout locking.
     // This replaces the finicky CSS :has() selector which was causing scroll-freeze in Firefox.
-    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
-    if (main) main.classList.add('sly-hud-active');
+    // K11: the host is the themed panel's parent (legacy fallback: main.<mainContainer>).
+    slyTagLayoutHost('sly-hud-active');
 
     // 2. HUD Construction
     let hud = document.getElementById('sly-status-hud');
@@ -52,7 +58,7 @@ export const StatusEngine = {
 
     let domArtUrl = '';
     try {
-      const img = document.querySelector('[data-testid="now-playing-widget"] img') as HTMLImageElement | null;
+      const img = (document.querySelector(`${NOW_PLAYING_WIDGET.split(', ').map(s => `${s} img`).join(', ')}`)) as HTMLImageElement | null;
       if (img && img.src) {
         domArtUrl = img.src;
       }
@@ -107,13 +113,13 @@ export const StatusEngine = {
     }
 
     if (isAd) {
-      const containerToObserve = document.querySelector('aside[aria-label="Now playing view"], [data-testid="now-playing-widget"]') || document.body;
+      const containerToObserve = document.querySelector(`#Desktop_PanelContainer_Id, aside[aria-label="Now playing view"], ${NOW_PLAYING_WIDGET}`) || document.body;
       
       const observer = new MutationObserver(() => {
         let currentDomArtUrl = '';
         try {
-          const img = (document.querySelector('[data-testid="now-playing-widget"] img') ||
-                       document.querySelector('aside[aria-label="Now playing view"] img[data-testid="cover-art-image"]') ||
+          const img = (document.querySelector(NOW_PLAYING_WIDGET.split(', ').map(s => `${s} img`).join(', ')) ||
+                       document.querySelector('#Desktop_PanelContainer_Id img[data-testid="cover-art-image"], aside[aria-label="Now playing view"] img[data-testid="cover-art-image"]') ||
                        document.querySelector('[data-testid="cover-art-image"]') ||
                        document.querySelector('.NowPlayingView img')) as HTMLImageElement | null;
           if (img && img.src) {
@@ -143,39 +149,65 @@ export const StatusEngine = {
 
   /**
    * Clears the Status HUD and restores native UI visibility.
+   *
+   * Accepts the legacy `preserveState` boolean or an options object.
+   * `restoreNative: false` (HUD → takeover handoff): remove only the HUD node and the
+   * sly-hud-active lock. #lyrics-root-sync, sly-active and the hidden native panel stay,
+   * so Spotify's panel does not flash while the takeover is built. The hidden-panel
+   * reference is kept too: if the takeover never renders lines, a later clear() still
+   * gives that panel back.
    */
-  clear(preserveState = false): void {
+  clear(opts: boolean | { preserveState?: boolean; restoreNative?: boolean } = false): void {
+    const { preserveState = false, restoreNative = true } =
+      typeof opts === 'boolean' ? { preserveState: opts } : (opts ?? {});
+
     if (window.slyAdObserver) {
       window.slyAdObserver.disconnect();
       window.slyAdObserver = null;
     }
 
     const hud = document.getElementById('sly-status-hud');
-    
-    if (hud) {
+    const hiddenNativeRef = hudHiddenNativeRef;
+
+    if (!restoreNative) {
+      if (hud) {
+        console.log('[StatusEngine] 🧹 Removing HUD for takeover handoff (native panel stays hidden).');
+        hud.remove();
+      }
+      slyUntagLayoutHost('sly-hud-active');
+    } else if (hud || hiddenNativeRef) {
+      // hiddenNativeRef also covers a HUD that was wiped by a rebuild of #lyrics-root-sync
+      // (slyBuildLyricsList empties the root) but whose native panel is still hidden.
       console.log(`[StatusEngine] 🧹 Clearing HUD and restoring native visibility (Preserve State: ${preserveState}).`);
 
-      // Restore native container
-      const nativeRef = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`) as HTMLElement | null;
-      if (nativeRef) nativeRef.style.display = '';
-
-      const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
-      if (main) {
-        main.classList.remove('sly-active');
-        main.classList.remove('sly-hud-active');
-      }
-
-      hud.remove();
+      if (hud) hud.remove();
 
       // Clean up empty sync shell
       const root = document.getElementById('lyrics-root-sync');
-      if (root && !root.querySelector('[data-testid="lyrics-line"]')) {
+      const rootHasLines = !!root?.querySelector('[data-testid="lyrics-line"]');
+      if (root && !rootHasLines) {
         // SLY FIX: Rescue the mode pill before nuking the container
         const pill = document.getElementById('sly-mode-pill');
         if (pill) document.body.appendChild(pill);
-        
+
         root.remove();
+        if (slyInternalState.customRoot === root) slyInternalState.customRoot = null;
       }
+
+      // The HUD is gone: release the layout lock (K11 element).
+      slyUntagLayoutHost('sly-hud-active');
+
+      // Restore native container — only when no custom lyrics are on screen. If a
+      // takeover already rendered lines into #lyrics-root-sync, it owns the hiding.
+      if (!rootHasLines) {
+        const targets = new Set<HTMLElement>();
+        if (hiddenNativeRef?.isConnected) targets.add(hiddenNativeRef);
+        const current = slyGetNativePanel();
+        if (current) targets.add(current);
+        targets.forEach(el => { el.style.display = ''; });
+        slyUntagLayoutHost('sly-active');
+      }
+      hudHiddenNativeRef = null;
     }
 
     if (!preserveState) {
@@ -196,13 +228,15 @@ export const StatusEngine = {
       lrcLibUrl.searchParams.set('duration', metadata.duration.toString());
     }
     
+    // Encore prefix of the running build (e.g. "e-10860-"), read from a live [data-encore-id] element.
+    const ep = slyGetEncorePrefix();
     return `
       <div class="sly-hud-cta-wrapper" style="display: flex; gap: 12px; margin-top: 16px; justify-content: flex-start; flex-wrap: wrap;">
-        <a id="sly-hud-lrc-btn" href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnPrimary || 'e-10451-legacy-button e-10451-legacy-button-primary'}">
-          <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnPrimaryInner || 'e-10451-button-primary__inner'} encore-inverted-light-set e-10451-legacy-button--medium">Add lyrics to LRCLIB</span>
+        <a id="sly-hud-lrc-btn" href="${lrcLibUrl.toString()}" target="_blank" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnPrimary || `${ep}legacy-button ${ep}legacy-button-primary`}">
+          <span class="${ep}overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnPrimaryInner || `${ep}button-primary__inner`} encore-inverted-light-set ${ep}legacy-button--medium">Add lyrics to LRCLIB</span>
         </a>
-        <a id="sly-hud-retry-btn" href="#" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnSecondary || 'e-10451-legacy-button e-10451-legacy-button-secondary'}" style="cursor: pointer; transition: transform 0.2s ease; text-decoration: none;">
-          <span class="e-10451-overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnSecondaryInner || 'e-10451-button-secondary__inner'} e-10451-legacy-button--medium">Retry Fetch</span>
+        <a id="sly-hud-retry-btn" href="#" class="encore-text-body-medium-bold ${window.SPOTIFY_CLASSES?.btnSecondary || `${ep}legacy-button ${ep}legacy-button-secondary`}" style="cursor: pointer; transition: transform 0.2s ease; text-decoration: none;">
+          <span class="${ep}overflow-wrap-anywhere ${window.SPOTIFY_CLASSES?.btnSecondaryInner || `${ep}button-secondary__inner`} ${ep}legacy-button--medium">Retry Fetch</span>
         </a>
       </div>
     `;

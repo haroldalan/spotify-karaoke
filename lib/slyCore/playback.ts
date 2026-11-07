@@ -10,9 +10,125 @@ declare global {
   }
 }
 
+/** Upper bound on wall-clock extrapolation beyond the last progress-bar update (seconds). */
+const MAX_EXTRAPOLATION_SEC = 1.5;
+/** Locale-independent play state: the raw position moved forward within this window (ms). */
+const MOTION_WINDOW_MS = 1500;
+/** Forward jumps larger than this are seeks, not playback ticks (Spotify ticks about every 1000 ms). */
+const MAX_TICK_ADVANCE_MS = 3000;
+
 let lastExtrapolatedTime = 0;
 let lastRecordWallTime = 0;
 let lastIsPlaying = false;
+// Set by slyResetPlaybackExtrapolator(): the next reading must re-baseline even if the
+// new track's position happens to equal the old baseline (e.g. both 0:00).
+let forceRebaseline = true;
+
+/** Where a raw player-bar reading came from. Only 'test-position' is free of the transition lead. */
+type RawPositionSource = 'test-position' | 'value' | 'transform';
+interface RawPosition {
+  ms: number;
+  source: RawPositionSource;
+}
+
+// Motion tracking for isPlaybackPlaying(): the last raw reading and the wall time it last advanced.
+let lastRawMs: number | null = null;
+let lastRawSource: RawPositionSource | null = null;
+let lastRawAdvanceWall = -Infinity;
+
+/** Spotify's hidden seek slider (2026: min=0, max=<duration ms>, step=5000). */
+function getProgressInput(): HTMLInputElement | null {
+  return document.querySelector('[data-testid="playback-progressbar"] input[type="range"]') as HTMLInputElement | null;
+}
+
+/** Reads a finite, non-negative number from an attribute; null when absent or invalid. */
+function numericAttr(el: Element | null | undefined, name: string): number | null {
+  const raw = el?.getAttribute(name);
+  if (raw === null || raw === undefined || raw.trim() === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Records a raw reading. A small forward step from the same source counts as playback
+ * motion; backward jumps and large forward jumps (seeks) do not.
+ */
+function trackRawMotion(raw: RawPosition, now: number): void {
+  if (lastRawMs !== null && raw.source === lastRawSource) {
+    const advanceMs = raw.ms - lastRawMs;
+    if (advanceMs > 0 && advanceMs <= MAX_TICK_ADVANCE_MS) lastRawAdvanceWall = now;
+  }
+  lastRawMs = raw.ms;
+  lastRawSource = raw.source;
+}
+
+/**
+ * Play state, independent of the UI language. Playing when any of these holds:
+ * - the player-bar position moved forward within the last MOTION_WINDOW_MS
+ *   (Spotify rewrites it about once a second while playing; see trackRawMotion);
+ * - 2026 UI: [data-testid="control-button-playpause"] has the English aria-label "Pause";
+ * - legacy UI: a dedicated [data-testid="control-button-pause"] exists.
+ * The English "Play" label means paused even if the position just moved (a seek, or the
+ * re-render at the moment of pausing). Other languages rely on the motion signal.
+ */
+function isPlaybackPlaying(now: number): boolean {
+  const playPause = document.querySelector('[data-testid="control-button-playpause"]');
+  const label = (playPause?.getAttribute('aria-label') || '').trim().toLowerCase();
+  if (label === 'pause') return true;
+  if (document.querySelector('[data-testid="control-button-pause"]')) return true;
+  if (label === 'play') return false;
+  return now - lastRawAdvanceWall < MOTION_WINDOW_MS;
+}
+
+/** CSS time value ("1000ms" / "1s") in milliseconds; 0 when absent. */
+function parseCssTimeMs(value: string): number {
+  const v = (value || '').trim();
+  const n = parseFloat(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return /ms$/i.test(v) ? n : (/s$/i.test(v) ? n * 1000 : n);
+}
+
+/**
+ * While playing, Spotify animates the bar towards a target one transition ahead: the slider's
+ * value attribute and --progress-bar-transform hold position + --progress-bar-duration (ms).
+ */
+function getProgressLeadMs(progressBar: HTMLElement | null): number {
+  return progressBar ? parseCssTimeMs(progressBar.style.getPropertyValue('--progress-bar-duration')) : 0;
+}
+
+/**
+ * Raw position in ms from Spotify's player bar, or null when nothing is readable.
+ * Never reads the range input's .value PROPERTY: the browser snaps it to step=5000.
+ */
+function readRawPosition(durSec: number): RawPosition | null {
+  const progressBar = document.querySelector('[data-testid="progress-bar"]') as HTMLElement | null;
+  const input = getProgressInput();
+
+  // a) --progress-bar-transform ratio × exact duration. The slider's max is the duration (ms)
+  //    from the same render as the transform, so prefer it for the product.
+  const transformStyle = progressBar?.style.getPropertyValue('--progress-bar-transform') || '';
+  const ratio = parseFloat(transformStyle.replace('%', '')) / 100;
+  const maxMs = numericAttr(input, 'max');
+  const transformMs = transformStyle && Number.isFinite(ratio)
+    ? ratio * (maxMs !== null && maxMs > 0 ? maxMs : durSec * 1000)
+    : null;
+
+  // b) The slider's value ATTRIBUTE: exact ms as written by React. Used when it agrees
+  //    with the transform (guards against a build that stops syncing the attribute).
+  const attrMs = numericAttr(input, 'value');
+  let slider: RawPosition | null = null;
+  if (attrMs !== null && (transformMs === null || Math.abs(attrMs - transformMs) <= 1500)) slider = { ms: attrMs, source: 'value' };
+  else if (transformMs !== null) slider = { ms: transformMs, source: 'transform' };
+
+  // c) Primary (2026-10/11): [data-testid="playback-duration"] data-test-position, the exact
+  //    current position WITHOUT the transition lead. Used when it agrees with the slider
+  //    within the lead + 1.5 s (guards against a stale attribute).
+  const testPosMs = numericAttr(document.querySelector('[data-testid="playback-duration"]'), 'data-test-position');
+  if (testPosMs !== null && (slider === null || Math.abs(slider.ms - testPosMs) <= getProgressLeadMs(progressBar) + 1500)) {
+    return { ms: testPosMs, source: 'test-position' };
+  }
+  return slider;
+}
 
 /**
  * Recursively searches for media elements within Shadow DOMs.
@@ -35,12 +151,17 @@ function findMediaRecursively(root: Document | ShadowRoot): HTMLMediaElement | n
 }
 
 /**
- * Robustly extracts the total duration of the current track.
- * Prioritizes Spotify internal metadata, falls back to DOM with toggle-awareness.
+ * Robustly extracts the total duration of the current track, in seconds (exact, not floored).
+ * Prioritizes Spotify internal metadata, then the seek slider's max (ms), then DOM text with toggle-awareness.
  */
 function getAbsoluteDuration(): number {
   const track = (window as any).spotifyState?.track;
-  if (track?.duration_ms) return Math.floor(track.duration_ms / 1000);
+  // 2026-11 bridge tracks use Spotify's item shape (duration: { milliseconds }); older ones use duration_ms.
+  const durationMs = Number(track?.duration?.milliseconds ?? track?.duration_ms);
+  if (Number.isFinite(durationMs) && durationMs > 0) return durationMs / 1000;
+
+  const sliderMaxMs = numericAttr(getProgressInput(), 'max');
+  if (sliderMaxMs !== null && sliderMaxMs > 0) return sliderMaxMs / 1000;
 
   const durationEl = document.querySelector('[data-testid="playback-duration"]');
   const positionEl = document.querySelector('[data-testid="playback-position"]');
@@ -75,18 +196,33 @@ window.slySeekTo = function (time: number): void {
   console.log(`[sly-playback] Seek requested to ${time.toFixed(2)}s — trying layers...`);
 
   // LAYER 1: React State Bridge (Hidden Range Input)
-  const playbackContainer = document.querySelector('[data-testid="playback-progressbar"]');
-  const nativeInput = playbackContainer?.querySelector('input[type="range"]') as HTMLInputElement | null;
+  // The 2026 slider has step=5000: the browser would round "47820" to "50000" before
+  // React's onChange reads it. Lift the step for the synchronous write + dispatch,
+  // then put it back.
+  const nativeInput = getProgressInput();
   if (nativeInput) {
+    const prevStep = nativeInput.getAttribute('step');
     try {
-      const valMs = Math.round(time * 1000);
+      const min = numericAttr(nativeInput, 'min') ?? 0;
+      const max = numericAttr(nativeInput, 'max');
+      let valMs = Math.max(min, Math.round(time * 1000));
+      if (max !== null && max > 0) valMs = Math.min(valMs, max);
+
+      nativeInput.setAttribute('step', 'any');
       nativeInput.value = String(valMs);
-      nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
-      nativeInput.dispatchEvent(new Event('change', { bubbles: true }));
-      console.log(`[sly-playback] Seek OK via Layer 1 (hidden range input)`);
-      return;
+      const applied = Math.abs(Number(nativeInput.value) - valMs) < 1;
+      if (applied) {
+        nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
+        nativeInput.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log(`[sly-playback] Seek OK via Layer 1 (hidden range input, ${valMs}ms)`);
+        return;
+      }
+      console.warn(`[sly-playback] Layer 1 could not apply ${valMs}ms (input reads ${nativeInput.value}) — trying next layer.`);
     } catch (e) {
       console.warn(`[sly-playback] Layer 1 failed:`, e);
+    } finally {
+      if (prevStep === null) nativeInput.removeAttribute('step');
+      else nativeInput.setAttribute('step', prevStep);
     }
   }
 
@@ -127,33 +263,42 @@ window.slySeekTo = function (time: number): void {
  * Includes wall-clock extrapolation for smooth sub-second updates between Spotify UI refreshes.
  */
 window.slyGetPlaybackSeconds = function (): number {
-  const progressBar = document.querySelector('[data-testid="progress-bar"]');
-  if (!progressBar) return 0;
-
-  // 1. Extract base percentage from CSS transform
-  const transformStyle = (progressBar as HTMLElement).style.getPropertyValue('--progress-bar-transform');
-  const percentStr = transformStyle ? transformStyle.replace('%', '') : '0';
-  const posRatio = parseFloat(percentStr) / 100;
-
-  // 2. Extract duration from metadata or UI text
+  // 1. Exact duration (ms precision) from metadata, slider max or UI text
   const durSec = getAbsoluteDuration();
 
-  const baselineUiTime = posRatio * durSec;
-  const isPlaying = !!document.querySelector('[data-testid="control-button-pause"]');
+  // 2. Raw position from the player bar (exact; never the step-snapped slider .value).
+  //    Its motion drives the language-independent play state.
+  const raw = readRawPosition(durSec);
+  if (raw === null) return 0;
   const now = performance.now();
+  trackRawMotion(raw, now);
+  const isPlaying = isPlaybackPlaying(now);
+
+  // The slider value / transform run one --progress-bar-duration ahead while playing; remove
+  // that lead so extrapolation does not run early. data-test-position carries no lead.
+  let baselineUiTime = raw.ms / 1000;
+  if (isPlaying && raw.source !== 'test-position') {
+    const leadMs = getProgressLeadMs(document.querySelector('[data-testid="progress-bar"]') as HTMLElement | null);
+    if (leadMs > 0) baselineUiTime = Math.max(0, baselineUiTime - leadMs / 1000);
+  }
 
   // 3. Extrapolate if playing
   // We only reset the baseline if Spotify's UI has moved significantly (>50ms)
   // OR if we just transitioned from pause to play (prevents pause-duration time warp).
   const isTransitioningToPlay = isPlaying && !lastIsPlaying;
-  if (Math.abs(baselineUiTime - lastExtrapolatedTime) > 0.05 || !isPlaying || isTransitioningToPlay) {
+  if (forceRebaseline || Math.abs(baselineUiTime - lastExtrapolatedTime) > 0.05 || !isPlaying || isTransitioningToPlay) {
     lastExtrapolatedTime = baselineUiTime;
     lastRecordWallTime = now;
+    forceRebaseline = false;
   }
   lastIsPlaying = isPlaying;
 
-  const timeDiff = isPlaying ? (now - lastRecordWallTime) / 1000 : 0;
-  return lastExtrapolatedTime + timeDiff;
+  // Spotify rewrites the progress bar about once a second. Never extrapolate further than
+  // MAX_EXTRAPOLATION_SEC past the last observed position: if the stream stalls while the
+  // button still says "Pause", the lyrics hold instead of racing ahead.
+  const timeDiff = isPlaying ? Math.min((now - lastRecordWallTime) / 1000, MAX_EXTRAPOLATION_SEC) : 0;
+  const position = lastExtrapolatedTime + timeDiff;
+  return durSec > 1 ? Math.min(position, durSec) : position;
 };
 
 /**
@@ -164,5 +309,10 @@ window.slyGetPlaybackSeconds = function (): number {
  */
 window.slyResetPlaybackExtrapolator = function (): void {
   lastExtrapolatedTime = 0;
-  lastRecordWallTime = 0; // forces |baselineUiTime - 0| > 0.05 → immediate reset
+  lastRecordWallTime = 0;
+  lastIsPlaying = false;
+  forceRebaseline = true; // next read re-baselines even if the new position is also 0:00
+  lastRawMs = null; // the old track's motion must not mark the new one as playing
+  lastRawSource = null;
+  lastRawAdvanceWall = -Infinity;
 };
