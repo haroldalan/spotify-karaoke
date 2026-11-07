@@ -2,6 +2,7 @@ import { isContextValid, safeBrowserCall } from '../utils/browserUtils';
 import { hashString } from '../utils/hashUtils';
 import type { SongCache, LyricsCacheEntry, LyricsIndex, UnifiedSongCacheEntry } from './lyricsTypes';
 import { isUnifiedSongCacheEntry } from './lyricsTypes';
+import { getStoredEntryDefect } from './processedCache';
 
 const RUNTIME_CACHE_MAX = 50; // BUG-15: Increased from 10
 const PERSISTED_CACHE_MAX = 200;
@@ -23,6 +24,22 @@ function writeSessionCache(songKey: string, entry: LyricsCacheEntry): void {
   } catch {
     // sessionStorage quota exceeded or unavailable (private browsing edge cases) — ignore.
   }
+}
+
+/** Removes every sessionStorage mirror entry this module owns (sly_proc:*). Used by the K7 cache reset. */
+export function clearSessionProcessedCache(): number {
+  let removed = 0;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith('sly_proc:')) keys.push(k);
+    }
+    keys.forEach(k => { sessionStorage.removeItem(k); removed++; });
+  } catch {
+    // sessionStorage unavailable — nothing to clear.
+  }
+  return removed;
 }
 
 /**
@@ -161,6 +178,13 @@ export async function loadSongCache(
           console.warn(`[SKaraoke:Content] loadSongCache: Rejecting legacy/stale processed result for ${lang}; source hash is missing or mismatched.`);
           continue;
         }
+        // Self-heal entries poisoned by older builds (e.g. a failed translation
+        // saved as the original text, or misaligned arrays).
+        const defect = getStoredEntryDefect(cache.original, lang, processed as any);
+        if (defect) {
+          console.warn(`[SKaraoke:Content] loadSongCache: Rejecting stored processed result for ${lang}: ${defect}.`);
+          continue;
+        }
         cache.processed.set(lang, processed as any);
     }
 
@@ -188,8 +212,13 @@ export async function saveSongCache(
   const existingEntry = runtimeCache.get(key);
   let entry: UnifiedSongCacheEntry;
 
+  // K1: never persist a failed translation or a result flagged in-session
+  // (transient); those stay in memory only and are retried next session.
   const processedObj: Record<string, any> = {};
-  cache.processed.forEach((val, lang) => { processedObj[lang] = val; });
+  cache.processed.forEach((val, lang) => {
+    if (val?.transient || val?.translationFailed) return;
+    processedObj[lang] = val;
+  });
 
   const currentHash = hashString(cache.original.join('|'));
 

@@ -1,4 +1,4 @@
-import { getNowPlayingKey } from './domQueries';
+import { getNowPlayingKey, getThemedPanelContainer, getAppRoot, getViewportRoot, getLyricsLines, isPreviewLine, NOW_PLAYING_WIDGET } from './domQueries';
 import { isContextValid } from '../utils/browserUtils';
 import { CONTROLS_ID } from './lyricsControls';
 
@@ -63,7 +63,7 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
         if (
           mut.type === 'attributes' &&
           mut.attributeName === 'aria-label' &&
-          (mut.target as Element).matches('[data-testid="now-playing-widget"]')
+          (mut.target as Element).matches(NOW_PLAYING_WIDGET)
         ) {
           opts.onSongChange(getNowPlayingKey());
         }
@@ -94,9 +94,9 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
         if (mut.type === 'childList') {
           for (const node of mut.addedNodes) {
             if (!(node instanceof Element)) continue;
-            const widget = node.matches('[data-testid="now-playing-widget"]')
+            const widget = node.matches(NOW_PLAYING_WIDGET)
               ? node
-              : node.querySelector('[data-testid="now-playing-widget"]');
+              : node.querySelector(NOW_PLAYING_WIDGET);
             if (widget) {
               const key = widget.getAttribute('aria-label') ?? '';
               if (key) opts.onSongChange(key);
@@ -120,7 +120,7 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
   let mainReplacementObserver: MutationObserver | null = null;
 
   // 2. Viewport Observer: Watches lyrics panel for line mounts and pill removals.
-  // 2026 UI: panel lives in aside sidebar, not main. Observe both.
+  // 2026 UI: bound to div#main, which holds the lyrics overlay (not the <main> tag).
   function setupViewportObserver(mainEl: Element) {
     if (mainObserver) mainObserver.disconnect();
     lastBoundMain = mainEl;
@@ -142,6 +142,9 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
             node.querySelector('[data-testid="lyrics-line"]')
           ) {
             if (node.closest('#lyrics-root-sync')) continue;
+            // div#main also contains the Now Playing view preview card; its line
+            // mounts are not the lyrics panel.
+            if (isPreviewLine(node)) continue;
             lyricsFoundInBatch = true;
           }
         }
@@ -169,25 +172,25 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
       subtree: true,
     });
 
-    // 2026 UI: lyrics panel is under DIV#main/DIV#root with --lyrics-color vars,
-    // not <main> tag. Observe themed container too so panel mounts fire.
-    const themedPanel = document.querySelector('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)');
-    if (themedPanel && themedPanel !== mainEl) {
+    // 2026 UI: the lyrics panel is under div#main > [data-testid="root"] (themed
+    // container with --lyrics-color vars), not under the <main> tag. Both are
+    // inside div#main, so they only need their own registration when the
+    // observer is bound to something else (legacy <main> fallback).
+    const themedPanel = getThemedPanelContainer();
+    if (themedPanel && !mainEl.contains(themedPanel)) {
       try {
         mainObserver.observe(themedPanel, { childList: true, subtree: true });
       } catch {}
     }
-    const appRoot = document.querySelector('div#root');
-    if (appRoot && appRoot !== mainEl && appRoot !== themedPanel) {
+    const appRoot = getAppRoot();
+    if (appRoot && !mainEl.contains(appRoot) && appRoot !== themedPanel) {
       try {
         mainObserver.observe(appRoot, { childList: true, subtree: true });
       } catch {}
     }
 
-    // Check if the lines already exist at setup time
-    const lines = mainEl.querySelectorAll('[data-testid="lyrics-line"]');
-    const hasExisting = Array.from(lines).some(l => !l.closest('#lyrics-root-sync'));
-    if (hasExisting) {
+    // Check if the panel lines already exist at setup time (preview lines excluded)
+    if (getLyricsLines().length > 0) {
       opts.onLyricsInjected();
     }
 
@@ -201,10 +204,14 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
           mainReplacementObserver = null;
           return;
         }
-        const currentMain = document.querySelector('main');
-        if (currentMain && currentMain !== lastBoundMain) {
-          console.log('[sly-perf] <main> element was replaced by SPA navigation. Re-binding viewport observer.');
-          setupViewportObserver(currentMain);
+        // Only re-bind a viewport observer that is meant to be connected
+        // (disconnectViewport nulls mainObserver while the panel is closed), and
+        // only when the bound root was really replaced or detached.
+        if (!mainObserver) return;
+        const currentRoot = getViewportRoot();
+        if (currentRoot && (currentRoot !== lastBoundMain || !lastBoundMain?.isConnected)) {
+          console.log('[sly-perf] Viewport root was replaced by SPA navigation. Re-binding viewport observer.');
+          setupViewportObserver(currentRoot);
         }
       });
       mainReplacementObserver.observe(document.body, { childList: true });
@@ -212,11 +219,11 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
   }
 
   // 3. Bootstrap Watcher: safely binds targeted observers once DOM target containers are loaded
-  // 2026 UI: lyrics panel lives under DIV#main > DIV#root, not <main> tag.
+  // 2026 UI: lyrics panel lives under div#main > [data-testid="root"], not the <main> tag.
   function bootstrap() {
     if (!checkContext()) return;
 
-    const mainEl = document.querySelector('div#main') ?? document.querySelector('main');
+    const mainEl = getViewportRoot();
     const barEl = document.querySelector('[data-testid="now-playing-bar"]');
 
     if (mainEl && barEl) {
@@ -233,7 +240,7 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
     // If targets are not ready, observe document.body solely for target mounts
     if (!bootstrapObserver) {
       bootstrapObserver = new MutationObserver(() => {
-        const currentMain = document.querySelector('main');
+        const currentMain = getViewportRoot();
         const currentBar = document.querySelector('[data-testid="now-playing-bar"]');
         if (currentMain && currentBar) {
           setupPlaybackObserver(currentBar);
@@ -258,13 +265,15 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
     if (mainObserver) {
       mainObserver.disconnect();
       mainObserver = null;
+      lastBoundMain = null;
       console.log('[sly-perf] Viewport Observer disconnected dynamically.');
     }
   };
 
   masterObserver.connectViewport = () => {
-    if (mainObserver) return; // already connected
-    const mainEl = document.querySelector('div#main') ?? document.querySelector('main');
+    const mainEl = getViewportRoot();
+    // Already connected to the live viewport root.
+    if (mainObserver && lastBoundMain?.isConnected && lastBoundMain === mainEl) return;
     if (mainEl) {
       setupViewportObserver(mainEl);
       console.log('[sly-perf] Viewport Observer connected dynamically.');

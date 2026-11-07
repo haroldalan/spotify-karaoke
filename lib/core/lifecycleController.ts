@@ -1,8 +1,9 @@
 import { safeBrowserCall } from '../utils/browserUtils';
 import { hashString } from '../utils/hashUtils';
-import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId } from '../dom/domQueries';
+import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId, getSlyLayoutHost, isPreviewLine } from '../dom/domQueries';
 import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
+import { getStoredEntryDefect, resolveProcessed } from './processedCache';
 import { deleteSongCache, loadSongCache, saveSongCache, warmRuntimeCacheFromSession } from './lyricsCache';
 import { injectControls, syncButtonStates, setLoadingState, setButtonsDisabled, CONTROLS_ID } from '../dom/lyricsControls';
 import { parkPill } from '../dom/pillStateManager';
@@ -47,6 +48,31 @@ export function auditOriginalLyrics(store: StateStore): void {
 
 const getTrackUri = () => (spotifyState?.track as { uri?: string } | null)?.uri;
 
+/** K11: true while Pipeline A owns the panel (layout class on the K11 host and its root mounted). */
+const isSlyLayoutActive = (): boolean =>
+  !!getSlyLayoutHost()?.classList.contains('sly-active') && !!document.getElementById('lyrics-root-sync');
+
+/** K11: drop our layout classes from the K11 host (and from wherever Pipeline A last put them). */
+const clearSlyLayoutClasses = (...classNames: string[]): void => {
+  getSlyLayoutHost()?.classList.remove(...classNames);
+  (window as any).slyUntagLayoutHost?.(...classNames);
+};
+
+/**
+ * True while Pipeline A is genuinely working on the current track: a HUD is up,
+ * an external fetch is in flight, or it holds (or failed to find) lyrics for it.
+ * A godState of FETCHING/FAILED/AD without any of these is a stale leftover
+ * (e.g. StatusEngine.clear() ran without a sly:state event).
+ */
+export const isPipelineALive = (): boolean => {
+  const sly = slyInternalState as any;
+  const hudLive = !!document.getElementById('sly-status-hud') || !!sly.statusHUDActive || !!sly.isAdHUDActive || !!sly.isFetchingHUD;
+  const fetchLive = (sly.fetchingForUri?.size ?? 0) > 0 || !!sly.fetchingForTitle;
+  const cl = sly.currentLyrics;
+  const lyricsLive = !!cl && (!cl._slyUri || cl._slyUri === getTrackUri());
+  return hudLive || fetchLive || lyricsLive;
+};
+
 export interface LifecycleControllerOpts {
   store: StateStore;
   switchMode: (m: LyricsMode, forceLang?: string, suppressLoading?: boolean) => Promise<void>;
@@ -68,13 +94,35 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       if (result.sourceHash !== expectedSourceHash) {
         console.warn(`[sly-lifecycle] 🧹 Rejecting cached ${lang} output: it was generated from different/missing source lyrics.`);
         cache.processed.delete(lang);
+        continue;
+      }
+      const defect = getStoredEntryDefect(cache.original, lang, result);
+      if (defect) {
+        console.warn(`[sly-lifecycle] 🧹 Rejecting cached ${lang} output: ${defect}.`);
+        cache.processed.delete(lang);
       }
     }
   }
+  /**
+   * Applies native lines that arrived before the panel rendered. Passes the
+   * playing track id (not the song key, which never matched). The applied lines
+   * become the canonical text for this track, so the hash guards keep the
+   * cache built from them.
+   */
+  function applyPendingNativeOverride(): boolean {
+    const trackId = getNowPlayingTrackId();
+    if (!trackId) return false;
+    if (!applyNativeOverride(trackId, { cache: opts.store.cache, pendingNativeLines: opts.store.pendingNativeLines })) return false;
+    const appliedHash = hashString(opts.store.cache.original.join('|'));
+    opts.store.canonicalHashes.set(trackId, appliedHash);
+    opts.store.canonicalHash = appliedHash;
+    return true;
+  }
   function refreshSpotifyLyricsClasses(): void {
-    const previewSelector = 'aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer, [data-testid="now-playing-widget"]';
+    // Same exclusions as getLyricsLines (Now Playing view preview incl. #Desktop_PanelContainer_Id
+    // and [data-testid="lyrics-npv-section"], the bar and both widget testids).
     const firstNativeLine = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-      .find(el => !el.closest('#lyrics-root-sync') && !el.closest(previewSelector));
+      .find(el => !el.closest('#lyrics-root-sync') && !isPreviewLine(el));
     const liveList = firstNativeLine?.parentElement?.parentElement;
     const knownListClass = window.SPOTIFY_CLASSES?.lyricsList;
     if (liveList && knownListClass && !liveList.classList.contains(knownListClass) && typeof (window as any).slyScavengeClasses === 'function') {
@@ -125,13 +173,22 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     } else {
       // Heuristic path — used when state is not yet explicitly known.
       // Priority: Pipeline A inner list > native container > native shell.
-      const root = getLyricsViewRoot();
       const container = getLyricsContainer();
       const customInner = customRoot?.querySelector(`.${listCls}`);
       injectionTarget = (customInner ?? container) as HTMLElement | null;
-      const detection = window.slyDetectNativeState?.() ?? {};
-      const hasContent = detection.hasNativeLines || store.slyActiveContainer?.isConnected;
-      shouldShow = typeof stateCtx === 'boolean' ? (stateCtx && store.showPill) : (store.showPill && !!hasContent);
+      if (typeof stateCtx === 'boolean') {
+        shouldShow = stateCtx && store.showPill;
+      } else {
+        // Synchronous answer now (this runs before paint); slyDetectNativeState is
+        // async, so its verdict can only refine visibility afterwards.
+        const hasContent = getLyricsLines().length > 0 || !!store.slyActiveContainer?.isConnected;
+        shouldShow = store.showPill && hasContent;
+        if (!hasContent && store.showPill && typeof window.slyDetectNativeState === 'function') {
+          void window.slyDetectNativeState()
+            .then((detection: any) => { if (detection?.hasNativeLines) syncPill(true); })
+            .catch(() => {});
+        }
+      }
     }
 
     if (!injectionTarget) {
@@ -272,8 +329,10 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // Exception: native panel lines exist (user opened lyrics tab after an NPV
     // failure on the same song). Stale FAILED godState must not suppress the pill.
     if (store.godState === 'FETCHING' || store.godState === 'FAILED' || store.godState === 'AD' || slyInternalState.pendingLyricsData) {
-      const nativeLinesPresent = getLyricsLines().length > 0;
-      if (nativeLinesPresent && (store.godState === 'FAILED' || !slyInternalState.pendingLyricsData)) {
+      // Only a STALE HUD state may be bypassed: never a live FETCHING/AD HUD, an
+      // in-flight external fetch or lyrics Pipeline A holds for this track.
+      const staleHudState = getLyricsLines().length > 0 && !slyInternalState.pendingLyricsData && !isPipelineALive();
+      if (staleHudState) {
         console.log('[sly-lifecycle] ✅ Native panel lines present despite stale HUD state — proceeding (clearing stale HUD).');
         clearHUDFlags(store);
         store.godState = 'NATIVE_OK';
@@ -301,9 +360,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     }
 
     // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
-    if (document.querySelector('main.' + (window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS') + '.sly-active') ||
-        document.querySelector('aside[aria-label="Now playing view"].sly-active') ||
-        document.querySelector('aside.NowPlayingView.sly-active')) {
+    if (isSlyLayoutActive()) {
       console.log('[sly-lifecycle] 🚫 Bridge trySetup aborted: slyCore is active.');
       return;
     }
@@ -330,11 +387,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (fpPreferredMode !== 'original') {
       const fpLang = opts.store.currentActiveLang;
       const fpCache = opts.store.cache;
-      let fpProcessed = fpCache.processed.get(fpLang);
-      if (!fpProcessed && fpPreferredMode === 'romanized' && fpCache.processed.size > 0) {
-        const entries = Array.from(fpCache.processed.values());
-        fpProcessed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
-      }
+      let fpProcessed = resolveProcessed(fpCache.processed, fpLang, fpPreferredMode);
       if (fpProcessed) {
         // HASH VERIFICATION GUARD:
         if (opts.store.canonicalHash !== null) {
@@ -444,8 +497,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // Yield to Pipeline A if a HUD is active or lyrics data is pending.
       // Exception: native panel lines exist — stale FAILED must not suppress pill.
       if (store.godState === 'FETCHING' || store.godState === 'FAILED' || store.godState === 'AD' || slyInternalState.pendingLyricsData) {
-        const nativeLinesPresent = getLyricsLines().length > 0;
-        if (nativeLinesPresent && (store.godState === 'FAILED' || !slyInternalState.pendingLyricsData)) {
+        // Same rule as trySetup: bypass only a stale HUD state, never a live one.
+        const staleHudState = getLyricsLines().length > 0 && !slyInternalState.pendingLyricsData && !isPipelineALive();
+        if (staleHudState) {
           console.log('[sly-lifecycle] ✅ Native panel lines present despite stale HUD state — proceeding (clearing stale HUD).');
           clearHUDFlags(store);
           store.godState = 'NATIVE_OK';
@@ -469,8 +523,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
       // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
       // This prevents the Native pipeline from "stealing" the pill back from the Takeover container.
-      const mainCls = window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS';
-      if (opts.store.slyActiveContainer || document.querySelector(`main.${mainCls}.sly-active`) || document.querySelector('aside[aria-label="Now playing view"].sly-active') || document.getElementById('lyrics-root-sync')) {
+      if (opts.store.slyActiveContainer || isSlyLayoutActive() || document.getElementById('lyrics-root-sync')) {
         console.log('[sly-lifecycle] 🚫 Bridge syncSetup aborted: slyCore is active.');
         return;
       }
@@ -507,11 +560,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       const syncPreferredMode = opts.store.preferredMode;
       if (syncPreferredMode !== 'original') {
         const currentActiveLang = opts.store.currentActiveLang;
-        let processed = opts.store.cache.processed.get(currentActiveLang);
-        if (!processed && syncPreferredMode === 'romanized' && opts.store.cache.processed.size > 0) {
-          const entries = Array.from(opts.store.cache.processed.values());
-          processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
-        }
+        let processed = resolveProcessed(opts.store.cache.processed, currentActiveLang, syncPreferredMode);
 
         if (processed) {
           // HASH VERIFICATION GUARD:
@@ -532,8 +581,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         if (processed) {
           verifyAndHealCache(opts.store.cache);
           auditOriginalLyrics(opts.store);
-          applyNativeOverride(opts.store.songKey, { cache: opts.store.cache, pendingNativeLines: opts.store.pendingNativeLines });
+          if (applyPendingNativeOverride()) {
+            // Native lines replaced the source: entries built from the old lines no longer apply.
+            discardStaleProcessedCache(opts.store.cache);
+            processed = resolveProcessed(opts.store.cache.processed, currentActiveLang, syncPreferredMode);
+          }
+        }
 
+        if (processed) {
           lyricsObserver?.disconnect();
           lyricsObserver = createLyricsObserver({
             getIsApplying: () => opts.store.isApplying,
@@ -586,11 +641,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       if (spPreferredMode !== 'original') {
         const spLang = opts.store.currentActiveLang;
         const spCache = opts.store.cache;
-        let spProcessed = spCache.processed.get(spLang);
-        if (!spProcessed && spPreferredMode === 'romanized' && spCache.processed.size > 0) {
-          const entries = Array.from(spCache.processed.values());
-          spProcessed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
-        }
+        let spProcessed = resolveProcessed(spCache.processed, spLang, spPreferredMode);
         if (spProcessed) {
           // HASH VERIFICATION GUARD:
           if (opts.store.canonicalHash !== null) {
@@ -638,7 +689,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       verifyAndHealCache(opts.store.cache);
 
       auditOriginalLyrics(opts.store);
-      applyNativeOverride(opts.store.songKey, { cache: opts.store.cache, pendingNativeLines: opts.store.pendingNativeLines });
+      if (applyPendingNativeOverride()) discardStaleProcessedCache(opts.store.cache);
 
       // BUG-5 Fix: Only call loadSongCache if the processed map is still empty.
       // The synchronous runtimeCache pre-warm above (lines ~311-317) or the first
@@ -664,7 +715,18 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           if (opts.store.cache.original.length > 0) {
             console.log('[sly-lifecycle] BUG-10 retry: snapshot succeeded. Reloading cache with hash coherence.');
             loadSongCache(retryKey, opts.store.cache, opts.store.runtimeCache).then(() => {
-              opts.reapplyMode();
+              if (opts.store.songKey !== retryKey) return;
+              // A switch in flight (usually the one this syncSetup started) owns
+              // PROCESS: forcing another would supersede it and send PROCESS twice.
+              if (opts.store.isSwitchingMode) return;
+              // onSongChange reset mode to 'original', where reapplyMode only
+              // re-paints the originals: re-evaluate the preferred mode instead
+              // (unforced: keeps the failure backoff).
+              if (opts.store.mode === 'original' && opts.store.preferredMode !== 'original') {
+                opts.autoSwitchIfNeeded();
+              } else {
+                opts.reapplyMode();
+              }
             });
           }
         }, 500);
@@ -698,11 +760,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         // V17 Fix: Use opts.store.cache consistently instead of mixing with
         // the outer closure's 'cache' variable. They currently reference the same
         // object, but this is fragile if store.cache is ever reassigned.
-        let processed = opts.store.cache.processed.get(currentActiveLang);
-        if (!processed && preferredMode === 'romanized' && opts.store.cache.processed.size > 0) {
-          const entries = Array.from(opts.store.cache.processed.values());
-          processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
-        }
+        const processed = resolveProcessed(opts.store.cache.processed, currentActiveLang, preferredMode);
 
         if (processed) {
           opts.store.mode = preferredMode;
@@ -756,8 +814,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (attempts === 0) discoveryTime = performance.now();
 
     // Abort poll if slyCore is actively displaying custom lyrics.
-    const mainCls = (window as any).SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS';
-    if (document.getElementById('lyrics-root-sync') || document.querySelector(`main.${mainCls}.sly-active`) || document.querySelector('aside[aria-label="Now playing view"].sly-active')) {
+    if (document.getElementById('lyrics-root-sync') || isSlyLayoutActive()) {
       return;
     }
 
@@ -860,9 +917,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // Synchronously destroy the custom takeover container instantly on track skip
       // to eliminate the staggered unmount/delay for Takeover tracks.
       document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
-      document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`)?.classList.remove('sly-active');
-      document.querySelector('aside[aria-label="Now playing view"]')?.classList.remove('sly-active');
-      document.querySelector('aside[aria-label="Now playing view"]')?.classList.remove('sly-hud-active');
+      clearSlyLayoutClasses('sly-active', 'sly-hud-active');
     }
 
     // Revert the dual lyrics DOM to their single original native text
@@ -890,6 +945,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     store.mode = 'original';
     store.lyricsAppliedForKey = '';
     store.isSwitchingMode = false;
+    store.pendingUserSwitch = null; // a request deferred for the previous song
+    // A setup that hung on the previous track (e.g. awaiting cacheReadyPromise)
+    // must not block setups when its key comes round again. A lock already held
+    // for the NEW key is the caller's own (trySetup/syncSetup forcing this switch).
+    if (store.lockOwnerKey !== newKey) {
+      store.setupLock = false;
+      store.lockOwnerKey = null;
+    }
     store.romanizedGenRef.value++;
     store.translatedGenRef.value++;
     store.globalProcessGenRef.value++;
@@ -919,6 +982,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         for (const [lang, res] of Object.entries(runtimeEntry.processed)) {
           opts.store.cache.processed.set(lang, res);
         }
+        // Prewarmed entries never went through loadSongCache's checks: validate
+        // them before the immediate observer below can paint them.
+        discardStaleProcessedCache(opts.store.cache);
       }
 
       // IMMEDIATE OBSERVER (hot cache only): Wires up the lyricsObserver synchronously
@@ -1069,11 +1135,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     const currentActiveLang = opts.store.currentActiveLang;
 
     // Try runtimeCache first (populated for same-session repeats)
-    let processed = opts.store.cache.processed.get(currentActiveLang);
-    if (!processed && preferredMode === 'romanized' && opts.store.cache.processed.size > 0) {
-      const entries = Array.from(opts.store.cache.processed.values());
-      processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
-    }
+    let processed = resolveProcessed(opts.store.cache.processed, currentActiveLang, preferredMode);
 
     if (processed && opts.store.canonicalHash !== null) {
       const runtimeEntry = opts.store.runtimeCache.get(opts.store.songKey);
@@ -1093,14 +1155,12 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (!processed) {
       const runtimeEntry = opts.store.runtimeCache.get(songKey);
       if (runtimeEntry) {
-        const rp = runtimeEntry.processed;
-        const rpEntry = rp[currentActiveLang]
-          ?? (preferredMode === 'romanized'
-            ? Object.values(rp).find((e: any) => !e.isLowQualityRomanization) ?? Object.values(rp)[0]
-            : undefined);
+        const rpEntry = resolveProcessed(runtimeEntry.processed, currentActiveLang, preferredMode);
         const runtimeSourceHash = hashString(runtimeEntry.original.join('|'));
         if (rpEntry && rpEntry.sourceHash !== runtimeSourceHash) {
           console.warn('[sly-lifecycle] quickApply runtimeCache: rejecting processed result with missing/mismatched source hash.');
+        } else if (rpEntry && getStoredEntryDefect(runtimeEntry.original, currentActiveLang, rpEntry)) {
+          console.warn('[sly-lifecycle] quickApply runtimeCache: rejecting unusable processed result.');
         } else {
         if (opts.store.canonicalHash !== null) {
           const entryHash = runtimeEntry.originalHash ?? hashString(runtimeEntry.original.join('|'));
@@ -1122,6 +1182,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     if (!processed) return; // No data yet — syncSetup will handle it
 
     const lines = preferredMode === 'romanized' ? processed.romanized : processed.translated;
+    if (!Array.isArray(lines) || lines.length === 0) return;
     const dualEnabled = opts.store.dualLyricsEnabled;
     opts.store.mode = preferredMode;
     applyLinesToDOM(
@@ -1440,11 +1501,9 @@ export function setupSlyBridge(
       console.log(`[sly-lifecycle] 🔭 sly:release OBSERVER RE-TARGET (native track): ${lyricsObserver ? 'retargeted to live root ✅' : 'null (no live root yet) ⚠️'}`);
     }
 
-    // Unblock trySetup() immediately by removing the active flag from main/aside.
+    // Unblock trySetup() immediately by removing the active flag from the K11 host.
     // Prevents the "sly-active found, aborting" guard from skipping Song B's setup.
-    const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
-    if (main) main.classList.remove('sly-active');
-    document.querySelector('aside[aria-label="Now playing view"]')?.classList.remove('sly-active');
+    clearSlyLayoutClasses('sly-active');
 
     const e = performance.now();
     console.log(`[sly-lifecycle] -- Step 2.1: Bridge Release Logic (${(e - s).toFixed(2)}ms)`);
@@ -1490,5 +1549,36 @@ export function setupSlyBridge(
         syncPill(false); // HUD is active — hide the pill
       }
     }
+  });
+
+  // K4: the interceptor finished (SLY_INTERCEPT_END). While it was in flight the
+  // BUG-4 guard refused to snapshot/process Latin lines of a non-Latin song; now
+  // resume that pending switch. SLY_INTERCEPT_END is posted before Spotify renders
+  // the released response, so re-check once more after React had time to paint.
+  const resumePendingSwitch = () => {
+    if (slyInternalState.interceptorActive) return; // a new intercept started
+    const nothingOnScreen = () => getLyricsLines().length === 0 && !store.slyActiveContainer;
+    // S1: a request the guards refused comes first, like a click would: even with
+    // preferredMode 'original' or an automatic switch running.
+    const deferred = store.pendingUserSwitch;
+    if (deferred && deferred.songKey !== store.songKey) {
+      store.pendingUserSwitch = null;
+    } else if (deferred) {
+      if (nothingOnScreen()) return; // the 400 ms re-check replays it
+      store.pendingUserSwitch = null;
+      console.log(`[sly-lifecycle] ⚡ Interceptor settled. Replaying deferred "${deferred.mode}" switch.`);
+      switchMode(deferred.mode, deferred.lang).catch(() => {});
+      return;
+    }
+    if (store.preferredMode === 'original' || store.isSwitchingMode) return;
+    const pending = store.mode !== store.preferredMode || store.cache.original.length === 0;
+    if (!pending) return;
+    if (nothingOnScreen()) return; // nothing on screen yet
+    console.log('[sly-lifecycle] ⚡ Interceptor settled. Resuming pending mode switch.');
+    autoSwitchIfNeeded(true);
+  };
+  document.addEventListener('sly:interceptor_settled', () => {
+    resumePendingSwitch();
+    setTimeout(resumePendingSwitch, 400);
   });
 }

@@ -1,6 +1,7 @@
 import type { SongCache } from '../core/lyricsTypes';
-import { getLyricsLines, getNowPlayingKey } from './domQueries';
+import { getLyricsLines, getNowPlayingKey, NOW_PLAYING_WIDGET } from './domQueries';
 import { isLatinScript } from '../lyrics/scriptDetector';
+import { isLikelyRomanizedFallback } from '../lyrics/romanizedDetector';
 
 /**
  * Physically removes all extension-injected elements and attributes from the 
@@ -13,7 +14,7 @@ import { isLatinScript } from '../lyrics/scriptDetector';
 export function purgeSlyDOM(): void {
   console.log('[sly-purge] 🧹 Beginning DOM purge. Querying target elements...');
   const lines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"] > div'))
-    .filter(el => !el.closest('[data-testid="now-playing-bar"], footer, [data-testid="now-playing-widget"]'));
+    .filter(el => !el.closest(`[data-testid="now-playing-bar"], footer, ${NOW_PLAYING_WIDGET}`));
   console.log(`[sly-purge] 🧹 Found ${lines.length} elements to evaluate for purging.`);
   
   console.groupCollapsed(`[sly-purge] 🧹 Detailed elements purging evaluation (${lines.length} elements)`);
@@ -35,8 +36,6 @@ export function purgeSlyDOM(): void {
         console.log(`[sly-purge]   -> Pristine element. No actions needed.`);
       }
     }
-    // Also clear the active class if it survived
-    el.classList.remove('sly-active');
   });
   console.groupEnd();
 
@@ -80,18 +79,20 @@ export function snapshotOriginals(cache: SongCache): void {
   const hasContent = snapped.filter(l => l.trim().length > 0).length >= 3;
   if (!hasContent) return;
 
-  // BUG-4 Fix: Detect Spotify's own romanization before saving to cache.
-  // If the song's language is non-Latin (e.g., Japanese, Hindi, Korean) but the
-  // DOM text is entirely Latin script, Spotify is displaying romanized lyrics.
-  // Snapshotting these as "originals" poisons the cache permanently — the
-  // romanization API returns the same Latin text unchanged, all modes show
-  // identical text, and this corrupted entry survives refreshes.
-  // Refuse the snapshot so a later attempt (after Spotify renders native script,
-  // or after the interceptor provides canonical data) captures the correct text.
+  // BUG-4 guard: Spotify may be showing its own romanization of a non-Latin
+  // song. Refuse the snapshot ONLY while the interceptor is still trying to
+  // fetch the native script (between SLY_INTERCEPT_START and SLY_INTERCEPT_END);
+  // the 'sly:interceptor_settled' listener re-runs the pending mode switch.
+  // Once the interceptor has settled without an upgrade, the Latin lines on
+  // screen are the only lyrics there are: refusing them would leave
+  // cache.original empty and silently break Romanized/Translated.
+  // A late native upgrade (SKL_NATIVE_LYRICS late:true) still replaces them.
   const songLang = (window as any).spotifyState?.language as string | undefined;
-  const isNonLatinLang = songLang && (window as any).SLY_NATIVE_LANGUAGES?.has(songLang);
-  if (isNonLatinLang && isLatinScript(snapped)) {
-    console.warn(`[sly-snapshot] ⚠️ BUG-4 guard: DOM text is Latin but song language is "${songLang}" (non-Latin). Spotify is showing romanized lyrics. Refusing snapshot to prevent cache poisoning.`);
+  const isNonLatinLang = !!songLang && !!(window as any).SLY_NATIVE_LANGUAGES?.has(songLang);
+  const interceptorInFlight = !!(window as any).slyInternalState?.interceptorActive;
+  if (interceptorInFlight && isLatinScript(snapped) &&
+      (isNonLatinLang || isLikelyRomanizedFallback(snapped, songLang ?? null).romanized)) {
+    console.warn(`[sly-snapshot] ⚠️ BUG-4 guard: interceptor in flight and DOM text looks like a romanized fallback (language tag "${songLang}"). Waiting for the native upgrade before snapshotting.`);
     // Clean up the data-sly-original attributes we just set — they contain the wrong text.
     lines.forEach((el) => el.removeAttribute('data-sly-original'));
     return;
@@ -117,6 +118,26 @@ function normalizeText(text: string): string {
     .toLowerCase()
     .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()♪?…\s]/g, '')
     .trim();
+}
+
+/** Canonical form for duplicate checks: NFC, case-folded, without punctuation, symbols or whitespace. */
+function normalizeForCompare(text: string): string {
+  return text
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}\s]/gu, '');
+}
+
+/**
+ * True when a processed line differs from its original in a way a reader would
+ * notice. Used to decide whether the dual (original) line is worth showing:
+ * romanization can hand back an untouched line in a different Unicode form
+ * (NFD vs NFC, e.g. Japanese dakuten) or with only punctuation/spacing
+ * changes, which would render as an identical duplicate.
+ */
+export function isMeaningfullyDifferent(original?: string | null, processed?: string | null): boolean {
+  if (!original || !processed) return false;
+  return normalizeForCompare(original) !== normalizeForCompare(processed);
 }
 
 function getBigrams(str: string): string[] {
@@ -331,7 +352,7 @@ export function applyLinesToDOM(
       dualLyricsEnabled &&
       originals !== undefined &&
       originals[matchIndex] !== undefined &&
-      originals[matchIndex] !== lines[matchIndex];
+      isMeaningfullyDifferent(originals[matchIndex], lines[matchIndex]);
 
     console.log(`[sly-dom] [${i}] Rendering: showDual=${showDual} | Original="${originals?.[matchIndex]}" | Processed/Romanized="${processedLine}"`);
 

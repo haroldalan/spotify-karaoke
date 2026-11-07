@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     await prewarmRuntimeCache(store.runtimeCache);
 
     const modeController = createModeController({ store });
-    const { switchMode, reapplyMode, autoSwitchIfNeeded } = modeController;
+    const { switchMode, reapplyMode, autoSwitchIfNeeded, resetFailureMemory } = modeController;
 
     const lifecycleController = createLifecycleController({
       store,
@@ -112,6 +112,10 @@ async function main(): Promise<void> {
           if (store.domObserver) {
             (store.domObserver as any).connectViewport();
           }
+          // Opening the panel mid-song must paint cached lyrics and set up the
+          // pill right away, not wait for a song change or the slow poll.
+          quickApply();
+          trySetupOrPoll();
         },
         onInvalidate: () => { 
           store.domObserver = null; 
@@ -124,7 +128,7 @@ async function main(): Promise<void> {
       store,
       onSwitchMode: (m, lang) => switchMode(m, lang),
       onReapplyMode: () => reapplyMode(),
-
+      onCacheReset: () => resetFailureMemory(),
     });
 
     trySetup();

@@ -167,7 +167,9 @@ describe('Content Script Integration (JSDOM)', () => {
                 action: {
                     type: 'SKL_NATIVE_LYRICS',
                     trackId: '1234567890',
-                    nativeLines: ['こんにちは']
+                    // One native line per on-screen row: rows are only rewritten
+                    // in place when the counts line up.
+                    nativeLines: ['こんにちは', 'さようなら']
                 }
             }
         }));

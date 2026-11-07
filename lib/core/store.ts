@@ -35,6 +35,9 @@ export class StateStore {
   lastAuditedSongKey = '';
   /** Song key whose lyrics have actually been written into the DOM. */
   lyricsAppliedForKey = '';
+  /** A Romanized/Translated request refused while the interceptor was in flight
+   *  (BUG-4); replayed on 'sly:interceptor_settled', dropped on song change. */
+  pendingUserSwitch: { mode: LyricsMode; lang?: string; songKey: string } | null = null;
 
   async loadFromStorage(): Promise<void> {
     await safeBrowserCall(async () => {

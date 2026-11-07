@@ -58,30 +58,48 @@ export function setupMessageListener(
     }
 
     if (action.type === 'SKL_NATIVE_LYRICS') {
-      // Upgraded native lyrics carry a canonHash too
-      if (action.canonHash) {
+      const adoptCanonicalHash = (canonHash: number | undefined) => {
+        if (!canonHash) return;
         if (action.trackId) {
-          store.canonicalHashes.set(action.trackId, action.canonHash);
+          store.canonicalHashes.set(action.trackId, canonHash);
         }
         const currentTrackId = getNowPlayingTrackId();
         if (currentTrackId && action.trackId === currentTrackId) {
-          store.canonicalHash = action.canonHash;
+          store.canonicalHash = canonHash;
         }
-      }
+      };
+      // Upgraded native lyrics carry a canonHash too. A late upgrade (K5) arrives
+      // after Spotify rendered its own romanized lines; the interceptor deliberately
+      // sends no canonical hash for those (hold-budget expiry), so the hash only
+      // becomes canonical once the native lines were actually applied.
+      // The late lines are re-aligned to the on-screen rows, so the canonical hash
+      // is that of the applied lines, not the interceptor's hash of its own array.
+      const isLate = action.late === true;
+      if (!isLate) adoptCanonicalHash(action.canonHash);
+      const nativeState: NativeLyricsState = {
+        cache: store.cache,
+        pendingNativeLines: store.pendingNativeLines,
+        songKey: store.songKey,
+        mode: store.mode,
+        currentActiveLang: store.currentActiveLang,
+        runtimeCache: store.runtimeCache
+      };
       handleNativeLyrics(
         action.trackId as string,
         action.nativeLines as string[],
-        {
-          cache: store.cache,
-          pendingNativeLines: store.pendingNativeLines,
-          songKey: store.songKey,
-          mode: store.mode,
-          currentActiveLang: store.currentActiveLang,
-          runtimeCache: store.runtimeCache
-        } satisfies NativeLyricsState,
+        nativeState,
         () => { store.romanizedGenRef.value++; store.translatedGenRef.value++; },
-        async (m, lang) => { await switchMode(m, lang); }
-      );
+        async (m, lang) => { await switchMode(m, lang); },
+        {
+          late: isLate,
+          spotifyLineCount: typeof action.spotifyLineCount === 'number' ? action.spotifyLineCount : undefined,
+          spotifyWordLineCount: typeof action.spotifyWordLineCount === 'number' ? action.spotifyWordLineCount : undefined,
+        },
+      ).then((applied) => {
+        if (isLate && applied) adoptCanonicalHash(hashString(nativeState.cache.original.join('|')));
+      }).catch((err) => {
+        console.warn('[sly-listener] Native lyrics handling failed:', err);
+      });
     }
   });
 }

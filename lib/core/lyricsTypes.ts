@@ -1,12 +1,17 @@
 export type LyricsMode = 'original' | 'romanized' | 'translated';
 
 export interface ProcessedCache {
-  translated: string[];
+  /** `null` only together with `translationFailed: true` (K1). */
+  translated: string[] | null;
   romanized: string[];
   /** Hash of the exact source lyric lines used to generate this result. */
   sourceHash?: number;
   isLowQualityRomanization?: boolean;
   wasTruncated?: boolean;
+  /** Translation failed; romanization is still usable. Never persisted. */
+  translationFailed?: boolean;
+  /** Memory-only result (failed translation or flagged romanization): never persisted, retried next session. */
+  transient?: boolean;
 }
 
 export interface SongCache {
@@ -74,7 +79,7 @@ export type SlyAction =
   | { type: 'SLY_INTERCEPT_END' }
   | { type: 'SLY_FORCE_FALLBACK' }
   | { type: 'SLY_PREFETCH_REPORT'; trackId?: string; state: string; nativeStatus?: string; metadata?: any }
-  | { type: 'SKL_NATIVE_LYRICS'; trackId?: string; nativeLines: string[]; isRomanizedUpgrade?: boolean; canonHash?: string }
+  | { type: 'SKL_NATIVE_LYRICS'; trackId?: string; nativeLines: string[]; isRomanizedUpgrade?: boolean; canonHash?: string; late?: boolean; spotifyLineCount?: number }
   | { type: 'SLY_MXM_WARMUP' }
   | { type: 'SLY_MXM_NOTIFY_METADATA'; payload: { trackId: string; name: string; artist: string } }
   | { type: 'SLY_MXM_NEW_INTERCEPTION'; payload: { trackId: string }; requestId: string }

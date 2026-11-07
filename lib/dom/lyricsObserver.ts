@@ -1,6 +1,7 @@
 import { getLyricsContainer, getLyricsLines } from './domQueries';
 import { isContextValid } from '../utils/browserUtils';
-import { applyLinesToDOM, capitalizeLine } from './lyricsDOM';
+import { applyLinesToDOM, capitalizeLine, isMeaningfullyDifferent } from './lyricsDOM';
+import { resolveProcessed } from '../core/processedCache';
 import type { SongCache, LyricsMode } from '../core/lyricsTypes';
 
 export interface LyricsObserverOpts {
@@ -56,13 +57,17 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
     }
 
     const cache = opts.getCache();
-    const processed = cache.processed.get(opts.getCurrentActiveLang());
+    // Romanized mode may reuse an entry stored under another target language
+    // (romanization does not depend on it), exactly like every other apply path.
+    // Translated mode never borrows another language's translation.
+    const processed = resolveProcessed(cache.processed, opts.getCurrentActiveLang(), mode);
     if (!processed) {
-      console.log('[sly-observer] ⏳ Observer fired but cache.processed is empty — bailing (storage read may still be in flight).');
+      console.log('[sly-observer] ⏳ Observer fired but cache.processed has no usable entry — bailing (storage read may still be in flight).');
       return;
     }
 
     const lines = mode === 'romanized' ? processed.romanized : processed.translated;
+    if (!Array.isArray(lines) || lines.length === 0) return;
     const domLines = getLyricsLines();
     const dualLyricsEnabled = opts.getDualLyricsEnabled();
     const originals = cache.original;
@@ -132,7 +137,8 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
       }
       const expected = capitalizeLine(lines[matchIndex]);
 
-      const shouldHaveDual = dualLyricsEnabled && originals?.[matchIndex] !== undefined && originals[matchIndex] !== lines[matchIndex];
+      // Must mirror applyLinesToDOM's showDual exactly, or the two fight in a loop.
+      const shouldHaveDual = dualLyricsEnabled && originals?.[matchIndex] !== undefined && isMeaningfullyDifferent(originals[matchIndex], lines[matchIndex]);
       const hasDual = !!el.querySelector('.sly-dual-line');
       
       if (shouldHaveDual !== hasDual) {

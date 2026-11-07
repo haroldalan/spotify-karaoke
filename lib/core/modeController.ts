@@ -2,8 +2,10 @@ import { safeBrowserCall, getTargetLang } from '../utils/browserUtils';
 import { snapshotOriginals, applyLinesToDOM, purgeSlyDOM } from '../dom/lyricsDOM';
 import { getLyricsLines } from '../dom/domQueries';
 import { syncButtonStates, setLoadingState } from '../dom/lyricsControls';
-import { fetchProcessed } from './fetchProcessed';
+import { fetchProcessed, type FetchProcessedReport } from './fetchProcessed';
+import { getStoredEntryDefect, resolveProcessed } from './processedCache';
 import { isLatinScript } from '../lyrics/scriptDetector';
+import { isLikelyRomanizedFallback } from '../lyrics/romanizedDetector';
 import { showToast, hideToast } from '../dom/toast';
 import type { LyricsMode, SongCache, ProcessedCache, LyricsCacheEntry } from './lyricsTypes';
 import { StateStore } from './store';
@@ -13,7 +15,19 @@ export interface ModeControllerOpts {
   store: StateStore;
 }
 
+/**
+ * After a failed automatic switch (background returned nothing usable), do not
+ * let the periodic auto-switch triggers (sly:state NATIVE_OK ticks, syncSetup)
+ * re-request the same lyrics for this long. User-initiated switches and the
+ * one-shot forced re-evaluations are not affected.
+ */
+const AUTO_SWITCH_FAILURE_BACKOFF_MS = 60_000;
+
 export function createModeController(opts: ModeControllerOpts) {
+  let lastAutoSwitchFailure: { key: string; at: number } | null = null;
+  const failureKey = (mode: LyricsMode, lang: string, cache: SongCache): string =>
+    `${opts.store.songKey}|${mode}|${lang}|${hashString(cache.original.join('|'))}`;
+
   // Returns the inner text divs of slyCore's lyric elements for applyLinesToDOM.
   // Must use slyActiveDomElements (padding-free) instead of querySelectorAll:
   // querySelectorAll('[data-testid="lyrics-line"] > div') on slyActiveContainer
@@ -41,6 +55,12 @@ export function createModeController(opts: ModeControllerOpts) {
       if (entry.sourceHash !== expectedSourceHash) {
         console.warn(`[sly-mode] 🧹 Rejecting processed cache for ${lang}: source lyrics hash is missing or mismatched.`);
         cache.processed.delete(lang);
+        continue;
+      }
+      const defect = getStoredEntryDefect(cache.original, lang, entry);
+      if (defect) {
+        console.warn(`[sly-mode] 🧹 Rejecting processed cache for ${lang}: ${defect}.`);
+        cache.processed.delete(lang);
       }
     }
   };
@@ -57,11 +77,7 @@ export function createModeController(opts: ModeControllerOpts) {
       }));
       console.table(table);
     } else {
-      let processed = cache.processed.get(lang);
-      if (!processed && next === 'romanized' && cache.processed.size > 0) {
-        const entries = Array.from(cache.processed.values());
-        processed = entries.find(e => !e.isLowQualityRomanization && e.romanized) ?? entries.find(e => e.romanized) ?? null;
-      }
+      const processed = resolveProcessed(cache.processed, lang, next);
       if (!processed) {
         console.log(`[sly-debug] ⚠️ No processed cache found for language: "${lang}"`);
         console.groupEnd();
@@ -111,12 +127,25 @@ export function createModeController(opts: ModeControllerOpts) {
     }
   }
 
-  async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false, cacheOverride?: SongCache): Promise<void> {
+  /** S1: remember a request the interceptor guards refused, for 'sly:interceptor_settled'. */
+  const deferSwitch = (next: LyricsMode, forceLang: string | undefined, internal: boolean): void => {
+    if (!internal) opts.store.pendingUserSwitch = { mode: next, lang: forceLang, songKey: opts.store.songKey };
+  };
+
+  /**
+   * @param internal true for this controller's own re-runs (autoSwitchIfNeeded,
+   *   reapplyMode recovery): they neither record nor cancel a deferred request
+   *   (store.pendingUserSwitch); the settle handler re-runs preferredMode for them.
+   */
+  async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false, cacheOverride?: SongCache, internal = false): Promise<void> {
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     const cache = cacheOverride || opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
 
+    // A newer request replaces a deferred one. Re-applying the painted mode with a
+    // language or a forced refresh (native upgrade, popup language change) is not one.
+    if (!internal && (next !== mode || (forceLang === undefined && !forceRefresh))) opts.store.pendingUserSwitch = null;
     if (next === mode && forceLang === undefined && !forceRefresh) return;
 
     const currentSwitchGen = ++opts.store.switchGenRef.value;
@@ -127,22 +156,25 @@ export function createModeController(opts: ModeControllerOpts) {
 
     const isNativeLanguage = (window as any).SLY_NATIVE_LANGUAGES?.has((window as any).spotifyState?.language);
 
-    // BUG-4 Fix: Detect corrupted cache where Spotify's romanized text was saved as "originals".
-    // If the song IS a native (non-Latin) language but cache.original is entirely Latin,
-    // this cache entry was poisoned by snapshotting Spotify's own romanization.
-    // Clear the processed cache and skip the Latin shortcut to force a proper re-fetch.
-    // This catches corrupted entries that were persisted before the snapshotOriginals guard.
-    // IMPORTANT: Only fire for romanized/translated — switching to 'original' must ALWAYS
-    // be allowed. Original mode reads directly from the DOM, so corrupted cache doesn't matter.
-    // Blocking 'original' would trap the user permanently in romanized mode (Round 2, Bug 2).
-    if (next !== 'original' && isNativeLanguage && isLatinScript(cache.original) && cache.original.length > 0) {
-      console.warn(`[sly-mode] ⚠️ BUG-4: Cache originals are Latin but song language is non-Latin. Clearing corrupted cache.`);
-      cache.processed.clear();
-      cache.original = [];
-      // Don't proceed — mode stays as previousMode, let the lifecycle re-snapshot
-      // once Spotify renders native script or the interceptor provides canonical data.
+    // BUG-4: the originals are Latin but the song's language is non-Latin, i.e.
+    // Spotify is showing its own romanization. Wait ONLY while the interceptor is
+    // still fetching the native script (K4: interceptorActive is true between
+    // SLY_INTERCEPT_START and SLY_INTERCEPT_END). The request is remembered and
+    // 'sly:interceptor_settled' replays it (automatic switches: preferredMode is
+    // re-run instead). Once it has settled, the Latin lines are the only
+    // lyrics available and Romanized/Translated must work on them (a late native
+    // upgrade still replaces them via SKL_NATIVE_LYRICS).
+    // IMPORTANT: Only for romanized/translated — switching to 'original' must ALWAYS
+    // be allowed (Round 2, Bug 2).
+    const interceptorInFlight = !!(window as any).slyInternalState?.interceptorActive;
+    if (next !== 'original' && interceptorInFlight && cache.original.length > 0 && isLatinScript(cache.original) &&
+        (isNativeLanguage || isLikelyRomanizedFallback(cache.original, (window as any).spotifyState?.language ?? null).romanized)) {
+      console.warn(`[sly-mode] ⚠️ BUG-4: Originals are Latin for a non-Latin song and the interceptor is in flight. Waiting for the native upgrade.`);
+      deferSwitch(next, forceLang, internal);
       opts.store.mode = previousMode;
       syncButtonStates(previousMode);
+      // This call is the newest generation: it owns (and must release) the flag.
+      opts.store.isSwitchingMode = false;
       setLoadingState(false);
       return;
     }
@@ -160,7 +192,9 @@ export function createModeController(opts: ModeControllerOpts) {
       }
     }
 
-    if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original) && !isNativeLanguage) {
+    // Latin originals are already "romanized": show them as they are. This holds
+    // for romanized fallbacks of non-Latin songs too (no native upgrade arrived).
+    if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original)) {
       opts.store.mode = next;
       if (preferredMode !== next) {
         opts.store.preferredMode = next;
@@ -175,6 +209,8 @@ export function createModeController(opts: ModeControllerOpts) {
       applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
       opts.store.lyricsAppliedForKey = opts.store.songKey;
       syncButtonStates(next);
+      // This call is the newest generation: release a flag left by a superseded switch.
+      opts.store.isSwitchingMode = false;
       setLoadingState(false);
       return;
     }
@@ -192,6 +228,8 @@ export function createModeController(opts: ModeControllerOpts) {
       // switchMode calls hit the `next === mode` guard (line 108) and become no-ops.
       // The user sees Original lyrics but the pill says Romanized, and clicking
       // any button does nothing.
+      // While the interceptor is in flight the snapshot was refused (BUG-4): retry on settle.
+      if (interceptorInFlight) deferSwitch(next, forceLang, internal);
       opts.store.mode = previousMode;
       syncButtonStates(previousMode);
       opts.store.isSwitchingMode = false;
@@ -213,34 +251,42 @@ export function createModeController(opts: ModeControllerOpts) {
 
         let processed: ProcessedCache | null = null;
         if (next === 'romanized' && cache.processed.size > 0) {
-          const entries = Array.from(cache.processed.values());
-          processed = entries.find(e => !e.isLowQualityRomanization && e.romanized) ?? entries.find(e => e.romanized) ?? null;
+          processed = resolveProcessed(cache.processed, lang, 'romanized') ?? null;
         } 
         if (processed && !hasAlignedProcessedLines(processed, next, cache.original.length)) {
           console.warn('[SKaraoke:Content] Stale processed cache rejected. Mode:', next, 'Processed:', (next === 'romanized' ? processed.romanized : processed.translated)?.length, 'Original:', cache.original.length);
           cache.processed.clear();
           processed = null;
         }
+        const fetchReport: FetchProcessedReport = {};
         if (!processed) {
           const genRef = opts.store.globalProcessGenRef;
-          processed = await fetchProcessed(cache.original, lang, cache, opts.store.songKey, opts.store.runtimeCache, genRef);
+          processed = await fetchProcessed(cache.original, lang, cache, opts.store.songKey, opts.store.runtimeCache, genRef, fetchReport);
         }
 
         if (currentSwitchGen !== opts.store.switchGenRef.value) return;
 
-        if (processed === null) {
+        // K1: total failure (null), or Translated mode with a failed translation
+        // (romanization from the same response stays cached in memory).
+        const translationUnavailable = next === 'translated' && processed !== null && !Array.isArray(processed.translated);
+        if (processed === null || translationUnavailable) {
           opts.store.mode = previousMode;
           syncButtonStates(previousMode);
           setLoadingState(false); // SLY FIX: Clear loading state on failed processing!
+          if (translationUnavailable || fetchReport.status === 'failed') {
+            lastAutoSwitchFailure = { key: failureKey(next, lang, cache), at: Date.now() };
+            showToast(translationUnavailable ? 'Translation failed. Please try again.' : 'Processing failed. Please try again.', 3000);
+          }
           return;
         }
+        lastAutoSwitchFailure = null;
 
         opts.store.currentActiveLang = lang;
         if (preferredMode !== next) {
           opts.store.preferredMode = next;
           safeBrowserCall(() => browser.storage.sync.set({ preferredMode: next }));
         }
-        const lines = next === 'romanized' ? processed.romanized : processed.translated;
+        const lines = (next === 'romanized' ? processed.romanized : processed.translated) ?? [];
         const targets = getTargets();
         if (targets && targets.length !== cache.original.length) {
           console.warn('[SKaraoke:Content] Alignment mismatch detected (Processed). DOM:', targets.length, 'Cache:', cache.original.length);
@@ -280,11 +326,7 @@ export function createModeController(opts: ModeControllerOpts) {
     }
     if (opts.store.isSwitchingMode) return;
 
-    let processed = cache.processed.get(currentActiveLang);
-    if (!processed && mode === 'romanized' && cache.processed.size > 0) {
-      const entries = Array.from(cache.processed.values());
-      processed = entries.find(e => !e.isLowQualityRomanization) ?? entries[0];
-    }
+    const processed = resolveProcessed(cache.processed, currentActiveLang, mode);
 
     if (!processed) {
       if (mode === 'romanized' && isLatinScript(cache.original)) {
@@ -299,7 +341,7 @@ export function createModeController(opts: ModeControllerOpts) {
 
       if (mode !== 'original') {
         console.warn(`[SKaraoke:Mode] reapplyMode: Data missing for ${mode}. Triggering recovery fetch.`);
-        await switchMode(mode, undefined, false, true);
+        await switchMode(mode, undefined, false, true, undefined, true);
       }
       return;
     }
@@ -307,11 +349,11 @@ export function createModeController(opts: ModeControllerOpts) {
     if (!hasAlignedProcessedLines(processed, mode, cache.original.length)) {
       console.warn('[SKaraoke:Mode] reapplyMode: stale processed cache rejected. Recomputing.');
       cache.processed.clear();
-      await switchMode(mode, undefined, false, true);
+      await switchMode(mode, undefined, false, true, undefined, true);
       return;
     }
 
-    const lines = mode === 'romanized' ? processed.romanized : processed.translated;
+    const lines = (mode === 'romanized' ? processed.romanized : processed.translated) ?? [];
     const targets = getTargets();
 
     // If there are no lyrics lines in the DOM yet, bail out silently.
@@ -374,13 +416,27 @@ export function createModeController(opts: ModeControllerOpts) {
     }
 
     if (modeNeedsSwitch || forceRefresh || optimisticNeedsFetch) {
+      // Rejection-loop guard: the periodic triggers must not re-request lyrics
+      // the background just failed to process (each attempt would flash the
+      // loading state and toast again every poll tick).
+      if (!forceRefresh && preferredMode !== 'original' && lastAutoSwitchFailure &&
+          Date.now() - lastAutoSwitchFailure.at < AUTO_SWITCH_FAILURE_BACKOFF_MS &&
+          lastAutoSwitchFailure.key === failureKey(preferredMode, opts.store.currentActiveLang, cache)) {
+        setLoadingState(false);
+        return;
+      }
       // Pass forceRefresh=true when data isn't ready so switchMode bypasses the
       // same-mode early-return guard (mode === preferredMode after optimistic init).
-      switchMode(preferredMode, undefined, false, forceRefresh || optimisticNeedsFetch, cacheOverride);
+      switchMode(preferredMode, undefined, false, forceRefresh || optimisticNeedsFetch, cacheOverride, true);
     } else {
       setLoadingState(false); // SLY FIX: Clear the loading state if no switch is needed!
     }
   }
 
-  return { switchMode, reapplyMode, autoSwitchIfNeeded };
+  /** K7: forget in-session failure memory after a cache reset. */
+  function resetFailureMemory(): void {
+    lastAutoSwitchFailure = null;
+  }
+
+  return { switchMode, reapplyMode, autoSwitchIfNeeded, resetFailureMemory };
 }
