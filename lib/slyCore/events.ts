@@ -152,9 +152,9 @@ function initButtonFinder(): void {
     document.addEventListener('DOMContentLoaded', initButtonFinder);
     return;
   }
-  const target = document.querySelector('.main-nowPlayingBar-container') ||
-    document.querySelector('[data-testid="now-playing-bar"]') ||
-    document.querySelector('.Root__now-playing-bar') ||
+  // 2026 UI: the now-playing bar is aside[data-testid="now-playing-bar"]; the old
+  // .main-nowPlayingBar-container / .Root__now-playing-bar classes no longer exist.
+  const target = document.querySelector('[data-testid="now-playing-bar"]') ||
     document.querySelector('.Root') ||
     document.body;
 

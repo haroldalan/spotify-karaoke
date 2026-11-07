@@ -77,10 +77,15 @@ export const FetchEngine = {
       console.log(`[FetchEngine] ⚡ L0 CACHE HIT: Seamlessly restoring state for "${title}" [${uri}]`);
       
       if (l0Hit.failed) {
-        slyInternalState.currentLyrics = { failed: true, _slyUri: uri, extractedColor: l0Hit.extractedColor };
+        // No request is sent for a cached failure, so nothing would ever remove the
+        // URI from fetchingForUri (endless "fetching" HUD on panel reopen). Mark it
+        // failed instead: that blocks automatic retries, Retry (forceRefresh) still works.
+        slyInternalState.failedFetchUris?.add(uri);
         slyInternalState.pendingLyricsData = null;
-        slyInternalState.fetchingForUri.add(uri);
-        
+        if (this._standDownToNative(uri)) return;
+
+        slyInternalState.currentLyrics = { failed: true, _slyUri: uri, extractedColor: l0Hit.extractedColor };
+
         // Show error HUD if lyrics panel is open
         const btn = document.querySelector('[data-testid="lyrics-button"]');
         if (btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true') {
@@ -159,6 +164,12 @@ export const FetchEngine = {
     // Stale check
     if (myGeneration !== slyInternalState.fetchGeneration || (myUri && slyInternalState.lastUri && myUri !== slyInternalState.lastUri)) {
       console.log(`[FetchEngine] ⚠️ Fetch response for "${title}" discarded — track changed mid-flight.`);
+      // A discarded response for another track must not leave its in-flight
+      // markers behind: they block the current track's own fetch (content.ts STANDBY).
+      if (myUri && myUri !== slyInternalState.lastUri) {
+        slyInternalState.fetchingForUri.delete(myUri);
+        if (slyInternalState.fetchingForTitle === title) slyInternalState.fetchingForTitle = '';
+      }
       if (!slyInternalState.fetchingForUri.size) StatusEngine.clear();
       return;
     }
@@ -219,14 +230,7 @@ export const FetchEngine = {
     console.warn(`[FetchEngine] ❌ FAILURE: "${title}" — no lyrics found.`);
 
     // Check for native stand-down
-    const nativeStatus = slyPreFetchRegistry.getState(uri)?.nativeStatus;
-    if (nativeStatus === 'UNSYNCED' || nativeStatus === 'SYNCED' || nativeStatus === 'NATIVE_OK') {
-      console.log(`[FetchEngine] 🛡️ STAND-DOWN: Reverting to native ${nativeStatus} lyrics.`);
-      slyInternalState.currentLyrics = null;
-      slyInternalState.forceFallback = false;
-      StatusEngine.clear();
-      return;
-    }
+    if (this._standDownToNative(uri)) return;
 
     // Persist failure to L0
     slyInternalState.l0Cache.set(uri, { failed: true, _slyUri: uri, extractedColor: r?.data?.extractedColor });
@@ -246,5 +250,29 @@ export const FetchEngine = {
     } else {
       StatusEngine.clear();
     }
+  },
+
+  /**
+   * When the external fetch found nothing but Spotify itself has lines for the
+   * track (unsynced, synced, or a romanized fallback), revert to Spotify's lines
+   * instead of covering them with the error HUD. Returns true if it stood down.
+   * The URI is already in failedFetchUris, so the detector does not re-arm the
+   * fallback for it this session.
+   */
+  _standDownToNative(uri: string): boolean {
+    const nativeStatus = slyPreFetchRegistry.getState(uri)?.nativeStatus;
+    if (nativeStatus !== 'UNSYNCED' && nativeStatus !== 'SYNCED' && nativeStatus !== 'NATIVE_OK' && nativeStatus !== 'ROMANIZED') {
+      return false;
+    }
+    console.log(`[FetchEngine] 🛡️ STAND-DOWN: Reverting to native ${nativeStatus} lyrics.`);
+    const hadOverlay = !!document.getElementById('lyrics-root-sync') ||
+      slyInternalState.statusHUDActive || slyInternalState.isFetchingHUD;
+    slyInternalState.currentLyrics = null;
+    slyInternalState.forceFallback = false;
+    // clear() resets the HUD flags; sly:panel_close then restores the native panel
+    // the HUD hid and drops the layout classes, so Spotify's lines are visible again.
+    StatusEngine.clear();
+    if (hadOverlay) document.dispatchEvent(new CustomEvent('sly:panel_close'));
+    return true;
   }
 };

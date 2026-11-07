@@ -4,6 +4,17 @@ import { safeClone } from '../utils/browserUtils';
 import { slyPreFetchRegistry } from './preFetch';
 import { MetadataEngine } from './metadataEngine';
 
+// Queued tracks already sent a cache check this session (bounded).
+const QUEUE_WARM_MEMORY = 200;
+const queueWarmAttempted = new Set<string>();
+function rememberQueueWarm(uri: string): void {
+  queueWarmAttempted.add(uri);
+  if (queueWarmAttempted.size > QUEUE_WARM_MEMORY) {
+    const oldest = queueWarmAttempted.values().next().value;
+    if (oldest) queueWarmAttempted.delete(oldest);
+  }
+}
+
 /**
  * WarmingEngine: The central hub for proactive track discovery and hydration.
  * It seeds the L0 cache before the user even clicks the lyrics button.
@@ -83,20 +94,30 @@ export const WarmingEngine = {
 
   /**
    * Pre-warms the next tracks in the Spotify queue.
+   *
+   * Cache-only: asks the background for an existing cache record (SLY_CHECK_CACHE)
+   * and lets handleCacheResult hydrate l0Cache and the registry. It must NOT go
+   * through FetchEngine.triggerFetch, which treats its argument as the current
+   * track (nulls currentLyrics, sets fetchingForTitle/fetchingForUri, arms the HUD)
+   * and would block the playing track's own fetch.
    */
   warmQueue(queue: any[]) {
+    const currentUri = (spotifyState.track as Record<string, unknown> | null)?.uri as string | undefined;
     const nextTracks = queue.slice(0, 2);
     nextTracks.forEach(track => {
-      const { title, artist, albumArtUrl, id, uri } = track;
-      const fullUri = uri || `spotify:track:${id}`;
-      
-      // Only pre-fetch if not already in L0 or currently fetching
-      if (!slyInternalState.l0Cache.has(fullUri) && !slyInternalState.fetchingForUri.has(fullUri)) {
-        console.log(`[WarmingEngine] 🌊 QUEUE WARMING: "${title}" [Next Up]`);
-        if (window.slyTriggerLyricsFetch) {
-          window.slyTriggerLyricsFetch(title, artist, albumArtUrl, fullUri);
-        }
-      }
+      const { title, artist, id, uri } = track ?? {};
+      const fullUri = uri || (id ? `spotify:track:${id}` : '');
+      if (!fullUri || !fullUri.startsWith('spotify:track:') || fullUri === currentUri) return;
+      if (!title || !artist) return;
+      // Each queued track is checked at most once per session (this runs on every bridge tick).
+      if (queueWarmAttempted.has(fullUri) || slyInternalState.l0Cache.has(fullUri)) return;
+      rememberQueueWarm(fullUri);
+
+      console.log(`[WarmingEngine] 🌊 QUEUE WARMING (cache only): "${title}" [Next Up]`);
+      window.postMessage({
+        type: 'SLY_CHECK_CACHE',
+        payload: { title, artist, uri: fullUri }
+      }, '*');
     });
   },
 
@@ -132,6 +153,10 @@ export const WarmingEngine = {
         if (result.nativeStatus) mutableData.nativeStatus = result.nativeStatus;
         slyInternalState.l0Cache.set(uri, mutableData);
         console.log(`[WarmingEngine] 🧠 L0 HYDRATION: Synchronously cached for 0ms swap.`);
+      } else if (result.isPlaceholder) {
+        // A native-status placeholder is not evidence that the external fetch
+        // failed; caching it as a failure would suppress the real fetch.
+        console.log(`[WarmingEngine] 🧠 L0 HYDRATION skipped: placeholder record (native status only).`);
       } else {
         // Hydrate with failure state but preserve extracted color for immersive HUDs
         slyInternalState.l0Cache.set(uri, { 
@@ -159,7 +184,23 @@ export const WarmingEngine = {
         });
       }
     } else {
-      console.log(`[WarmingEngine] 🆕 FIRST PLAY: No cache record found for "${title}". Standard fetch pipeline will handle this.`);
+      // K8: found:false means "no usable cached lyrics" (missing, placeholder,
+      // failed or expired record). A stored native status may still come back;
+      // use it only as a registry hint so the detector can act at 0ms. It never
+      // creates an L0 entry, so the real fetch still runs.
+      const hint = result?.nativeStatus as string | undefined;
+      if (hint && uri && slyPreFetchRegistry) {
+        console.log(`[WarmingEngine] 💡 No usable cache record for "${title}"; native status hint: ${hint}.`);
+        slyPreFetchRegistry.register(uri, hint, {
+          title,
+          artist,
+          nativeStatus: hint,
+          source: 'native',
+          reason: 'WarmingEngine Hint (no usable cache)'
+        });
+      } else {
+        console.log(`[WarmingEngine] 🆕 FIRST PLAY: No cache record found for "${title}". Standard fetch pipeline will handle this.`);
+      }
     }
   }
 };

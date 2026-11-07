@@ -1,6 +1,9 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/detector.js
 import { getTrackDuration } from '../utils/spotifyUtils';
+import { isLikelyRomanizedFallback, nonLatinLetterRatio } from '../lyrics/romanizedDetector';
+import { isNativeLookupPending } from './state';
+import { NOW_PLAYING_WIDGET, getNowPlayingTitle, getThemedPanelContainer, isLyricsButtonActive, titlesMatch } from '../dom/domQueries';
 /* modules/content-detector.js: Spotify DOM & State Scanner */
 
 export interface DetectorState {
@@ -19,11 +22,69 @@ export interface DetectorState {
 }
 
 let lastDetectionDebugSignature = '';
+let lastKeptRomanizedUri = '';
+// Onset of the current DOM-vs-bridge track-id disagreement (see the desync guard).
+let trackIdMismatchKey = '';
+let trackIdMismatchSince = 0;
+const TRACK_ID_MISMATCH_GRACE_MS = 4000;
 
 declare global {
   interface Window {
     slyDetectNativeState: () => Promise<DetectorState>;
   }
+}
+
+/** Containers whose lyric lines are the Now Playing view preview (or other mini surfaces), never the full panel. */
+const LYRICS_PREVIEW_SELECTOR = `#Desktop_PanelContainer_Id, [data-testid="lyrics-npv-section"], aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer, ${NOW_PLAYING_WIDGET}`;
+
+
+/** Full-panel Spotify lyric line wrappers (excludes our takeover root and the Now Playing view preview). */
+function getFullPanelLineElements(): Element[] {
+  return Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+    .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(LYRICS_PREVIEW_SELECTOR));
+}
+
+/**
+ * Text of the full-panel lines as Spotify (or the native-script upgrade) rendered
+ * them. Pipeline B rewrites textContent for Romanized/Translated modes and keeps
+ * the original in data-sly-original, so prefer that attribute.
+ */
+export function getFullPanelLineTexts(): string[] {
+  return getFullPanelLineElements()
+    .map(el => {
+      const original = el.getAttribute('data-sly-original') ??
+        el.querySelector('[data-sly-original]')?.getAttribute('data-sly-original');
+      return (original ?? el.textContent ?? '').trim();
+    })
+    .filter(text => text.length > 0);
+}
+
+/**
+ * K3 verdict for the on-screen lines. Any native-script letter vetoes it (same rule
+ * as the interceptor): mixed native/English lyrics, common in K-pop/J-pop, can fall
+ * below the detector's native-script ratio and match on the language tag alone.
+ */
+export function classifyOnScreenLines(texts: string[], spotifyLang?: string | null) {
+  const hasNativeLetters = nonLatinLetterRatio(texts) > 0;
+  const verdict = isLikelyRomanizedFallback(texts, spotifyLang);
+  return { romanized: verdict.romanized && !hasNativeLetters, hasNativeLetters, verdict };
+}
+
+/**
+ * Current track id from the Now Playing view's "playing from" link
+ * (`/playlist/…?uid=…&uri=spotify:track:<id>`). The now-playing widget only links
+ * to the album and artists in the 2026 UI, so this is the only DOM source of the id.
+ */
+export function getNowPlayingViewTrackId(): string | null {
+  const link = document.querySelector(
+    '#Desktop_PanelContainer_Id a[href*="uri=spotify:track:"], aside[aria-label="Now playing view"] a[href*="uri=spotify:track:"], aside.NowPlayingView a[href*="uri=spotify:track:"], ' +
+    '#Desktop_PanelContainer_Id a[href*="uri=spotify%3Atrack%3A"], aside.NowPlayingView a[href*="uri=spotify%3Atrack%3A"]'
+  );
+  const href = link?.getAttribute('href') ?? '';
+  let decoded = href;
+  try { decoded = decodeURIComponent(href); } catch { /* keep raw href */ }
+  const match = decoded.match(/spotify:track:([A-Za-z0-9]{22})/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -55,9 +116,12 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // We do this first so we can bypass desync guards for ads.
   const adLink = document.querySelector('a[data-testid="now-playing-widget-ad-link"]') ||
                  document.querySelector('a[data-testid="ad-link"]');
-  const adWidget = document.querySelector('[data-testid="now-playing-widget"][aria-label="Advertisement"]');
-  const adBar = document.querySelector('[data-testid="now-playing-bar"][data-testadtype="ad-type-ad"]') ||
-                 document.querySelector('[data-testadtype="ad-type-ad"]');
+  const adWidget = document.querySelector(NOW_PLAYING_WIDGET.split(', ').map(s => `${s}[aria-label="Advertisement"]`).join(', '));
+  // Locale-independent: the now-playing bar carries data-testadtype="ad-type-none" while music plays
+  // (verified 2026-10 and 2026-11); any other value means an ad is playing.
+  const adTypeAttr = document.querySelector('[data-testid="now-playing-bar"]')?.getAttribute('data-testadtype');
+  const adBar = (!!adTypeAttr && adTypeAttr !== 'ad-type-none') ||
+                 !!document.querySelector('[data-testadtype="ad-type-ad"]');
 
   const localizedAdStrings = ['Spotify', 'Advertisement', 'Sponsored', 'Anzeige', 'Publicité', 'Publicidad', 'Publicidade', 'Annons', 'Reklama'];
   const isLocalizedAd = localizedAdStrings.includes(state.title);
@@ -81,9 +145,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // themed shell as the full lyrics panel. In the new UI, the button's active
   // state is authoritative; DOM evidence is only a fallback for old layouts
   // where Spotify removes/replaces the button.
-  const lyricsPreviewSelector = 'aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer, [data-testid="now-playing-widget"]';
-  const fullPanelLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-    .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector));
+  const fullPanelLines = getFullPanelLineElements();
   const legacyPanel = document.querySelector(`main.${mainClass || 'J6wP3V0xzh0Hj_MS'} .${containerClass || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`);
   const nativeFound = !document.querySelector('[data-testid="lyrics-button"]') &&
     (fullPanelLines.some(el => el.getClientRects().length > 0) || !!legacyPanel?.getClientRects().length);
@@ -114,12 +176,34 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     return state;
   }
 
-  const domTitle = document.querySelector('[data-testid="now-playing-widget-track-link"]')?.textContent ||
-                   document.querySelector('[data-testid="context-item-info-title"]')?.textContent;
+  // 2026 UI: the now-playing widget has no track link (only album/artist links), so
+  // the DOM track id comes from the Now Playing view's "playing from" link. When the
+  // ids agree the DOM and the bridge are on the same track; when they disagree a
+  // switch is in progress. A disagreement that outlives the grace window is treated
+  // as a stale link and the bridge URI wins.
+  const domTrackId = !state.isAd ? getNowPlayingViewTrackId() : null;
+  const bridgeTrackId = state.currentTrackId;
+  if (domTrackId && bridgeTrackId && domTrackId !== bridgeTrackId) {
+    const key = `${domTrackId}|${bridgeTrackId}`;
+    if (key !== trackIdMismatchKey) {
+      trackIdMismatchKey = key;
+      trackIdMismatchSince = Date.now();
+    }
+    if (Date.now() - trackIdMismatchSince < TRACK_ID_MISMATCH_GRACE_MS) {
+      state.lyricsState = 'LOADING';
+      return state;
+    }
+  } else {
+    trackIdMismatchKey = '';
+  }
 
-  if (!state.isAd && domTitle && trackRecord.name && domTitle !== trackRecord.name) {
-    state.lyricsState = 'LOADING';
-    return state;
+  // Title fallback when the Now Playing view link is not mounted.
+  if (!state.isAd && !(domTrackId && domTrackId === bridgeTrackId)) {
+    const domTitle = getNowPlayingTitle();
+    if (domTitle && trackRecord.name && !titlesMatch(domTitle, trackRecord.name as string)) {
+      state.lyricsState = 'LOADING';
+      return state;
+    }
   }
 
   if (state.isAd) return state;
@@ -134,17 +218,23 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   const errorElAlt = document.querySelector('.' + (window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM')) as HTMLElement | null;
   
   // SLY FIX (BUG-B15): Structural Fallback.
-  // If the class-based queries fail, we scan the lyrics container for "unavailable" text.
+  // If the class-based queries fail, scan the full lyrics panel for Spotify's error text.
+  // Only while the lyrics button is active, only inside the full-panel themed container
+  // (never div#main: playlist rows, the now-playing widget or the Now Playing view can
+  // show a title such as "Unavailable"), never when that container shows Spotify's lyric
+  // lines, and only lyrics-specific phrases (no bare "unavailable").
   let structuralError: HTMLElement | null = null;
-  if (!errorEl && !errorElAlt) {
-    const main = document.querySelector('div#main') ?? document.querySelector('main');
-    if (main) {
-      // Find elements with text matching common error patterns
-      const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+  if (!errorEl && !errorElAlt && isLyricsButtonActive()) {
+    const panel = getThemedPanelContainer();
+    const panelHasLines = !!panel && Array.from(panel.querySelectorAll('[data-testid="lyrics-line"]'))
+      .some(el => !el.closest('#lyrics-root-sync'));
+    if (panel && !panelHasLines && !panel.closest(LYRICS_PREVIEW_SELECTOR)) {
+      const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
       let node;
       while (node = walker.nextNode()) {
-        const txt = node.textContent?.toLowerCase() || '';
-        if (txt.includes('lyrics aren\'t available') || txt.includes('lyrics not available') || txt.includes('unavailable')) {
+        if (node.parentElement?.closest('#lyrics-root-sync')) continue;
+        const txt = (node.textContent || '').toLowerCase().replace(/\u2019/g, '\'');
+        if (txt.includes('lyrics aren\'t available') || txt.includes('lyrics not available')) {
           structuralError = node.parentElement;
           break;
         }
@@ -170,16 +260,13 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     }
   }
 
-  state.hasNativeLines = !isSettling && !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-                                 .find(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector));
-
-  const debugLineElements = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-    .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector));
+  const debugLineElements = getFullPanelLineElements();
+  state.hasNativeLines = !isSettling && debugLineElements.length > 0;
   const lyricsButton = document.querySelector('[data-testid="lyrics-button"]');
   const lyricsButtonActive = lyricsButton?.getAttribute('data-active') === 'true' || lyricsButton?.getAttribute('aria-pressed') === 'true';
   const panelRoot = Array.from(document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'))
-    .find(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView'));
-  const previewLineCount = document.querySelectorAll('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]').length;
+    .find(el => !el.closest(LYRICS_PREVIEW_SELECTOR));
+  const previewLineCount = document.querySelectorAll('#Desktop_PanelContainer_Id [data-testid="lyrics-line"], aside[aria-label="Now playing view"] [data-testid="lyrics-line"]').length;
   const debugSignature = [state.title, state.currentTrackId, state.isOnLyricsPage, lyricsButtonActive, debugLineElements.length, !!panelRoot, previewLineCount].join('|');
   if (debugSignature !== lastDetectionDebugSignature) {
     lastDetectionDebugSignature = debugSignature;
@@ -212,39 +299,77 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // Consult the registry populated by the Background script/Interceptor
   state.preFetch = (window as any).slyPreFetchRegistry?.getState(state.currentUri ?? '') ?? null;
 
+  // K3 verdict for the on-screen full-panel lines, computed at most once per pass.
+  // DOM lines existing is NOT proof the script is right: a romanized fallback renders
+  // lines too. Any native-script letter counts as native (classifyOnScreenLines' veto).
+  let onScreenVerdictCache: ReturnType<typeof classifyOnScreenLines> | undefined;
+  const onScreenVerdict = () => {
+    if (onScreenVerdictCache === undefined) {
+      onScreenVerdictCache = classifyOnScreenLines(getFullPanelLineTexts(), window.spotifyState?.language);
+    }
+    return onScreenVerdictCache;
+  };
+  const onScreenIsNativeScript = (): boolean => onScreenVerdict().hasNativeLetters;
+
+  // K5: the interceptor's Musixmatch lookup for this track has not reported back yet
+  // (it can outlive SLY_INTERCEPT_END when the hold budget expires and finish "late"
+  // with SKL_NATIVE_LYRICS or SLY_FORCE_FALLBACK). Until then, Spotify's romanized
+  // lines are not final: do not arm the fallback or record a verdict from them.
+  const nativeLookupPending = isNativeLookupPending(state.currentTrackId);
+
   // Live full-panel lyrics are stronger evidence than a previously persisted
   // MISSING result. NPV preview lines are excluded from hasNativeLines above.
-  // Clear the stale fallback flag before it can force Pipeline A to fetch again.
+  // If those lines are a romanized fallback, record ROMANIZED instead of NATIVE_OK
+  // so the native-script fallback (and its quiet stand-down) still applies.
   if (state.hasNativeLines && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING')) {
-    console.log(`[sly-detector] 🩹 Live native lines override stale MISSING cache for ${state.currentUri}.`);
-    window.slyInternalState.forceFallback = false;
-    state.preFetch.nativeStatus = 'NATIVE_OK';
-    state.preFetch.state = 'NATIVE_OK';
+    const healedStatus = onScreenVerdict().romanized
+      ? 'ROMANIZED'
+      : 'NATIVE_OK';
+    console.log(`[sly-detector] 🩹 Live native lines override stale MISSING cache for ${state.currentUri} → ${healedStatus}.`);
+    state.preFetch.nativeStatus = healedStatus;
+    state.preFetch.state = healedStatus;
+    if (healedStatus === 'NATIVE_OK') {
+      // Clear the stale fallback flag before it can force Pipeline A to fetch again.
+      window.slyInternalState.forceFallback = false;
+    }
     if (state.currentUri) {
-      window.slyPreFetchRegistry?.register(state.currentUri, 'NATIVE_OK', {
+      window.slyPreFetchRegistry?.register(state.currentUri, healedStatus, {
         title: state.title,
         artist: state.artist,
         uri: state.currentUri,
-        nativeStatus: 'NATIVE_OK',
+        nativeStatus: healedStatus,
         reason: 'Self-Heal (Live full-panel DOM evidence)',
       });
-      window.slyInternalState.l0Cache?.delete(state.currentUri);
+      if (healedStatus === 'NATIVE_OK') window.slyInternalState.l0Cache?.delete(state.currentUri);
     }
     if (state.currentUri && typeof browser !== 'undefined' && browser.runtime?.id) {
       await browser.runtime.sendMessage({
         type: 'SLY_REPORT_NATIVE_STATUS',
-        payload: { title: state.title, artist: state.artist, uri: state.currentUri, status: 'NATIVE_OK', source: 'native' },
+        payload: { title: state.title, artist: state.artist, uri: state.currentUri, status: healedStatus, source: 'native' },
       }).catch(() => {});
     }
   }
+
+  // A failed fallback fetch (FetchEngine) stands down to Spotify's lines; never re-arm it this session.
+  const alreadyFailedThisSession = !!state.currentUri && !!window.slyInternalState.failedFetchUris?.has(state.currentUri);
 
   if (state.preFetch && (state.preFetch.nativeStatus === 'MISSING' || state.preFetch.nativeStatus === 'UNSYNCED')) {
     const reason = `PERSISTED_NATIVE_${state.preFetch.nativeStatus}`;
     state.lyricsState = reason; 
 
-    const alreadyFailedThisSession = !!state.currentUri && window.slyInternalState.failedFetchUris?.has(state.currentUri);
     if (!window.slyInternalState.forceFallback && !alreadyFailedThisSession) {
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);
+      window.slyInternalState.forceFallback = true;
+    }
+  } else if (state.preFetch?.nativeStatus === 'ROMANIZED') {
+    // Known-ROMANIZED (interceptor report, persisted cache or forensic scan): Spotify
+    // shows Latin transliterations, so fall back at registry-check time instead of
+    // waiting for the 1000ms forensic scan. Skipped while the interceptor's
+    // native-script upgrade for this track is in flight or still pending a late
+    // result (K5): SLY_FORCE_FALLBACK arms the fallback itself if that lookup fails.
+    if (!window.slyInternalState.forceFallback && !alreadyFailedThisSession &&
+        !window.slyInternalState.interceptorActive && !nativeLookupPending) {
+      console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ROMANIZED for track ${state.currentTrackId}. Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
     }
   } else if (state.preFetch?.nativeStatus === 'NATIVE_OK' || state.preFetch?.nativeStatus === 'SYNCED' || state.preFetch?.state === 'NATIVE_OK' || state.preFetch?.state === 'SYNCED') {
@@ -255,30 +380,58 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     }
   }
 
-  // 4.5 NATIVE ROMANIZATION DETECTION (Aggressive Forensic Scan)
-  // We don't trust Spotify's isDenseTypeface flag. We look at the actual DOM text.
-  // However, we ONLY do this for languages that actually use a native script (Tamil, Hindi, etc.)
-  const isNativeLanguage = window.SLY_NATIVE_LANGUAGES.has(window.spotifyState.language as string);
+  // 4.5 NATIVE ROMANIZATION DETECTION (Forensic Scan of the on-screen lines)
+  // We don't trust Spotify's isDenseTypeface flag or its language tag (romanized
+  // Hindi arrives tagged "id"); K3: judge the actual full-panel text, with the tag
+  // only as a hint. Runs only when nothing stronger has decided yet: no fallback in
+  // progress, no failed fallback this session, no native-script upgrade in flight or
+  // pending (K5), and the registry does not say NATIVE_OK (script confirmed: a
+  // de-romanization success or a self-heal on native-script lines).
+  // nativeStatus SYNCED is not script evidence: it is the bridge's isTimeSynced flag
+  // recorded as "DOM Evidence (Synced)", and records persisted by older builds carry
+  // it for romanized tracks too. So the scan still runs over SYNCED and, when it
+  // fires, demotes the entry to ROMANIZED (see below).
+  const registryConfirmsNative = state.preFetch?.nativeStatus === 'NATIVE_OK';
+  if (state.hasNativeLines && timeSinceOpen > 1000 &&
+      !window.slyInternalState.forceFallback &&
+      !alreadyFailedThisSession &&
+      !window.slyInternalState.interceptorActive &&
+      !nativeLookupPending &&
+      !registryConfirmsNative &&
+      state.preFetch?.nativeStatus !== 'ROMANIZED' &&
+      window.spotifyState?.lyricsProvider !== 'LRCLIB') {
+    const { romanized, verdict } = onScreenVerdict();
 
-  // Strictly gate forensic scanning by the confirmed Language Tag.
-  if (isNativeLanguage && state.hasNativeLines && timeSinceOpen > 1000 && !window.slyInternalState.forceFallback) {
-    const nativeLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-                            .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(lyricsPreviewSelector))
-                            .slice(0, 5)
-                            .map(el => el.textContent)
-                            .join(' ');
-
-    const hasNativeScript = window.slyForensics.analyzeText(nativeLines).hasAnyNative;
-
-    if (!hasNativeScript && window.spotifyState.lyricsProvider !== 'LRCLIB') {
-      console.log(`[sly-detector] 🔎 EVIDENCE: Forensic DOM scan found NO native characters in a confirmed ${window.spotifyState.language} track. Triggering Fallback.`);
+    if (romanized) {
+      console.log(`[sly-detector] 🔎 EVIDENCE: Forensic DOM scan: on-screen lines look like a romanized fallback (${verdict.reason}, lang=${verdict.lang}, tag=${window.spotifyState?.language ?? 'none'}). Triggering Fallback.`);
       window.slyInternalState.forceFallback = true;
-      // Report Romanization failure for persistent 0ms hijack next time
-      if (state.currentTrackId && !state.isAd && state.preFetch?.nativeStatus !== 'ROMANIZED') {
-        await browser.runtime.sendMessage({
-          type: 'SLY_REPORT_NATIVE_STATUS',
-          payload: { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'ROMANIZED', source: 'native' }
-        }).catch(() => {});
+      const liveEntry = state.currentUri ? window.slyPreFetchRegistry?.getState(state.currentUri) : null;
+      if (state.preFetch?.nativeStatus === 'SYNCED' || liveEntry?.nativeStatus === 'SYNCED') {
+        // ROMANIZED (priority 1) cannot outrank SYNCED (3) through register(), and the
+        // NATIVE_OK/SYNCED branch above would reset the fallback on the next tick.
+        // Same direct correction as the stale-MISSING self-heal.
+        console.log(`[sly-detector] ⚠️ Registry SYNCED for ${state.currentUri} was not native script; demoting to ROMANIZED.`);
+        if (state.preFetch?.nativeStatus === 'SYNCED') state.preFetch.nativeStatus = 'ROMANIZED';
+        if (liveEntry?.nativeStatus === 'SYNCED') liveEntry.nativeStatus = 'ROMANIZED';
+      }
+      if (state.currentUri && !state.isAd) {
+        // Record it locally so the registry check keeps the fallback armed and a
+        // failed fallback fetch stands down quietly to Spotify's lines.
+        window.slyPreFetchRegistry?.register(state.currentUri, 'ROMANIZED', {
+          title: state.title,
+          artist: state.artist,
+          uri: state.currentUri,
+          nativeStatus: 'ROMANIZED',
+          source: 'native',
+          reason: `Forensic DOM scan (${verdict.reason})`,
+        });
+        // Report Romanization failure for persistent 0ms hijack next time
+        if (typeof browser !== 'undefined' && browser.runtime?.id) {
+          await browser.runtime.sendMessage({
+            type: 'SLY_REPORT_NATIVE_STATUS',
+            payload: { title: state.title, artist: state.artist, uri: state.currentUri, status: 'ROMANIZED', source: 'native' }
+          }).catch(() => {});
+        }
       }
     }
   }
@@ -318,8 +471,19 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // This allows for Self-Healing of incorrect MISSING records in the cache.
   if (isNativeSynced) {
     state.lyricsState = 'SYNCED';
-    // SLY FIX: Report SYNCED state so it's cached proactively for future plays
-    if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus !== 'SYNCED') {
+    // SLY FIX: Report SYNCED state so it's cached proactively for future plays.
+    // Not for a ROMANIZED track showing Latin lines (e.g. after a failed fallback
+    // stood down): synced romanized lines are not native script, and SYNCED would
+    // outrank ROMANIZED in the registry and the persisted cache.
+    const keepRomanized = state.preFetch?.nativeStatus === 'ROMANIZED' && !onScreenIsNativeScript();
+    // isTimeSynced only says the lines are timed, not that they are native script.
+    // Record SYNCED only after the forensic scan has had its chance on the same
+    // lines (full panel visible past its 1000ms grace, no Layer-1 result pending)
+    // and they do not look like a romanized fallback. Otherwise a first-tick SYNCED
+    // would block the scan for the rest of the session and persist.
+    const syncedEvidenceVerified = state.hasNativeLines && timeSinceOpen > 1000 &&
+      !nativeLookupPending && !onScreenVerdict().romanized;
+    if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus !== 'SYNCED' && !keepRomanized && syncedEvidenceVerified) {
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'SYNCED' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
         await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
@@ -346,8 +510,16 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     state.lyricsState = 'NATIVE_OK';
     
     // SELF-HEALING: If we see native lines but the registry thought it was MISSING or ROMANIZED,
-    // we have proof the registry is stale/wrong. Fix it.
-    if (state.currentUri && !state.isAd && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING' || state.preFetch?.nativeStatus === 'ROMANIZED')) {
+    // the registry may be stale. ROMANIZED tracks ALSO have DOM lines (Latin
+    // transliterations), so ROMANIZED is only healed when the on-screen lines are
+    // actually native script; otherwise the registry keeps ROMANIZED (and forceFallback).
+    const wasRomanized = state.preFetch?.nativeStatus === 'ROMANIZED';
+    const keepRomanized = wasRomanized && !onScreenIsNativeScript();
+    if (keepRomanized && state.currentUri && lastKeptRomanizedUri !== state.currentUri) {
+      lastKeptRomanizedUri = state.currentUri;
+      console.log(`[sly-detector] ⚠️ ROMANIZED track ${state.currentUri} has Latin DOM lines — keeping ROMANIZED, not promoting to NATIVE_OK.`);
+    }
+    if (state.currentUri && !state.isAd && !keepRomanized && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING' || wasRomanized)) {
       console.log(`[sly-detector] 🩹 SELF-HEAL: Native lines found for track ${state.currentUri} which was tagged ${state.preFetch.nativeStatus}. Updating registry to NATIVE_OK.`);
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'NATIVE_OK' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
@@ -466,6 +638,17 @@ export function resolveTrackState(
 
   // Priority 1: Spotify Synced + Not Romanized -> Use native original!
   if (spotifyStatus === 'SYNCED' && !window.slyInternalState.forceFallback) {
+    resolution.action = 'NATIVE_ORIGINAL';
+    resolution.provider = 'SPOTIFY';
+    return resolution;
+  }
+
+  // Priority 1b: Spotify only has a romanized fallback and the native-script
+  // fallback fetch already failed and stood down this session (FetchEngine):
+  // Spotify's own lines are the final answer, so stand down and let Pipeline B
+  // (Romanized/Translated modes) work on them. The registry keeps ROMANIZED.
+  if (spotifyStatus === 'ROMANIZED' && !window.slyInternalState.forceFallback && detector.hasNativeLines &&
+      !!detector.currentUri && !!window.slyInternalState.failedFetchUris?.has(detector.currentUri)) {
     resolution.action = 'NATIVE_ORIGINAL';
     resolution.provider = 'SPOTIFY';
     return resolution;

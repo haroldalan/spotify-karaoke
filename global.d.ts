@@ -37,6 +37,8 @@ interface SpotifyClasses {
   paddingLineHelper: string;
   footerGrid: string;
   errorContainer: string;
+  /** Secondary "lyrics unavailable" container class. Never scavenged; readers fall back to a hardcoded default. */
+  errorContainerAlt?: string;
   btnPrimary: string;
   btnPrimaryInner: string;
   btnSecondary: string;

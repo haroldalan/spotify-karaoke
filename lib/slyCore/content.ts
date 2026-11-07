@@ -1,7 +1,7 @@
 declare const browser: any;
 import { isContextValid, safeClone } from '../utils/browserUtils';
 import { slyAdManager } from './adManager';
-import { getLyricsLines, getLyricsViewRoot } from '../dom/domQueries';
+import { getLyricsLines, getThemedPanelContainer, isLyricsButtonActive } from '../dom/domQueries';
 import { purgeSlyDOM } from '../dom/lyricsDOM';
 import { WarmingEngine } from './warmingEngine';
 import { StatusEngine } from './statusEngine';
@@ -9,6 +9,38 @@ import { resolveTrackState } from './detector';
 
 console.log('[sly] DOM Engine starting...');
 if (window.slyInjectCoreStyles) window.slyInjectCoreStyles();
+
+const LEGACY_MAIN_CLASS = 'J6wP3V0xzh0Hj_MS';
+
+function getLegacyMainContainer(): HTMLElement | null {
+  return document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || LEGACY_MAIN_CLASS}`) as HTMLElement | null;
+}
+
+/**
+ * K11: the element that carries the "sly-active" / "sly-hud-active" layout classes.
+ * 2026 UI: the parent of the full-panel themed container (the slot slyPrepareContainer
+ * inserts #lyrics-root-sync into). Legacy <main> container only when no themed panel exists.
+ */
+function getSlyLayoutHost(): HTMLElement | null {
+  const themed = getThemedPanelContainer();
+  if (themed?.parentElement) return themed.parentElement as HTMLElement;
+  return getLegacyMainContainer();
+}
+
+/** Native lyrics container to hide behind / restore after a takeover (themed panel first, legacy fallback). */
+function getNativeLyricsContainer(): HTMLElement | null {
+  return (getThemedPanelContainer() ??
+    document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || LEGACY_MAIN_CLASS} .${window.SPOTIFY_CLASSES?.container || 'bbJIIopLxggQmv5x'}:not(#lyrics-root-sync)`)) as HTMLElement | null;
+}
+
+// Start of the current run of ignored sly:panel_close events (see the guard below).
+let panelCloseIgnoredSince = 0;
+
+/** currentLyrics is a failure marker for this track (FetchEngine's failure object carries no _slyUri). */
+function isFailedForCurrent(currentLyrics: unknown, fullUri: string | undefined): boolean {
+  const cl = currentLyrics as Record<string, unknown> | null;
+  return !!cl?.failed && (!cl._slyUri || cl._slyUri === fullUri);
+}
 
 // --- HOT RELOAD CLEANUP PROTOCOL ---
 if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
@@ -47,8 +79,11 @@ if (isFirstLoad) {
 // Ping the interceptor immediately to initiate an active handshake (fixes reload race condition).
 window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_PING_INTERCEPTOR' } }, '*');
 
+// K4: the heartbeat reads interceptorReady, which only SLY_INTERCEPTOR_READY (or an
+// actual intercept) sets and track resets never clear. interceptorActive is the
+// separate in-flight flag (SLY_INTERCEPT_START..END, see messaging.ts).
 setTimeout(() => {
-  if (!window.slyInternalState.interceptorActive) {
+  if (!window.slyInternalState.interceptorReady) {
     console.warn('[sly] Interceptor Heartbeat: FAILED. Falling back to passive native detection.');
     window.slyInternalState.interceptorFailed = true;
   }
@@ -59,8 +94,10 @@ window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (event.data?.type === 'SLY_INTERCEPTOR_READY' || event.data?.action?.type === 'SLY_INTERCEPTOR_READY') {
     window.slyInternalState.interceptorFailed = false;
-    window.slyInternalState.interceptorActive = true;
-    console.log('[sly] Interceptor Heartbeat: Confirmed Healthy.');
+    if (!window.slyInternalState.interceptorReady) {
+      console.log('[sly] Interceptor Heartbeat: Confirmed Healthy.');
+    }
+    window.slyInternalState.interceptorReady = true;
   }
   if (event.data?.source === 'SLY_NAV_RELAY' && event.data?.type === 'SLY_NAV_BACK') {
     // BUG-14 Fix: Include entry point flag in message. sessionStorage survives 
@@ -98,15 +135,23 @@ document.addEventListener('sly:panel_close', () => {
   // if we are actively on the lyrics page and currently fetching or showing a failure HUD.
   // Spotify's React app temporarily clears the lyrics button's active attributes during track skips,
   // which falsely triggers this event and clears our active HUD.
-  // Panel-open = button active OR aside panel showing lyrics lines (pathname is dead in 2026 UI).
-  const btnNow = document.querySelector('[data-testid="lyrics-button"]');
-  const btnActiveNow = btnNow?.getAttribute('data-active') === 'true' || btnNow?.getAttribute('aria-pressed') === 'true';
-  const asideHasLines = !!document.querySelector('aside[aria-label="Now playing view"] [data-testid="lyrics-line"]');
-  const isOnLyricsPage = window.location.pathname.startsWith('/lyrics') || btnActiveNow || asideHasLines;
+  // 2026 UI: "still on the lyrics panel" = button active, legacy /lyrics route, or the
+  // full panel still mounted (themed container / full-panel lines; both exclude the
+  // Now Playing view preview). Preview lines in the aside mean the full panel is
+  // CLOSED, so they must never count here.
+  const fullPanelMounted = !!getThemedPanelContainer() || getLyricsLines().length > 0;
+  const isOnLyricsPage = isLyricsButtonActive() || window.location.pathname.startsWith('/lyrics') || fullPanelMounted;
   if (isOnLyricsPage && (window.slyInternalState.isFetchingHUD || window.slyInternalState.statusHUDActive)) {
-    console.log('[sly-lifecycle] 🛡️ Ignoring sly:panel_close during song transition to prevent HUD flicker.');
-    return;
+    // Bound the ignore window: a genuine close that leaves the panel mounted (e.g. a
+    // close animation) is retried by the orphan guard every tick and must get through.
+    const now = Date.now();
+    if (!panelCloseIgnoredSince || now - panelCloseIgnoredSince > 5000) panelCloseIgnoredSince = now;
+    if (now - panelCloseIgnoredSince < 1500) {
+      console.log('[sly-lifecycle] 🛡️ Ignoring sly:panel_close during song transition to prevent HUD flicker.');
+      return;
+    }
   }
+  panelCloseIgnoredSince = 0;
 
   // BUG-38 Fix (REGRESSION FIX): We no longer clear currentLyrics here.
   // Before: Clearing currentLyrics on panel close broke the "Recovery" feature, 
@@ -123,6 +168,12 @@ document.addEventListener('sly:panel_close', () => {
   StatusEngine.clear(true);
 
   const root = document.getElementById('lyrics-root-sync');
+  // K11: collect the layout-class host before the root is removed. The root's own
+  // parent is the same slot; it covers a themed container React already unmounted.
+  const layoutHosts = new Set<HTMLElement>();
+  const layoutHost = getSlyLayoutHost();
+  if (layoutHost) layoutHosts.add(layoutHost);
+  if (root?.parentElement) layoutHosts.add(root.parentElement as HTMLElement);
   if (root) {
     console.log('[sly-lifecycle] 🧹 Cleaning up injected #lyrics-root-sync and restoring native UI.');
     
@@ -152,25 +203,16 @@ document.addEventListener('sly:panel_close', () => {
   const syncBtn = document.getElementById('sly-sync-button');
   if (syncBtn) syncBtn.remove();
   
-  const main = getLyricsViewRoot() as HTMLElement | null;
-  if (main) { 
-    main.classList.remove('sly-active'); 
-    main.classList.remove('sly-hud-active');
-    main.style.display = ''; 
-  }
-  document.querySelector('aside[aria-label="Now playing view"]')?.classList.remove('sly-active');
-  document.querySelector('aside[aria-label="Now playing view"]')?.classList.remove('sly-hud-active');
-  
+  layoutHosts.forEach(host => host.classList.remove('sly-active', 'sly-hud-active'));
+
   const errCls1 = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
   const errCls2 = window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM';
   document.querySelectorAll(`.${errCls1}, .${errCls2}`)
     .forEach(n => ((n as HTMLElement).style.display = ''));
 
-  const nativeContainerClass = window.SPOTIFY_CLASSES?.container;
-  if (main && nativeContainerClass) {
-    const nativeContainer = main.querySelector(`.${nativeContainerClass}:not(#lyrics-root-sync)`) as HTMLElement | null;
-    if (nativeContainer) nativeContainer.style.display = '';
-  }
+  // Un-hide the native panel that the HUD/takeover hid (themed container first, legacy fallback).
+  const nativeContainer = getNativeLyricsContainer();
+  if (nativeContainer) nativeContainer.style.display = '';
 
   // SLY FIX: Physically remove all injected spans and attributes from the native DOM
   // when the panel is closed. This prevents stale state from interfering with 
@@ -356,10 +398,9 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
           if (window.slyInternalState.isAdHUDActive) {
             console.log('[sly] Restore: Re-injecting Ad HUD...');
             StatusEngine.show('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
-          } else if (window.slyInternalState.isFetchingHUD || (fullUri && window.slyInternalState.fetchingForUri.has(fullUri))) {
-            console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
-            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri });
-          } else if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed) {
+          } else if (isFailedForCurrent(window.slyInternalState.currentLyrics, fullUri)) {
+            // A recorded failure for this track is final; test it before the "fetching"
+            // flags so a stale flag cannot turn the error HUD (with Retry) into a spinner.
             console.log('[sly] Restore: Re-injecting failure HUD...');
             StatusEngine.show(
               "Even Spotify Karaoke couldn't find the lyrics for this song.",
@@ -367,6 +408,9 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
               true,
               { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri }
             );
+          } else if (window.slyInternalState.isFetchingHUD || (fullUri && window.slyInternalState.fetchingForUri.has(fullUri))) {
+            console.log('[sly] Restore: Re-injecting loading HUD (Continuing fetch)...');
+            StatusEngine.show('Spotify Karaoke is fetching lyrics for [Title] by [Artist]', 'Continuing external search...', false, { title, artist, album: detection.album, duration: detection.duration, albumArtUrl, uri: fullUri });
           }
           return;
         }
@@ -528,7 +572,9 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         window.slyInternalState.fetchingForTitle = '';
         const targetUri = (data as any)._slyUri || fullUri;
         if (targetUri) window.slyInternalState.fetchingForUri.delete(targetUri);
-        StatusEngine.clear();
+        // Handoff to the takeover: drop the HUD but keep Spotify's panel hidden
+        // (sly:inject may await storage before executeTakeover hides it again).
+        StatusEngine.clear({ restoreNative: false });
 
         console.log(`[sly] Takeover complete. Current Lyrics:`, window.slyInternalState.currentLyrics);
         
@@ -556,8 +602,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
     const hasActiveTakeover = window.slyInternalState.currentLyrics || window.slyInternalState.statusHUDActive;
     if (detection.isOnLyricsPage && hasActiveTakeover) {
       const root = document.getElementById('lyrics-root-sync');
-      const main = document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`);
-      
+
       // RECOVERY GUARD: If native lyrics become SYNCED or NATIVE_OK (and we're not in forceFallback), release the takeover.
       if ((detection.lyricsState === 'SYNCED' || detection.lyricsState === 'NATIVE_OK') && !window.slyInternalState.forceFallback) {
         console.log(`[sly-lifecycle] 🩹 Recovery: Native lyrics became ${detection.lyricsState} while in Pipeline A. Releasing takeover.`);
@@ -590,11 +635,11 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       } else {
         // Ensure visibility and hijack classes are active
         root.style.display = '';
-        if (main) main.classList.add('sly-active');
+        getSlyLayoutHost()?.classList.add('sly-active');
 
         document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => ((n as HTMLElement).style.display = 'none'));
-        const nativeContainer = (document.querySelector(`div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)`) ??
-          document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'} .${window.SPOTIFY_CLASSES?.container}:not(#lyrics-root-sync)`)) as HTMLElement | null;
+        // Themed full panel only (never the Now Playing view preview), legacy fallback.
+        const nativeContainer = getNativeLyricsContainer();
         if (nativeContainer) {
           nativeContainer.style.display = 'none';
           // Re-mirror theme to handle transitions (e.g. MISSING -> UNSYNCED)
