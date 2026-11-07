@@ -1,27 +1,23 @@
 import { enqueueStorageOperation } from '../lib/core/storageManager';
 import { safeBrowserCall } from '../lib/utils/browserUtils';
 import { processLines } from '../lib/lyrics/lyricsProcessor';
-import { lyricsCache } from '../lib/lyricsProviders/lyricsCache';
+import {
+  lyricsCache,
+  getDynamicTTL,
+  hasGoodLyrics,
+  isCacheEntryExpired,
+  isUsableCacheEntry,
+  keepAfterFailedRefresh,
+} from '../lib/lyricsProviders/lyricsCache';
+import type { NativeStatus } from '../lib/lyricsProviders/lyricsCache';
 import { lyricsPersistence } from '../lib/lyricsProviders/lyricsPersistence';
-import { getLyricsForTrack, getColorOnly } from '../lib/lyricsProviders/lyricsEngine';
+import { getLyricsForTrack, getColorOnly, clearColorCache } from '../lib/lyricsProviders/lyricsEngine';
 import { mxmProvider } from '../lib/lyricsProviders/mxm';
 import { hashString } from '../lib/utils/hashUtils';
 
 export default defineBackground(() => {
-  // 1. Dynamic TTL Resolution Logic
-  function getDynamicTTL(entry: any): number {
-    if (!entry) return 0;
-    // If failed/missing/placeholder
-    if (entry.isPlaceholder || !entry.ok || entry.prefetchState === 'MISSING') {
-      return 12 * 60 * 60 * 1000; // 12 hours
-    }
-    // If unsynced/romanized
-    if (entry.prefetchState === 'UNSYNCED' || entry.nativeStatus === 'ROMANIZED' || entry.nativeStatus === 'UNSYNCED') {
-      return 24 * 60 * 60 * 1000; // 24 hours
-    }
-    // Otherwise (Synced / NATIVE_OK)
-    return 30 * 24 * 60 * 60 * 1000; // 30 days
-  }
+  // 1. Dynamic TTL Resolution Logic: getDynamicTTL (lib/lyricsProviders/lyricsCache.ts)
+  //    derives the TTL from the fetched data (synced 30d / unsynced 24h / failure 12h).
 
   // 2. Lazy Upgrade Queue to avoid API rate limits
   interface UpgradeQueueItem {
@@ -55,9 +51,11 @@ export default defineBackground(() => {
           }
           
           fresh.prefetchState = fresh.data?.isSynced ? 'SYNCED' : 'UNSYNCED';
+          fresh.persistedAt = Date.now();
           await lyricsPersistence.set(item.cacheKey, fresh);
           lyricsCache.set(item.cacheKey, fresh);
-          
+          reportedNativeStatus.delete(item.cacheKey);
+
           console.log(`[sly-upgrade] 🎉 Successful proactive upgrade for "${item.title}" to ${fresh.prefetchState}`);
 
           // Send message to tab to hot-swap!
@@ -91,6 +89,32 @@ export default defineBackground(() => {
     processUpgradeQueue();
   }
 
+  // Last native status recorded per cache key (C8/C3). The content script repeats
+  // SLY_REPORT_NATIVE_STATUS every poll tick, so an unchanged status is answered
+  // from memory before any storage read or write. Dropped for a key whenever its
+  // lyrics entry is rewritten elsewhere, and cleared on the K7 reset.
+  const NATIVE_STATUS_MEMO_MAX = 1000;
+  const reportedNativeStatus = new Map<string, NativeStatus>();
+  function rememberNativeStatus(key: string, status: NativeStatus) {
+    reportedNativeStatus.delete(key);
+    reportedNativeStatus.set(key, status);
+    if (reportedNativeStatus.size > NATIVE_STATUS_MEMO_MAX) {
+      const oldest = reportedNativeStatus.keys().next().value;
+      if (oldest !== undefined) reportedNativeStatus.delete(oldest);
+    }
+  }
+
+  // 3. Popup "Reset Data" (contract K7): the popup writes sly_cacheResetAt after
+  //    removing the persisted caches; drop everything held in memory here too.
+  browser.storage?.onChanged?.addListener((changes: Record<string, unknown>, areaName: string) => {
+    if (areaName !== 'local' || !changes?.sly_cacheResetAt) return;
+    console.log('[SKaraoke:BG] Cache reset requested: clearing L1 lyrics, in-flight fetches and colours.');
+    lyricsCache.clear();
+    clearColorCache();
+    reportedNativeStatus.clear();
+    upgradeQueue.length = 0;
+  });
+
   browser.runtime.onMessage.addListener(
     (
       msg: {
@@ -98,6 +122,7 @@ export default defineBackground(() => {
         // PROCESS fields
         lines?: string[];
         targetLang?: string;
+        sourceLang?: string | null;
         // FETCH_LYRICS / PREFETCH_LYRICS / SLY_SAVE_L0_CACHE fields
         payload?: { 
           key?: string;
@@ -207,12 +232,13 @@ export default defineBackground(() => {
       // Existing handler: romanization + translation pipeline
       // ----------------------------------------------------------------
       if (msg.type === 'PROCESS') {
-        processLines(msg.lines ?? [], msg.targetLang ?? 'en')
-          .then(sendResponse)
+        // sourceLang is Spotify's language tag: only a hint (contract K1).
+        processLines(msg.lines ?? [], msg.targetLang ?? 'en', msg.sourceLang ?? null)
+          .then((res) => sendResponse(res ?? null))
           .catch((err) => {
             console.error('[SKaraoke:BG] PROCESS failed:', err);
-            // Fallback: return originals for both modes
-            sendResponse({ translated: msg.lines, romanized: msg.lines });
+            // Total failure: null. Never echo the originals back as a "translation".
+            sendResponse(null);
           });
         return true;
       }
@@ -278,7 +304,7 @@ export default defineBackground(() => {
         
         (async () => {
           let stored = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
-          if (stored) {
+          if (stored && !stored.isPlaceholder) {
              // Self-heal: If it was tagged ROMANIZED but plain lyrics contain no non-Latin script characters, correct it
              if (stored.nativeStatus === 'ROMANIZED' && stored.data?.plainLyrics) {
                  const hasNonLatin = /[\u0900-\u0DFF\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u08FF\u0E00-\u0E7F]/.test(stored.data.plainLyrics);
@@ -287,13 +313,24 @@ export default defineBackground(() => {
                      stored.nativeStatus = 'NATIVE_OK' as any;
                      lyricsCache.set(cacheKey, stored);
                      await lyricsPersistence.set(cacheKey, stored);
+                     reportedNativeStatus.delete(cacheKey);
                  }
              }
+          }
+          // Contract K8: only a usable entry (not a placeholder, ok, within its
+          // dynamic TTL) is a hit. Failures and expired entries are left to
+          // FETCH_LYRICS, which serves fresh failures quickly and retries stale ones.
+          if (stored && isUsableCacheEntry(stored)) {
              console.log(`[sly-sw] Cache check for ${title}: Found. Native=${stored.nativeStatus || 'N/A'}, Custom=${stored.prefetchState || 'N/A'}`);
-             sendResponse({ ok: true, found: true, ...stored });
+             sendResponse({ ...stored, ok: true, found: true });
           } else {
-             console.log(`[sly-sw] Cache check for ${title}: Not found.`);
-             sendResponse({ ok: true, found: false });
+             // A real entry carries its own status; for legacy placeholders the
+             // separate native-status map is newer.
+             const nativeStatus = (stored && !stored.isPlaceholder ? stored.nativeStatus : undefined)
+               ?? (await lyricsPersistence.getNativeStatus(cacheKey))
+               ?? stored?.nativeStatus;
+             console.log(`[sly-sw] Cache check for ${title}: Not found${stored ? ' (unusable entry)' : ''}. Native=${nativeStatus || 'N/A'}`);
+             sendResponse(nativeStatus ? { ok: true, found: false, nativeStatus } : { ok: true, found: false });
           }
         })();
         return true;
@@ -315,10 +352,8 @@ export default defineBackground(() => {
           if (lyricsCache.has(cacheKey) && !forceRefresh) {
             const cached = lyricsCache.get(cacheKey);
             if (cached && !(cached as any).isPlaceholder) {
-              const age = Date.now() - (cached.persistedAt || 0);
-              const ttl = getDynamicTTL(cached);
-              if (age > ttl) {
-                console.log(`[ServiceWorker] L1 EXPIRED (Dynamic TTL: ${ttl / 3600000}h): ${title}`);
+              if (isCacheEntryExpired(cached)) {
+                console.log(`[ServiceWorker] L1 EXPIRED (Dynamic TTL: ${getDynamicTTL(cached) / 3600000}h): ${title}`);
                 // Fall through to L2/Fetch path
               } else {
                 console.log(`[ServiceWorker] L1 HIT: ${title} - ${artist}`);
@@ -331,7 +366,7 @@ export default defineBackground(() => {
           // 2. L2: Persistent Storage Hit
           const fallbackKey = uri ? lyricsCache.getCacheKey(title, artist) : undefined;
           let stored = forceRefresh ? null : await lyricsPersistence.get(cacheKey, fallbackKey);
-          if (stored && !(stored as any).isPlaceholder) {
+          if (stored && !stored.isPlaceholder) {
             // Self-heal: If it was tagged ROMANIZED but plain lyrics contain no non-Latin script characters, correct it
             if (stored.nativeStatus === 'ROMANIZED' && stored.data?.plainLyrics) {
                 const hasNonLatin = /[\u0900-\u0DFF\u3000-\u9FFF\uAC00-\uD7AF\u0400-\u04FF\u0600-\u08FF\u0E00-\u0E7F]/.test(stored.data.plainLyrics);
@@ -340,14 +375,12 @@ export default defineBackground(() => {
                     stored.nativeStatus = 'NATIVE_OK' as any;
                     lyricsCache.set(cacheKey, stored);
                     await lyricsPersistence.set(cacheKey, stored);
+                    reportedNativeStatus.delete(cacheKey);
                 }
             }
 
-            const age = Date.now() - (stored.persistedAt || 0);
-            const ttl = getDynamicTTL(stored);
-            
-            if (age > ttl) {
-              console.log(`[ServiceWorker] L2 EXPIRED (Dynamic TTL: ${ttl / 3600000}h): ${title} — triggering background refresh.`);
+            if (isCacheEntryExpired(stored)) {
+              console.log(`[ServiceWorker] L2 EXPIRED (Dynamic TTL: ${getDynamicTTL(stored) / 3600000}h): ${title} — re-fetching (kept if the re-fetch fails).`);
               // If L2 is expired, we do NOT return the stale hit. We fall through to network fetch!
             } else {
               console.log(`[ServiceWorker] L2 HIT: ${title} - ${artist}`);
@@ -434,10 +467,29 @@ export default defineBackground(() => {
                 } else {
                   result.prefetchState = 'MISSING';
                 }
-                const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
-                result.nativeStatus = result.nativeStatus || existing?.nativeStatus || nativeStatus;
+                const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey, fallbackKey);
+
+                // A failed re-fetch (expired TTL, forced retry, provider outage) must
+                // never overwrite good lyrics: keep them and retry later.
+                if (!result.ok && hasGoodLyrics(existing)) {
+                  console.warn(`[ServiceWorker] Re-fetch failed for ${title}; keeping previously cached lyrics.`);
+                  const kept = keepAfterFailedRefresh(existing);
+                  lyricsCache.set(cacheKey, kept);
+                  await lyricsPersistence.set(cacheKey, kept);
+                  reportedNativeStatus.delete(cacheKey);
+                  return kept;
+                }
+
+                result.nativeStatus = result.nativeStatus
+                  || (existing && !existing.isPlaceholder ? existing.nativeStatus : undefined)
+                  || (await lyricsPersistence.getNativeStatus(cacheKey))
+                  || existing?.nativeStatus
+                  || (nativeStatus as NativeStatus | undefined);
+                // Stamp before caching so the L1 TTL check sees the real age.
+                result.persistedAt = Date.now();
                 lyricsCache.set(cacheKey, result);
                 await lyricsPersistence.set(cacheKey, result);
+                reportedNativeStatus.delete(cacheKey);
               }
               return result;
             } catch (e) {
@@ -462,20 +514,24 @@ export default defineBackground(() => {
         if (!title || !artist || !status) return false;
 
         const cacheKey = lyricsCache.getCacheKey(title, artist, uri);
+        // C8/C3: an unchanged status needs no storage read or write.
+        if (reportedNativeStatus.get(cacheKey) === status) {
+          sendResponse({ ok: true });
+          return true;
+        }
+        // Remember it before the async work so concurrent repeats are skipped too;
+        // a lyrics write for this key meanwhile drops the memo again.
+        rememberNativeStatus(cacheKey, status as NativeStatus);
         (async () => {
           const existing = lyricsCache.get(cacheKey) || await lyricsPersistence.get(cacheKey);
           
-          if (!existing) {
-            const fresh = {
-              ok: false,
-              prefetchState: 'MISSING' as const,
-              nativeStatus: status as any,
-              isPlaceholder: true
-            };
-            lyricsCache.set(cacheKey, fresh);
-            await lyricsPersistence.set(cacheKey, fresh);
+          if (!existing || existing.isPlaceholder) {
+            // No fetched lyrics for this track: record the status in the separate,
+            // capped native-status map. Placeholders must not occupy (and evict
+            // real entries from) the 200-entry lyrics LRU.
+            await lyricsPersistence.setNativeStatus(cacheKey, status as NativeStatus);
           } else if (existing.nativeStatus !== status) {
-            existing.nativeStatus = status as any;
+            existing.nativeStatus = status as NativeStatus;
             lyricsCache.set(cacheKey, existing);
             await lyricsPersistence.set(cacheKey, existing);
           }
@@ -483,7 +539,11 @@ export default defineBackground(() => {
           // neither branch ran and sendResponse was never called, causing
           // "message port closed" warnings and potential Firefox hangs.
           sendResponse({ ok: true });
-        })();
+        })().catch((e) => {
+          if (reportedNativeStatus.get(cacheKey) === status) reportedNativeStatus.delete(cacheKey);
+          console.warn('[SKaraoke:BG] Native status report failed:', e);
+          sendResponse({ ok: false });
+        });
         return true;
       }
 

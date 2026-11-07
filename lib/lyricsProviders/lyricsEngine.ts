@@ -47,6 +47,11 @@ import { themePersistence } from './themePersistence';
 
 const colorCache = new Map<string, string>();
 
+/** Drops the in-memory album-art colour cache (popup Reset, contract K7). */
+export function clearColorCache(): void {
+  colorCache.clear();
+}
+
 /**
  * Fast-track color extraction for instant HUD feedback.
  */

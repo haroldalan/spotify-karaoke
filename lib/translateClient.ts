@@ -12,6 +12,19 @@ const MYMEMORY_MAX_CHARS = 450;
 const CHUNK_DELAY_MS = 120;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Pads (with the source line) or slices a provider's output so it has exactly
+ * one entry per input line of the chunk.
+ */
+export function alignToChunk(out: string[], chunk: string[], label = 'output'): string[] {
+  if (out.length === chunk.length) return out;
+  console.warn(`[SKaraoke:BG] ${label} returned ${out.length} lines for ${chunk.length}; re-aligning chunk.`);
+  if (out.length > chunk.length) return out.slice(0, chunk.length);
+  const aligned = out.slice();
+  while (aligned.length < chunk.length) aligned.push(chunk[aligned.length]);
+  return aligned;
+}
+
 export async function googleProcess(
   lines: string[],
   targetLang: string,
@@ -44,21 +57,30 @@ export async function googleProcess(
 
   // Optimization: Parallelize the first two chunks to reduce "Time to First Lyric"
   // Subsequent chunks remain serial with a delay to prevent 429s.
+  // A chunk whose translation fails on BOTH providers rejects, so googleProcess
+  // rejects as a whole: callers must never receive original lines as a "translation".
   const processChunk = async (chunk: string[], index: number) => {
     if (index >= 1) await delay(CHUNK_DELAY_MS);
     const joined = chunk.join('\n');
     try {
       const result = await googleTranslate(joined, targetLang, includeRomanization, sourceLang);
-      
-      // Trim to avoid trailing newline misalignment and slice to match input chunk length
-      const transLines = result.translated.trim().split('\n').slice(0, chunk.length);
-      
+      if (!result.translated.trim()) throw new Error('Google empty translation');
+
+      // Trim to avoid trailing newline misalignment, then pad/slice to the chunk length
+      // so a merged line never shifts the lines of later chunks.
+      const transLines = alignToChunk(result.translated.trim().split('\n'), chunk, 'Google translation');
+
       let isLowQuality = false;
       let romLines: string[];
 
-      if (result.romanized && result.romanized.trim()) {
-        romLines = result.romanized.trim().split('\n').slice(0, chunk.length);
+      const romSplit = result.romanized?.trim() ? result.romanized.trim().split('\n') : null;
+      if (romSplit && romSplit.length === chunk.length) {
+        romLines = romSplit;
       } else {
+        if (romSplit) {
+          // Google collapsed (or split) the romanization lines: fall back per line.
+          console.warn(`[SKaraoke:BG] Google romanization returned ${romSplit.length} lines for ${chunk.length}; using per-line transliteration.`);
+        }
         // Fallback to local transliteration library (silent)
         romLines = chunk.map(l => transliterate(l));
         isLowQuality = true;
@@ -69,14 +91,14 @@ export async function googleProcess(
       console.warn('[SKaraoke:BG] Google blocked, falling back to MyMemory:', googleErr);
       const { chunks: subChunks } = chunkByCharCount(chunk, MYMEMORY_MAX_CHARS);
       const subTrans: string[] = [];
-      const subRom: string[] = [];
       for (let j = 0; j < subChunks.length; j++) {
         if (j > 0) await delay(CHUNK_DELAY_MS);
-        const text = await myMemoryTranslate(subChunks[j].join('\n'), targetLang);
-        subTrans.push(...text.split('\n'));
-        subRom.push(...text.split('\n'));
+        const text = await myMemoryTranslate(subChunks[j].join('\n'), targetLang, sourceLang);
+        subTrans.push(...alignToChunk(text.trim().split('\n'), subChunks[j], 'MyMemory translation'));
       }
-      return { transLines: subTrans, romLines: subRom, isLowQuality: true };
+      // MyMemory only translates. Its output is never a romanization: transliterate the source.
+      const romLines = chunk.map(l => transliterate(l));
+      return { transLines: alignToChunk(subTrans, chunk, 'MyMemory translation'), romLines, isLowQuality: true };
     }
   };
 

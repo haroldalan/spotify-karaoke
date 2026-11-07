@@ -39,28 +39,29 @@ export async function googleTranslate(
   const allSegments = ((data[0] as any[]) ?? []) as any[][];
 
   // When dt=rm is present, Google appends a special romanization block as
-  // the LAST element of data[0], shaped: [null, null, null, "line1\nline2\n..."]
+  // the LAST element of data[0], shaped:
+  //   [null, null, <TARGET transliteration | null>, <SOURCE transliteration | null>]
+  // Index 2 is the translation written in Latin letters (only present when the
+  // target language has its own script, e.g. tl=hi/ja/ru). Index 3 is how the
+  // SOURCE lyrics are pronounced — the only value usable as romanization.
   // All normal translation segments are shaped: ["translated", "original", ...]
   // data[8] is the language detection array — NOT romanization — and contains
   // null entries that would throw if we tried to iterate it. Never touch it.
   let segments = allSegments;
   let romanized: string | null = null;
 
-  if (includeRomanization && allSegments.length > 0) {
-    const lastBlock = allSegments[allSegments.length - 1];
-    // Google's romanization block is always a trailing array where the first few elements are null
-    // and the romanized text is the first string found (historically at index 3).
-    if (!lastBlock[0] && !lastBlock[1]) {
-      const firstString = lastBlock.find(val => typeof val === 'string');
-      if (firstString) {
-        romanized = firstString as string;
-        // Exclude the romanization block so it doesn't pollute the translated text
-        segments = allSegments.slice(0, -1);
-      }
+  const lastBlock = allSegments[allSegments.length - 1];
+  if (Array.isArray(lastBlock) && lastBlock[0] == null && lastBlock[1] == null) {
+    // Romanization block: never part of the translation, whatever it contains.
+    segments = allSegments.slice(0, -1);
+    if (includeRomanization && typeof lastBlock[3] === 'string') {
+      romanized = lastBlock[3];
     }
   }
 
-  const translated = segments.map((s) => (s[0] ?? '') as string).join('');
+  const translated = segments
+    .map((s) => (Array.isArray(s) && typeof s[0] === 'string' ? s[0] : ''))
+    .join('');
 
   return { translated, romanized };
 }

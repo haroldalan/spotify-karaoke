@@ -14,19 +14,35 @@ export function getYtmKeySource(): string {
   return currentKeySource;
 }
 
-async function getApiKey(): Promise<string> {
-  // 1. Check in-memory cache first (hot)
-  if (cachedApiKey) return cachedApiKey;
+const YTM_KEY_STORAGE_KEYS = ['ytm_api_key', 'ytm_key_source'];
 
-  // 2. Check browser storage (cold but faster than network)
+/** Forgets the cached key, in memory and in storage, so the next lookup cannot reuse it. */
+async function clearStoredApiKey(): Promise<void> {
+  cachedApiKey = null;
   try {
-    const storage = await browser.storage.local.get(['ytm_api_key', 'ytm_key_source']);
-    if (storage.ytm_api_key) {
-      cachedApiKey = storage.ytm_api_key;
-      currentKeySource = storage.ytm_key_source || 'scraped';
-      return cachedApiKey!;
-    }
+    await browser.storage.local.remove(YTM_KEY_STORAGE_KEYS);
   } catch (e) { /* ignore storage errors */ }
+}
+
+/**
+ * @param forceRefresh skip the in-memory and stored key and scrape a fresh one
+ *   (used after a 403, when the cached key is the likely culprit).
+ */
+async function getApiKey(forceRefresh = false): Promise<string> {
+  if (!forceRefresh) {
+    // 1. Check in-memory cache first (hot)
+    if (cachedApiKey) return cachedApiKey;
+
+    // 2. Check browser storage (cold but faster than network)
+    try {
+      const storage = await browser.storage.local.get(YTM_KEY_STORAGE_KEYS);
+      if (storage.ytm_api_key) {
+        cachedApiKey = storage.ytm_api_key;
+        currentKeySource = storage.ytm_key_source || 'scraped';
+        return cachedApiKey!;
+      }
+    } catch (e) { /* ignore storage errors */ }
+  }
 
   // 3. Fallback to scrape
   try {
@@ -62,12 +78,16 @@ const ANDROID_CONTEXT = {
   },
 };
 
+/**
+ * attempt 0: cached/stored key. On 403 → attempt 1: freshly scraped key (storage
+ * bypassed and cleared). Still 403 → attempt 2: the built-in fallback key.
+ */
 async function callYtmDirect(
   endpoint: string,
   payload: Record<string, unknown>,
-  retried = false,
+  attempt = 0,
 ): Promise<unknown> {
-  const key = await getApiKey();
+  const key = attempt >= 2 ? YT_API_KEY_FALLBACK : await getApiKey(attempt === 1);
   const response = await fetchWithTimeout(
     `${YT_BASE}/${endpoint}?alt=json&key=${key}`,
     {
@@ -80,14 +100,21 @@ async function callYtmDirect(
     },
   );
 
-  if (response.status === 403 && !retried) {
-    // Stale cached key — bust it and retry once with a freshly fetched key
-    console.warn('[YTM] 403 received — busting cached key and retrying once.');
-    cachedApiKey = null;
-    return callYtmDirect(endpoint, payload, true);
+  if (response.status === 403 && (attempt === 0 || (attempt === 1 && key !== YT_API_KEY_FALLBACK))) {
+    // Stale key: clear it from memory AND storage (otherwise getApiKey just
+    // re-reads it), then retry with a fresh scrape, then with the built-in key.
+    console.warn(`[YTM] 403 received — clearing cached key and retrying (${attempt === 0 ? 'fresh key' : 'built-in key'}).`);
+    await clearStoredApiKey();
+    return callYtmDirect(endpoint, payload, attempt + 1);
   }
 
   if (!response.ok) throw new Error(`YTM HTTP Error: ${response.status}`);
+  if (attempt >= 2) {
+    // The built-in key works where the scraped ones were rejected: keep using it
+    // for this worker's lifetime instead of re-scraping on every call.
+    cachedApiKey = YT_API_KEY_FALLBACK;
+    currentKeySource = 'fallback';
+  }
   return response.json();
 }
 

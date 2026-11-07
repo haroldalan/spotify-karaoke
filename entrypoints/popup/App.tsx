@@ -195,10 +195,18 @@ export default function App() {
         k.startsWith('lc:') || 
         k === 'lc_index' || 
         k === 'l2_index' || 
-        k.startsWith('spotify:track:') || 
-        k.includes('|') // title|artist keys
+        k.startsWith('spotify:track:') ||
+        k.includes('|') || // title|artist keys
+        k === 'sly_native_status' || // native-status markers (kept outside the lyrics index)
+        k === 'ytm_api_key' || k === 'ytm_key_source' // cached YouTube Music key
       );
       if (lyricsKeys.length > 0) await browser.storage.local.remove(lyricsKeys);
+    } catch { /* ignore */ }
+
+    // Reset sentinel (contract K7): background and content scripts clear their
+    // in-memory caches when this key changes.
+    try {
+      await browser.storage.local.set({ sly_cacheResetAt: Date.now() });
     } catch { /* ignore */ }
 
     setTargetLang('en');
