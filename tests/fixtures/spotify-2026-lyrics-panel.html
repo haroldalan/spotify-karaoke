@@ -1,0 +1,128 @@
+<!--
+  SYNTHETIC fixture of open.spotify.com (web-player build 2026-10-13) with the
+  expanded "Now Playing" lyrics overlay open. Structure, data-testids, ids,
+  aria labels and the hashed classes on the lyrics path are copied from a real
+  page snapshot; all text, track IDs and names are invented. Contains no real
+  lyrics and no account data.
+
+  Key facts this fixture encodes (verified against the real snapshot):
+  - Full lyrics live under div#main > div[data-testid=root] > div.PbMBx95owTmQYYdfnp3j
+    > div.BKBhMtk7_HSsKiFLJtC_ (overlay) > … > div.bm5I7yGVN8NXt6vH9eiC[style*=--lyrics-color-active].
+    They are NOT inside <main aria-label="Spotify"> and NOT inside any <aside>.
+  - #main-view (playlist page with <main>) and the left sidebar are inert behind the overlay.
+  - There is no element with id="root"; the app root is [data-testid="root"].
+  - The now-playing widget links only to /album and /artist; the current track id is
+    only available from the Now Playing view's "playing from" link (?uri=spotify:track:…).
+  - Play/pause is [data-testid="control-button-playpause"] with aria-label "Pause" while playing.
+  - The progress range input has step=5000 and max = duration in ms.
+  - The URL path does not change to /lyrics.
+  - A Now Playing view lyrics preview (from the Sep 2026 UI) is included inside the aside so
+    tests can check that preview lines are excluded.
+-->
+<html>
+<head><title>Spotify – Web Player</title></head>
+<body class="">
+  <div id="main">
+    <div class="Root global-nav centered-layout" data-testid="root">
+      <div class="PbMBx95owTmQYYdfnp3j">
+        <div id="global-nav-bar" class="EmXZMILXH0bP7U461Va6"></div>
+        <div id="Desktop_LeftSidebar_Id" class="nWqHVdNL4CdxyvxYNFI8" inert=""></div>
+
+        <div id="main-view" class="BPRPH_jrStQIw2m2qfDl" inert="">
+          <main class="TKq2Yidc5rgHzpJFRFYW" tabindex="-1" aria-label="Spotify">
+            <section role="presentation" data-testid="playlist-page" class="QO2sjtEUhEdKAtiVPSiN">
+              <div data-testid="tracklist-row"><a href="/track/0000000000000000000Aaa">Other Song A</a></div>
+              <div data-testid="tracklist-row"><a href="/track/0000000000000000000Bbb">Other Song B</a></div>
+            </section>
+          </main>
+        </div>
+
+        <div class="dMf_PkfPVTEuSmc11MZp QYUSmNvwjiwG7ViRn5mN WIXLRqkC7_2cQAH9Ute4">
+          <aside id="Desktop_PanelContainer_Id" class="SwoI_U_X4O3wXD7db3su NowPlayingView" aria-label="Now playing view">
+            <a draggable="true" class="h4wlt0AvlClqvmAbqe6M" href="/playlist/0000000000000000000Ply?uid=0123456789abcdef0123&amp;uri=spotify:track:4UMIv5jd9gK98a39BQRD9X"><div class="T5aLewckz4uaWaJwdczO"><span>Liked Songs</span></div></a>
+            <div data-testid="lyrics-npv-section">
+              <div class="FOuUnTRQ4vzmdpbFOSWp" style="--lyrics-color-active: rgba(255, 255, 255, 1); --lyrics-color-inactive: rgba(147, 213, 255, 1); --lyrics-color-passed: rgba(255, 255, 255, 1); --lyrics-color-background: rgba(0, 51, 103, 1);">
+                <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div>Preview line one</div></div>
+                <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div>Preview line two</div></div>
+                <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div>Preview line three</div></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div class="BKBhMtk7_HSsKiFLJtC_ _S8BM1G4Z1K7pqORZFWx XPcjknPx9Iz154ZPbxvD">
+          <div class="xT1RZwPYcz7B6Ce7d5_5 A7zNIB2sDpjiE8bNH0K5">
+            <div>
+              <div role="radiogroup" aria-label="Media control options">
+                <button role="radio" value="artwork" aria-checked="false" aria-label="Show artwork"></button>
+                <button role="radio" value="canvas" aria-checked="false" aria-label="Show Canvas"></button>
+                <button role="radio" value="hero" aria-checked="false" aria-label="Show artist image"></button>
+                <button role="radio" value="lyrics" aria-checked="true" aria-label="Show lyrics"></button>
+              </div>
+              <button data-testid="fullscreen-mode-button" data-active="false" aria-pressed="false" aria-label="Enter Full screen"></button>
+              <button aria-label="Minimize Now Playing view"></button>
+              <div class="fRg4dKoYv5foImhCb339">
+                <div class="MIxkyEs3g0rBLYzrvIwv">
+                  <div class="jmMK_tQ7h5GQ5tGnPVIU fZ3pFqjCmKNCThtxWPfu">
+                    <div class="QkWpHgKU0KPSQGTuVpP3 z4Kedx_nHYLvEGdkMbze uRE1l8PrWlA8hNCDrLq9">
+                      <div class="bm5I7yGVN8NXt6vH9eiC EW7K4621fZWOFX6wdnFp" style="--lyrics-color-active: rgba(255, 255, 255, 1); --lyrics-color-inactive: rgba(147, 213, 255, 1); --lyrics-color-passed: rgba(255, 255, 255, 1); --lyrics-color-background: rgba(0, 51, 103, 1); --lyrics-color-messaging: rgba(147, 213, 255, 1);">
+                        <div class="OaXGHrbiWJI_moHj0__w"></div>
+                        <div class="F7dK_hSTIn8Dlw3NT4dD h1zGAwMmQVBYZRCFFQw4">
+                          <div class="t3jTARRdoLQZ0LowMbxg">
+                            <div class="">
+                              <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim NToFsyntheticPassed01" data-testid="lyrics-line"><div class="tUO1WBVA3vpkKoCsTCU_">Mera dil tera hai, tu kahan hai yaar</div></div>
+                              <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim xp5WsyntheticActive01" data-testid="lyrics-line"><div class="tUO1WBVA3vpkKoCsTCU_">Main har pal teri yaad mein rehta hoon</div></div>
+                              <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div class="tUO1WBVA3vpkKoCsTCU_">♪</div></div>
+                              <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div class="tUO1WBVA3vpkKoCsTCU_">Kya hua jo tum saath nahin ho aaj</div></div>
+                              <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div class="tUO1WBVA3vpkKoCsTCU_">Phir bhi mujhe tujhse pyaar hai</div></div>
+                              <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div class="tUO1WBVA3vpkKoCsTCU_">Zindagi ke har safar mein tera naam</div></div>
+                              <div dir="auto" class="MFEBmMwUCW5Qmg8VwGim tixQoLB1xUrPglVJ91J4" data-testid="lyrics-line"><div class="tUO1WBVA3vpkKoCsTCU_">Kabhi toh aaja, kuch toh bol de</div></div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="bcHULqwNXkqRAB5k2IjN">
+                          <div class="aRgHH3jy_GwGaSqqfqWw">Lyrics provided by Musixmatch</div>
+                          <div class="D8oRLHjMGCOtt5A4kpTU"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="lyrics-cinema" class="Root__lyrics-cinema"></div>
+
+        <div class="d4YjdCUuq2sWZzXX_4i4">
+          <aside class="TDRmHQO0LVotUz4Mzi2d GkZspcHt_sFR7ykry84w Ab4NT3JSdqhfl8GkUbIQ" data-testid="now-playing-bar" aria-label="Now playing bar">
+            <div data-testid="now-playing-widget" class="y553RmrZmRZw4BPgip35" role="region" aria-label="Now playing: Test Song by Test Artist">
+              <div data-testid="CoverSlotCollapsed__container"><button type="button" data-testid="cover-art-button" aria-label="Now playing view"></button></div>
+              <div data-testid="context-item-info-title"><a href="/album/2NTJua5Rhkszhg6b99TK78">Test Song</a></div>
+              <div><a href="/artist/5SwtzFnHzuWGai6tPOHBeH">Test Artist</a></div>
+            </div>
+            <div data-testid="player-controls">
+              <button data-testid="control-button-skip-back" aria-label="Previous"></button>
+              <button data-testid="control-button-playpause" aria-label="Pause" data-encore-id="buttonPrimary" data-is-icon-only="true" class="e-10860-legacy-button-primary e-10860-legacy-button"></button>
+              <button data-testid="control-button-skip-forward" aria-label="Next"></button>
+              <div data-testid="playback-position" class="e-10860-text encore-text-marginal"><span>0:17</span></div>
+              <div class="sFPdqIr8t2xI75iScCuj CTG2kuUAISyh9_NteS8D" data-testid="playback-progressbar">
+                <label class="hidden-visually"><input type="range" min="0" max="330463" step="5000" aria-valuetext="0:17/5:30" value="18357"></label>
+                <div class="uI8JyD_faatLr66nS5Cb" style="--progress-bar-transform: 5.554933532649646%; --hover-bar-transform: 0%;" data-testid="progress-bar">
+                  <div data-testid="progress-bar-background"><div data-testid="progress-bar-handle"></div></div>
+                </div>
+              </div>
+              <div data-testid="playback-duration" class="e-10860-text encore-text-marginal">5:30</div>
+            </div>
+            <div>
+              <button data-testid="lyrics-button" data-active="true" aria-pressed="true" aria-label="Lyrics" data-encore-id="buttonTertiary" class="e-10860-legacy-button e-10860-legacy-button-tertiary e-10860-overflow-wrap-anywhere e-10860-button-tertiary--icon-only-small"></button>
+              <button data-testid="control-button-queue" data-active="false" aria-pressed="false" aria-label="Queue"></button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
