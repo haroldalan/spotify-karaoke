@@ -30,15 +30,16 @@ declare global {
       visited?: Set<unknown>,
     ) => ((...args: unknown[]) => unknown) | null;
     // Section 2 — Scanner
+    // NOTE: window.spotifyState is an ISOLATED-world global (lib/slyCore/state.ts);
+    // it does not exist in this MAIN-world script, so it is deliberately not declared here.
     slyScanSpotifyState: () => void;
-    spotifyState?: Record<string, unknown>;
     __sly_spotify_token?: string;
     __sly_native_has_lyrics?: boolean | undefined;
     __sly_track_change_time?: number;
     // Section 3 — Shield
     slyActivateShield: () => void;
+    slyDeactivateShield: () => void;
     cachedToggleLyrics: ((...args: unknown[]) => unknown) | null;
-    slyConfigPool: WeakSet<WeakKey>;
     SPOTIFY_CLASSES?: Record<string, string>;
     slyCloseTransitionActive?: boolean;
   }
@@ -48,6 +49,7 @@ import {
   captureReturnPoint, 
   performAtomicRelease 
 } from '../lib/core/navigationController';
+import { getThemedPanelContainer, NOW_PLAYING_WIDGET } from '../lib/dom/domQueries';
 import type { SlyAction } from '../lib/core/lyricsTypes';
 
 export default defineUnlistedScript(() => {
@@ -148,6 +150,15 @@ window.slyOmniscientSearch = function (
 
   let lastUri: string | null = null;
   let lastPath = window.location.pathname;
+  // Bridge-local memory of the last discovered queue size (window.spotifyState is
+  // isolated-world only and always undefined here).
+  let lastQueueLength = -1;
+
+  // Now Playing view (right sidebar) lyrics preview. Its lines carry the same lyric
+  // fiber props but must only be used when the full panel has no lines. The id and
+  // data-testid are locale-independent; the aria-label is localized.
+  const NPV_PREVIEW_ANCESTORS =
+    'aside[aria-label="Now playing view"], aside.NowPlayingView, #Desktop_PanelContainer_Id, [data-testid="lyrics-npv-section"]';
 
   function findComponentProps(
     fiber: unknown,
@@ -165,6 +176,144 @@ window.slyOmniscientSearch = function (
     return findComponentProps(f.return, targetKeys, any, depth + 1);
   }
 
+  /* ---- Current-track resolution ----------------------------------------------
+     2026-11 web player: [data-testid="context-item-info-title"] is gone and the widget
+     is [data-testid="now-playing-widget-v2"]. Verified fiber facts (overlay open and closed):
+     - the now-playing-bar's parent fiber (depth 1) carries `entityUri: 'spotify:track:<id>'`;
+       the same props are reachable from the widget (~19) and the lyrics button (~27);
+     - the widget / bar / button chains carry NO `item` / `track` object;
+     - a full-panel lyric line carries `item` (depths 11, 19, 20) and
+       `nowPlayingState.item` (~42), but only while the overlay is open. */
+  const TRACK_URI_RE = /^spotify:track:[A-Za-z0-9]+$/;
+  const isTrackUri = (v: unknown): v is string => typeof v === 'string' && TRACK_URI_RE.test(v);
+
+  // Anchors that may carry a full track object, legacy UI first.
+  const TRACK_OBJECT_ANCHORS = [
+    '[data-testid="context-item-info-title"]',
+    '[data-testid="now-playing-widget-v2"]',
+    '[data-testid="now-playing-widget"]',
+    '[data-testid="now-playing-bar"]',
+  ];
+  // Anchors that carry `entityUri`, with a walk limit each (closest source first).
+  const ENTITY_URI_ANCHORS: Array<[string, number]> = [
+    ['[data-testid="now-playing-bar"]', 4],
+    ['[data-testid="now-playing-widget-v2"]', 30],
+    ['[data-testid="now-playing-widget"]', 30],
+    ['[data-testid="lyrics-button"]', 40],
+  ];
+  const WIDGET_SELECTOR = '[data-testid="now-playing-widget-v2"], [data-testid="now-playing-widget"]';
+
+  function walkProps(
+    el: Element | null,
+    maxDepth: number,
+    visit: (props: Record<string, unknown>) => unknown,
+  ): unknown {
+    let fiber = window.slyGetFiber(el) as Record<string, unknown> | null;
+    for (let depth = 0; fiber && depth <= maxDepth; depth++) {
+      const props = fiber.memoizedProps;
+      if (props && typeof props === 'object') {
+        const hit = visit(props as Record<string, unknown>);
+        if (hit) return hit;
+      }
+      fiber = fiber.return as Record<string, unknown> | null;
+    }
+    return null;
+  }
+
+  /** Locale-independent current-track uri, or null (ads, episodes, unknown build). */
+  function findEntityUri(): string | null {
+    for (const [sel, maxDepth] of ENTITY_URI_ANCHORS) {
+      const uri = walkProps(document.querySelector(sel), maxDepth, p => (isTrackUri(p.entityUri) ? p.entityUri : null));
+      if (uri) return uri as string;
+    }
+    return null;
+  }
+
+  /** First item/track/currentTrack/nowPlayingState.item with a spotify:track: uri (equal to wantUri when known). */
+  function findTrackObject(el: Element | null, wantUri: string | null): Record<string, unknown> | null {
+    return walkProps(el, 50, p => {
+      const nps = p.nowPlayingState as Record<string, unknown> | null | undefined;
+      for (const cand of [p.item, p.track, p.currentTrack, nps?.item]) {
+        if (!cand || typeof cand !== 'object') continue;
+        const uri = (cand as Record<string, unknown>).uri;
+        if (isTrackUri(uri) && (!wantUri || uri === wantUri)) return cand;
+      }
+      return null;
+    }) as Record<string, unknown> | null;
+  }
+
+  /**
+   * Overlay closed (no lyric-line chain): build the track from entityUri + the widget DOM.
+   * Same field shape as Spotify's `item` (duration is `duration.milliseconds`).
+   */
+  function buildTrackFromWidget(uri: string): Record<string, unknown> {
+    const widget = document.querySelector(WIDGET_SELECTOR);
+    const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, ' ').trim() || '';
+
+    // Title: the album link's text is the TRACK title in both the Oct and Nov widgets.
+    let name = text(widget?.querySelector('[data-testid="context-item-info-title"], [data-testid="context-item-link"], a[href^="/album/"]'));
+    let artistNames = Array.from(widget?.querySelectorAll('[data-testid="now-playing-widget-v2-byline"] a') || [])
+      .map(a => text(a)).filter(Boolean);
+    if (artistNames.length === 0) {
+      artistNames = Array.from(widget?.querySelectorAll('a[href^="/artist/"]') || []).map(a => text(a)).filter(Boolean);
+    }
+    // Last resort only: the aria-label "Now playing: <title> by <artists>" is localized.
+    const label = widget?.getAttribute('aria-label') || '';
+    const labelMatch = label.match(/^Now playing:\s*(.+?)\s+by\s+(.+)$/);
+    if (!name && labelMatch) name = labelMatch[1].trim();
+    if (artistNames.length === 0 && labelMatch) artistNames = labelMatch[2].split(',').map(s => s.trim()).filter(Boolean);
+
+    const track: Record<string, unknown> = {
+      type: 'track',
+      uri,
+      name,
+      artists: artistNames.map(n => ({ name: n })),
+    };
+
+    const range = document.querySelector('[data-testid="playback-progressbar"] input[type="range"]');
+    const durationMs = Number(range?.getAttribute('max'));
+    if (Number.isFinite(durationMs) && durationMs > 0) track.duration = { milliseconds: durationMs };
+
+    const art = widget?.querySelector('img[data-testid="cover-art-image"]') as HTMLImageElement | null;
+    const artUrl = art?.getAttribute('src');
+    if (artUrl) {
+      track.images = [{ url: artUrl }];
+      track.album = { images: [{ url: artUrl }] };
+    }
+    return track;
+  }
+
+  // The track is posted every tick: detach it from React's live props so a function or a
+  // cycle inside Spotify's object can never make postMessage throw (DataCloneError).
+  function plainTrack(obj: Record<string, unknown>): Record<string, unknown> {
+    try {
+      return JSON.parse(JSON.stringify(obj)) as Record<string, unknown>;
+    } catch {
+      const artists = Array.isArray(obj.artists)
+        ? obj.artists.map(a => ({ name: String((a as Record<string, unknown> | null)?.name ?? '') }))
+        : [];
+      return { type: 'track', uri: obj.uri, name: typeof obj.name === 'string' ? obj.name : '', artists };
+    }
+  }
+
+  function resolveCurrentTrack(lineNode: Element | undefined): { track: Record<string, unknown>; fromFiber: boolean } | null {
+    const entityUri = findEntityUri();
+    const anchors: Array<Element | null | undefined> = [
+      ...TRACK_OBJECT_ANCHORS.map(sel => document.querySelector(sel)),
+      lineNode,
+    ];
+    for (const el of anchors) {
+      if (!el) continue;
+      const found = findTrackObject(el, entityUri);
+      if (found) return { track: plainTrack(found), fromFiber: true };
+    }
+    return entityUri ? { track: buildTrackFromWidget(entityUri), fromFiber: false } : null;
+  }
+
+  // Track-change and metadata-notify memory (separate: the name may arrive after the uri).
+  let notifiedUri: string | null = null;
+  let lastTrackSig = '';
+
   window.slyScanSpotifyState = function () {
     // SLY FIX: Only reset cachedToggleLyrics if it's currently orphaned (no button in DOM).
     // This prevents a race where the scanner wipes a handler just found by the shield.
@@ -172,18 +321,25 @@ window.slyOmniscientSearch = function (
       window.cachedToggleLyrics = null;
     }
 
-    const lineNode = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-      .find(el => !el.closest('#lyrics-root-sync') && !el.closest('[data-testid="now-playing-bar"], footer, [data-testid="now-playing-widget"]'));
+    // Prefer a full-panel line; fall back to a Now Playing view preview line only
+    // when the full panel has none (the preview still exposes language/provider).
+    const candidateLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+      .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(`[data-testid="now-playing-bar"], footer, ${NOW_PLAYING_WIDGET}`));
+    const lineNode = candidateLines.find(el => !el.closest(NPV_PREVIEW_ANCESTORS)) || candidateLines[0];
     
-    const errorCls = window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP';
+    // Class names can now arrive via SLY_UPDATE_CLASSES; only use a single safe
+    // class token so a bad value cannot make querySelector throw every tick.
+    const learnedErrorCls = window.SPOTIFY_CLASSES?.errorContainer;
+    const errorCls = typeof learnedErrorCls === 'string' && /^[A-Za-z0-9_-]+$/.test(learnedErrorCls)
+      ? learnedErrorCls
+      : 'hfTlyhd7WCIk9xmP';
 
     const failNode = document.querySelector('.' + errorCls) || 
                      document.querySelector('.bRNotDNzO2suN6vM') || 
                      Array.from(document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'))
-                       .filter(el => !el.closest('aside[aria-label="Now playing view"], aside.NowPlayingView'))
+                       .filter(el => !el.closest(NPV_PREVIEW_ANCESTORS))
                        .flatMap(el => Array.from(el.querySelectorAll(':scope > div')))
                        .find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
-    const trackNode = document.querySelector('[data-testid="context-item-info-title"]');
     const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
 
     const aggregateState: Record<string, unknown> = {
@@ -191,11 +347,8 @@ window.slyOmniscientSearch = function (
       isTimeSynced: undefined, isDenseTypeface: undefined, language: undefined,
     };
 
-    if (trackNode) {
-      const fiber = window.slyGetFiber(trackNode);
-      const props = findComponentProps(fiber, ['item', 'track', 'currentTrack'], true);
-      if (props) aggregateState.track = props.item || props.track || props.currentTrack || null;
-    }
+    const resolved = resolveCurrentTrack(lineNode);
+    if (resolved) aggregateState.track = resolved.track;
 
     const lyricsAnchor = lineNode || failNode || document.querySelector('#main-view');
     if (lyricsAnchor) {
@@ -205,11 +358,13 @@ window.slyOmniscientSearch = function (
         const props = fiber.memoizedProps as Record<string, unknown> | undefined;
         if (props) {
           const d = props.data as Record<string, unknown> | undefined;
+          // color-lyrics shape is { lyrics: { language, ... } }; a component may receive that object as `lyrics`.
+          const lyr = (props.lyrics && typeof props.lyrics === 'object') ? props.lyrics as Record<string, unknown> : undefined;
           if (aggregateState.provider === undefined) aggregateState.provider = props.provider || props.lyricsProvider || d?.provider;
           if (aggregateState.syncType === undefined) aggregateState.syncType = props.syncType || d?.syncType;
           if (aggregateState.isTimeSynced === undefined) aggregateState.isTimeSynced = props.isTimeSynced || d?.isTimeSynced;
           if (aggregateState.isDenseTypeface === undefined) aggregateState.isDenseTypeface = props.isDenseTypeface || d?.isDenseTypeface;
-          if (aggregateState.language === undefined) aggregateState.language = props.language || d?.language;
+          if (aggregateState.language === undefined) aggregateState.language = props.language || d?.language || lyr?.language;
         }
         fiber = fiber.return as Record<string, unknown> | null;
         depth++;
@@ -268,9 +423,10 @@ window.slyOmniscientSearch = function (
               albumArtUrl: (album?.images as unknown[])?.[0] || meta?.image_url,
             };
           });
-          if (queueMetadata.length > 0 && (!window.spotifyState?.queue || (window.spotifyState.queue as unknown[]).length !== queueMetadata.length)) {
+          if (queueMetadata.length > 0 && queueMetadata.length !== lastQueueLength) {
             console.log(`[sly-scanner] Discovered ${queueMetadata.length} items in local queue.`);
           }
+          lastQueueLength = queueMetadata.length;
         }
       }
     }
@@ -287,17 +443,25 @@ window.slyOmniscientSearch = function (
       lastUri = track.uri as string;
       window.__sly_native_has_lyrics = undefined;
       window.__sly_track_change_time = Date.now();
+    }
 
-      // SLY FIX: Instantly notify the Interceptor (via Background) of the new track's metadata.
-      // This eliminates the 3s timeout window where the Interceptor is 'blind' while waiting for DOM updates.
+    // SLY FIX: Instantly notify the Interceptor (via Background) of the new track's metadata,
+    // once per uri. This eliminates the 3s timeout window where the Interceptor is 'blind' while
+    // waiting for DOM updates. A widget-built track (no fiber item) is only trusted after the same
+    // uri + title was seen on two consecutive ticks, so a widget that re-renders after entityUri
+    // changes cannot pair the new id with the previous title.
+    const trackSig = track ? `${track.uri}\u0000${track.name || ''}` : '';
+    if (track && track.name && track.uri !== notifiedUri && (resolved?.fromFiber || trackSig === lastTrackSig)) {
       const trackId = (track.uri as string).split(':').pop();
-      if (trackId && track.name) {
-          dispatchSlyAction({ 
-              type: 'SLY_MXM_NOTIFY_METADATA', 
-              payload: { trackId, name: track.name as string, artist: (track.artists as any)?.[0]?.name || 'Unknown' } 
-          });
+      if (trackId) {
+        notifiedUri = track.uri as string;
+        dispatchSlyAction({
+          type: 'SLY_MXM_NOTIFY_METADATA',
+          payload: { trackId, name: track.name as string, artist: (track.artists as any)?.[0]?.name || 'Unknown' },
+        });
       }
     }
+    lastTrackSig = trackSig;
 
     // Context-Aware Return Memory
     const currentPath = window.location.pathname;
@@ -326,41 +490,6 @@ window.slyOmniscientSearch = function (
   let btnObserver: MutationObserver | null = null;
 
   window.cachedToggleLyrics = null;
-  window.slyConfigPool = new WeakSet();
-
-  /**
-   * TOTAL RECALL: Recursively scans the React fiber tree to find objects
-   * that contain configuration properties related to lyrics.
-   */
-  function totalRecall(fiber: unknown, visited: Set<unknown> = new Set(), depth = 0): void {
-    if (!fiber || visited.has(fiber) || depth > 100) return;
-    visited.add(fiber);
-
-    const f = fiber as Record<string, unknown>;
-
-    const scan = (obj: unknown) => {
-      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-        window.slyConfigPool.add(obj);
-      }
-    };
-
-    scan(f.memoizedProps);
-
-    if (f.dependencies) {
-      const deps = f.dependencies as Record<string, unknown>;
-      let ctx = deps.firstContext as Record<string, unknown> | null;
-      while (ctx) {
-        scan(ctx.memoizedValue);
-        ctx = ctx.next as Record<string, unknown> | null;
-      }
-    }
-
-    let child = f.child as unknown;
-    while (child) {
-      totalRecall(child, visited, depth + 1);
-      child = (child as Record<string, unknown>).sibling;
-    }
-  }
 
   function enforceDOMState(btn: Element): void {
     const b = btn as HTMLButtonElement;
@@ -371,9 +500,7 @@ window.slyOmniscientSearch = function (
       b.style.pointerEvents = 'auto';
       b.style.cursor = 'pointer';
     }
-    if (b.getAttribute('aria-label') !== 'Lyrics') {
-      b.setAttribute('aria-label', 'Lyrics');
-    }
+    // Spotify's (localized) aria-label is left untouched; nothing depends on it.
 
     // SLY FIX (BUG-C18): Re-apply Genetic Lock immediately on DOM mutation.
     // React often replaces the memoizedProps object during reconciliation; linking re-locking
@@ -411,7 +538,7 @@ window.slyOmniscientSearch = function (
         childList: target !== btn, 
         subtree: target !== btn,
         attributes: true, 
-        attributeFilter: ['disabled', 'aria-label'] 
+        attributeFilter: ['disabled'] 
       });
       enforceDOMState(btn);
     } catch (e) {
@@ -419,15 +546,11 @@ window.slyOmniscientSearch = function (
     }
   }
 
+  // Idempotent: there is exactly one 500 ms shield/scanner loop per page, no matter
+  // how often this is called (startup, SLY_TRIGGER_NATIVE_OPEN, ...). The handle lives
+  // only in this closure; slyDeactivateShield() is the one way to stop it.
   window.slyActivateShield = function () {
-    // R2-Bug1 Fix: Sync closure variable with window-level state.
-    // The close handler clears window.slyShieldInterval but can't reach the
-    // closure's shieldInterval. Without this sync, the guard below would
-    // see a stale truthy value and refuse to restart the shield.
-    if (shieldInterval && !window.slyShieldInterval) {
-      shieldInterval = null;
-    }
-    if (shieldInterval) return;
+    if (shieldInterval !== null) return;
     console.log('>>> [sly] Shield Activated (Hybrid Fiber + Observer)');
 
     shieldInterval = setInterval(() => {
@@ -443,12 +566,8 @@ window.slyOmniscientSearch = function (
 
       window.slyScanSpotifyState(); // Merged Scanner
       const btn = document.querySelector('[data-testid="lyrics-button"]');
+      // Used by the omniscient-search fallback below.
       const navBar = document.querySelector('[data-testid="now-playing-bar"]');
-
-      if (navBar) {
-        const barFiber = window.slyGetFiber(navBar);
-        totalRecall(barFiber);
-      }
 
       if (btn) {
         const btnAny = btn as unknown as Record<string, unknown>;
@@ -546,13 +665,7 @@ window.slyOmniscientSearch = function (
         }
       }
 
-      // Pool Correction (Genetic Shield)
-      // V2 Fix: slyConfigPool is now a WeakSet — we can't iterate it.
-      // Instead, apply the lock directly on the fiber props found above.
-      // The shield already applies locks during the fiber walk (lines 478-495),
-      // so this redundant forEach was only needed for objects that escaped the walk.
-      // With WeakSet, those stale objects are GC'd automatically.
-      // 3. Genetic Lock Health Monitor
+      // Genetic Lock Health Monitor
       if (btn) {
         const initialFiber = window.slyGetFiber(btn) as Record<string, unknown> | null;
         if (initialFiber?.memoizedProps) {
@@ -567,15 +680,15 @@ window.slyOmniscientSearch = function (
       }
 
     }, 500); // Merged loop: 500ms coordinates directly with antigravity interval
+  };
 
-    // Periodic Deep Scan (Total Recall)
-    setInterval(() => {
-      const navBar = document.querySelector('[data-testid="now-playing-bar"]');
-      if (navBar) {
-        const fiber = window.slyGetFiber(navBar);
-        if (fiber) totalRecall(fiber);
-      }
-    }, 10000);
+  // Stops the loop (and with it the merged scanner, so SLY_TRACK_UPDATE stops too).
+  // Nothing in the 2026 flow calls this: the close path must NOT, because nothing
+  // reliably sends SLY_TRIGGER_NATIVE_OPEN to restart it afterwards.
+  window.slyDeactivateShield = function () {
+    if (shieldInterval === null) return;
+    clearInterval(shieldInterval);
+    shieldInterval = null;
   };
 })();
 
@@ -587,16 +700,41 @@ window.slyOmniscientSearch = function (
 (function () {
   console.log('>>> [sly] Bridge Entry (Phase 5.1 - Native Grace)');
 
+  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === 'object' && !Array.isArray(v);
+
+  // K9: classes may arrive as action.classes, action.payload.classes or action.payload
+  // (whichever is an object). Only non-empty string values are merged.
+  function applyClassUpdate(action: Record<string, unknown>): void {
+    const payload = action.payload;
+    const incoming = isPlainObject(action.classes) ? action.classes
+      : isPlainObject(payload) && isPlainObject(payload.classes) ? payload.classes
+      : isPlainObject(payload) ? payload
+      : null;
+    if (!incoming) return;
+    const merged: Record<string, string> = { ...(window.SPOTIFY_CLASSES || {}) };
+    for (const [key, value] of Object.entries(incoming)) {
+      if (typeof value === 'string' && value) merged[key] = value;
+    }
+    window.SPOTIFY_CLASSES = merged as unknown as typeof window.SPOTIFY_CLASSES;
+  }
+
   // --- NATIVE TRIGGER HANDLER ---
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const msg = event.data as Record<string, any>;
+    // The scavenger (isolated world) posts a bare { type: 'SLY_UPDATE_CLASSES', classes }
+    // without the gateway envelope (its sender is unchanged); accept that shape too.
+    if (isPlainObject(msg) && msg.type === 'SLY_UPDATE_CLASSES' && !msg.action) {
+      applyClassUpdate(msg);
+      return;
+    }
     if (msg?.source !== 'SLY_ACTION_GATEWAY') return;
     const action = msg.action as SlyAction;
     if (!action) return;
     
     if (action.type === 'SLY_UPDATE_CLASSES') {
-      window.SPOTIFY_CLASSES = { ...window.SPOTIFY_CLASSES, ...action.classes };
+      if (isPlainObject(action)) applyClassUpdate(action);
       return;
     }
 
@@ -606,14 +744,9 @@ window.slyOmniscientSearch = function (
       // Set transition guard to disable the Genetic Lock during slide out
       window.slyCloseTransitionActive = true;
 
-      // 1. Kill Intervals
-      if (window.slyScannerInterval) clearInterval(window.slyScannerInterval);
-      if (window.slyShieldInterval) clearInterval(window.slyShieldInterval);
-      window.slyScannerInterval = null;
-      window.slyShieldInterval = null;
-
-      // V2 Fix: slyConfigPool is a WeakSet now (not iterable), so we don't pass it.
-      // The nuke() inside performAtomicRelease already handles lock cleanup via the fiber walk.
+      // The 500 ms shield loop is deliberately NOT stopped here: it also runs the
+      // track scanner, and nothing reliably sends SLY_TRIGGER_NATIVE_OPEN to restart it.
+      // The nuke() inside performAtomicRelease handles lock cleanup via the fiber walk.
       performAtomicRelease();
       return;
     }
@@ -624,11 +757,8 @@ window.slyOmniscientSearch = function (
       // Clear transition guard immediately so locks can take effect
       window.slyCloseTransitionActive = false;
 
-      // R2-Bug1 Fix: Restart the shield interval. The close handler kills it
-      // permanently (lines 601-604) to allow Spotify's native close animation.
-      // Without restarting, the Genetic Lock (disabled:false, hasLyrics:true)
-      // stays dead after a close. For no-lyrics songs, Spotify then hides/removes
-      // the lyrics button, causing clicks to miss and land on the queue button.
+      // Make sure the shield loop is running (e.g. after slyDeactivateShield()).
+      // slyActivateShield is idempotent, so repeated opens never stack intervals.
       if (typeof window.slyActivateShield === 'function') {
         window.slyActivateShield();
       }
@@ -644,7 +774,8 @@ window.slyOmniscientSearch = function (
         setTimeout(() => {
           const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
           const isPressed = activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true';
-          const hasPanelLines = !!document.querySelector('div[style*="--lyrics-color-active"] [data-testid="lyrics-line"]');
+          // K10: full-panel container only (the NPV preview also carries --lyrics-color-active).
+          const hasPanelLines = !!getThemedPanelContainer()?.querySelector('[data-testid="lyrics-line"]');
           console.log(`>>> [sly-audit] Flicker Guard executing. Is active button pressed? ${isPressed}. Attributes: data-active="${activeBtn?.getAttribute('data-active')}", aria-pressed="${activeBtn?.getAttribute('aria-pressed')}"`);
           if (!isPressed && !hasPanelLines && typeof window.cachedToggleLyrics === 'function') {
             console.warn('>>> [sly-audit] 🚨 Flicker Guard: panel not open. Re-invoking trapped toggle as last resort.');
@@ -667,7 +798,7 @@ window.slyOmniscientSearch = function (
         setTimeout(() => {
           const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
           const isPressed = activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true';
-          const hasPanelLines = !!document.querySelector('div[style*="--lyrics-color-active"] [data-testid="lyrics-line"]');
+          const hasPanelLines = !!getThemedPanelContainer()?.querySelector('[data-testid="lyrics-line"]');
           console.log(`>>> [sly-audit] Flicker Guard executing. Is active button pressed? ${isPressed}. Attributes: data-active="${activeBtn?.getAttribute('data-active')}", aria-pressed="${activeBtn?.getAttribute('aria-pressed')}"`);
           // 2026 UI: panel animation is slower than 100ms; re-invoking that fast
           // double-toggles (open→close). Only re-invoke if neither button nor panel confirms open.
@@ -697,7 +828,7 @@ window.slyOmniscientSearch = function (
     window.slyActivateShield();
   }
 
-  // Note: Scanner starts itself in Section 2 above (setInterval at module load)
+  // Note: the scanner (Section 2) runs inside this single shield loop; there is no separate scanner interval.
 })();
 
 }); // end defineUnlistedScript
