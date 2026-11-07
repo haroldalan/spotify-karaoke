@@ -1,4 +1,4 @@
-import { handleColorLyrics } from '../lib/colorLyricsInterceptor';
+import { handleColorLyrics, isColorLyricsUrl } from '../lib/colorLyricsInterceptor';
 
 export default defineUnlistedScript(() => {
     /**
@@ -86,19 +86,11 @@ export default defineUnlistedScript(() => {
     ): Promise<Response> {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
         try {
-            if (url.includes('spclient.wg.spotify.com/metadata/41/track/')) {
-                const res = await _fetch(input, init);
-                try {
-                    const data = await res.clone().json();
-                    const id = url.match(/\/track\/([A-Za-z0-9]+)/)?.[1] || data.gid;
-                    if (id) {
-                        mxm.notifyMetadata(id, data.name, data.artist?.[0]?.name || 'Unknown');
-                    }
-                } catch (e) { console.warn('[SKaraoke:Interceptor] Metadata error:', e); }
-                return res;
-            }
-
-            if (!url.includes('spclient.wg.spotify.com/color-lyrics/v2/track/')) {
+            // Track metadata reaches the background via the bridge's
+            // SLY_MXM_NOTIFY_METADATA (slyBridge.ts); no metadata endpoint is sniffed here.
+            // Any *.spotify.com host (spclient.wg, gae2-spclient, …) with a
+            // /color-lyrics/v2/track/ path is intercepted.
+            if (!isColorLyricsUrl(url)) {
                 return _fetch(input, init);
             }
 

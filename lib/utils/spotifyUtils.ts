@@ -4,8 +4,14 @@ export const LATIN_LIKE_LANGS = new Set([
   'et', 'lv', 'lt', 'sl', 'bs', 'sq', 'af', 'ms', 'cy', 'ga', 'sw'
 ]);
 
+/**
+ * Spotify base62 ID → 32-char hex GID.
+ * Spotify's alphabet is digits, then lowercase, then uppercase (librespot
+ * BASE62_DIGITS). Test vector (librespot spotify_id.rs CONV_VALID):
+ * "5sWHDYs0csV6RS48xBl0tH" ↔ "b39fe8081e1f4c54be38e8d6f9f12bb9".
+ */
 export function base62ToHex(id: string): string | null {
-    const CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    const CHARS = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
     try {
         let n = BigInt(0);
         for (const c of id) {

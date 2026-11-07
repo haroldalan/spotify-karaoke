@@ -44,13 +44,29 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
                     if (url.includes('123')) {
                         return { lyrics: { language: 'en', providerLyricsId: 'p123' } };
                     }
+                    if (url.includes('NATIVE')) {
+                        // Already native script: must never be "upgraded".
+                        return {
+                            lyrics: {
+                                language: 'hi',
+                                isDenseTypeface: false,
+                                providerLyricsId: 'p123',
+                                lines: [
+                                    { words: 'यह केवल परीक्षण की पंक्ति है' },
+                                    { words: 'यह दूसरी परीक्षण पंक्ति है' }
+                                ]
+                            }
+                        };
+                    }
+                    // Romanized fallback (invented text, not song lyrics).
                     return {
                         lyrics: {
                             language: 'hi',
                             isDenseTypeface: false,
                             providerLyricsId: 'p123',
                             lines: [
-                                { words: 'नमस्ते दुनिया' }
+                                { words: 'Mera dil tera hai, tu kahan hai yaar' },
+                                { words: 'Kya hua jo tum saath nahin ho aaj' }
                             ]
                         }
                     };
@@ -120,6 +136,20 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
             }),
             expect.any(String)
         );
+    });
+
+    it('does not upgrade lyrics that are already in native script', async () => {
+        await import('../../entrypoints/fetchInterceptor');
+
+        await window.fetch('https://spclient.wg.spotify.com/color-lyrics/v2/track/NATIVE4cOdK2wGLETKBW3P');
+        await new Promise(r => setTimeout(r, 50));
+
+        const allCalls = (window.postMessage as ReturnType<typeof vi.fn>).mock.calls;
+        const actions = allCalls.map((c: any[]) => c[0]?.action).filter(Boolean);
+        expect(actions.map((a: any) => a.type)).toContain('SLY_FETCH_END');
+        expect(actions.some((a: any) => a.type === 'SLY_INTERCEPT_START' && a.trackId === 'NATIVE4cOdK2wGLETKBW3P')).toBe(false);
+        expect(actions.some((a: any) => a.type === 'SKL_NATIVE_LYRICS' && a.trackId === 'NATIVE4cOdK2wGLETKBW3P')).toBe(false);
+        expect(actions.some((a: any) => a.type === 'SLY_PREFETCH_REPORT' && a.state === 'ROMANIZED' && a.trackId === 'NATIVE4cOdK2wGLETKBW3P')).toBe(false);
     });
 
     it('ignores unsupported languages to save processing', async () => {

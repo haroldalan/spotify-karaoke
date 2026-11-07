@@ -175,10 +175,10 @@ async function mxmFetch(
     return url.toString();
   };
 
+  // 'Origin' is a forbidden request header (browsers drop it), so it is not set.
   const options = {
     headers: {
       'User-Agent': MXM_USER_AGENT,
-      'Origin': 'https://www.musixmatch.com'
     }
   };
 
@@ -251,9 +251,12 @@ async function fetchSubtitleBySearch(name: string, artist: string): Promise<Subt
   return await fetchSubtitle(commontrackId) || await fetchUnsyncedLyrics(commontrackId);
 }
 
-async function fetchUnsyncedLyrics(commontrackId: string | null): Promise<SubtitleLine[] | null> {
-  if (!commontrackId) return null;
-  const data = await mxmFetch('/track.lyrics.get', { commontrack_id: commontrackId });
+async function fetchUnsyncedLyrics(
+  id: string | number | null | undefined,
+  idParam: 'commontrack_id' | 'track_id' = 'commontrack_id',
+): Promise<SubtitleLine[] | null> {
+  if (!id) return null;
+  const data = await mxmFetch('/track.lyrics.get', { [idParam]: id });
   const lyricsBody = (data as any)?.message?.body?.lyrics?.lyrics_body as string | undefined;
   if (!lyricsBody) return null;
   return lyricsBody
@@ -299,14 +302,17 @@ export const mxmProvider: MxmProvider = {
         if (fromTrackId && verifyNativeScript(fromTrackId)) return fromTrackId;
 
         // BUG-H7 Fix: Fallback to unsynced for the linked track ID
-        const unsyncedFromTrackId = await fetchUnsyncedLyrics(body.track_id);
+        // (a Musixmatch track_id, so it must be sent as track_id, not commontrack_id).
+        const unsyncedFromTrackId = await fetchUnsyncedLyrics(body.track_id, 'track_id');
         if (isStale()) return null;
         if (unsyncedFromTrackId && verifyNativeScript(unsyncedFromTrackId)) return unsyncedFromTrackId;
       }
     }
 
     // Strategy 3: Metadata Search
-    const meta = getMetadata(hexGid);
+    // Metadata notifications (slyBridge / background) are keyed by the base62
+    // Spotify track ID; the hex GID is kept as a secondary key.
+    const meta = getMetadata(spotifyTrackId) ?? (hexGid ? getMetadata(hexGid) : undefined);
     if (meta) {
       const fromSearch = await fetchSubtitleBySearch(meta.name, meta.artist);
       if (isStale()) return null;

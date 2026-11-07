@@ -16,7 +16,8 @@ export interface MxmClient {
         interceptId: number,
     ): Promise<SubtitleLine[] | null>;
     notifyMetadata(id: string, name: string, artist: string): void;
-    newInterception(spotifyTrackId: string): number;
+    // The MAIN-world bridge (entrypoints/fetchInterceptor.ts) resolves this asynchronously.
+    newInterception(spotifyTrackId: string): number | Promise<number>;
     warmup(): void;
 }
 
