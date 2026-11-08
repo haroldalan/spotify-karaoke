@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Synthetic text only (no song lyrics).
 vi.mock('../../lib/translateClient', () => ({
   googleProcess: vi.fn(),
+  googleRomanize: vi.fn(),
 }));
 vi.mock('../../lib/lyrics/localRomanizer', () => ({
   romanizeLocally: vi.fn(),

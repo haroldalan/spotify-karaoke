@@ -1,5 +1,6 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/scavenger.js
+import { currentSongOnly } from '../dom/domQueries';
 import { safeBrowserCall } from '../utils/browserUtils';
 
 /**
@@ -34,6 +35,110 @@ export const SPOTIFY_CLASSES: SpotifyClasses = {
 };
 
 window.SPOTIFY_CLASSES = SPOTIFY_CLASSES;
+
+// ---------------------------------------------------------------------------
+// Lyrics "kit": the class names that give lyrics Spotify's own look. Lines take
+// Spotify's typography only inside its lyrics wrapper + list classes, so lyrics the
+// extension renders where Spotify shows none (tracks without Spotify lyrics) need
+// those names before any native lyrics panel has been on screen. Sources, best first:
+// a live panel (this page), the snapshot of the last live panel on this Spotify build,
+// then Spotify's stylesheet itself. A measurement confirms the names really work.
+// ---------------------------------------------------------------------------
+
+export type LyricsKitSource = 'default' | 'css' | 'snapshot' | 'live';
+let lyricsKitSource: LyricsKitSource = 'default';
+export const getLyricsKitSource = (): LyricsKitSource => lyricsKitSource;
+
+const KIT_STORAGE_KEY = 'sly_lyrics_kit';
+const KIT_FIELDS = ['container', 'containerClasses', 'wrapper', 'wrapperClasses', 'lyricsList', 'lyricsListClasses',
+  'lineBase', 'textInner', 'paddingLineHelper', 'topSpacer', 'slotClass', 'footerGrid', 'footerInner1', 'footerInner2',
+  'activeLine', 'passedLine', 'futureLine', 'unsynced', 'unsyncedMessage', 'attribution'] as const;
+
+/** Identifies the running Spotify build: the address of its main stylesheet (it carries a content hash). */
+export function spotifyBuildKey(): string {
+  const link = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+    .find(l => (l as HTMLLinkElement).href.includes('open.spotifycdn.com')) as HTMLLinkElement | undefined;
+  return link?.href ?? '';
+}
+
+let lastSavedKit = '';
+function saveLyricsKitSnapshot(): void {
+  const build = spotifyBuildKey();
+  if (!build) return;
+  const classes: Record<string, string> = {};
+  for (const k of KIT_FIELDS) if (typeof window.SPOTIFY_CLASSES[k] === 'string') classes[k] = window.SPOTIFY_CLASSES[k];
+  const json = JSON.stringify({ build, classes });
+  if (json === lastSavedKit) return;
+  lastSavedKit = json;
+  safeBrowserCall(() => browser.storage.local.set({ [KIT_STORAGE_KEY]: { build, classes, savedAt: Date.now() } }));
+}
+
+/** Startup: reuse the last live panel's names if they belong to this Spotify build. */
+export async function loadLyricsKitSnapshot(): Promise<void> {
+  if (lyricsKitSource === 'live') return;
+  try {
+    const stored = (await browser.storage.local.get(KIT_STORAGE_KEY))?.[KIT_STORAGE_KEY];
+    const build = spotifyBuildKey();
+    if (!stored?.classes || !build || stored.build !== build || lyricsKitSource === 'live') return;
+    for (const k of KIT_FIELDS) if (typeof stored.classes[k] === 'string') window.SPOTIFY_CLASSES[k] = stored.classes[k];
+    lyricsKitSource = 'snapshot';
+    lastSavedKit = JSON.stringify({ build, classes: stored.classes });
+    console.log('[sly-scavenger] Lyrics class names restored from the last live panel on this Spotify build.');
+  } catch { /* storage unavailable: CSS and live sources still apply */ }
+}
+
+const kitProbeCache = new Map<string, boolean>();
+
+/** Test hook: forget the kit source and measurements. */
+export function resetLyricsKit(): void {
+  lyricsKitSource = 'default';
+  kitProbeCache.clear();
+  lastSavedKit = '';
+  hasDeepScavenged = false;
+  isDeepScavenging = false;
+  lastDeepScavengeFailAt = 0;
+}
+
+/**
+ * Measures whether the current names give lyrics Spotify's typography. Spotify's rule
+ * sets it on the list only inside the wrapper (.wrapper .list{font-size…;font-weight:700}),
+ * and lines inherit it: a list inside the wrapper must differ from the same list
+ * without it (live 2026-11: 32px/700 vs 16px/400).
+ */
+export function isLyricsKitWorking(): boolean {
+  const c = window.SPOTIFY_CLASSES;
+  const wrapper = c.wrapperClasses || c.wrapper;
+  const list = c.lyricsListClasses || c.lyricsList;
+  const key = `${wrapper}|${list}`;
+  const cached = kitProbeCache.get(key);
+  if (cached !== undefined) return cached;
+  if (!document.body || !wrapper || !list) return false;
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-10000px;top:0;width:1200px;height:200px;visibility:hidden;pointer-events:none;';
+  const w = document.createElement('div'); w.className = wrapper;
+  const l = document.createElement('div'); l.className = list; l.textContent = 'x';
+  const bare = document.createElement('div'); bare.className = list; bare.textContent = 'x';
+  w.appendChild(l); host.appendChild(w); host.appendChild(bare);
+  document.body.appendChild(host);
+  const a = getComputedStyle(l), b = getComputedStyle(bare);
+  const size = (v: string) => parseFloat(v) || 0;
+  const weight = (v: string) => Number(v) || (v === 'bold' ? 700 : 0);
+  const works = size(a.fontSize) > size(b.fontSize) || weight(a.fontWeight) > weight(b.fontWeight);
+  host.remove();
+  // Unknown until the stylesheet is in: do not remember a negative result.
+  if (works || document.readyState === 'complete') kitProbeCache.set(key, works);
+  return works;
+}
+
+/** isLyricsKitWorking for other wrapper/list names (the current ones are given back). */
+function worksWith(names: { wrapper?: string; wrapperClasses?: string; lyricsList?: string; lyricsListClasses?: string }): boolean {
+  const c = window.SPOTIFY_CLASSES;
+  const current = { wrapper: c.wrapper, wrapperClasses: c.wrapperClasses, lyricsList: c.lyricsList, lyricsListClasses: c.lyricsListClasses };
+  Object.assign(c, names);
+  const works = isLyricsKitWorking();
+  Object.assign(c, current);
+  return works;
+}
 
 const ENCORE_PREFIX_RE = /(?:^|\s)(e-\d+-)/;
 const BUTTON_CLASS_KEYS = ['btnPrimary', 'btnPrimaryInner', 'btnSecondary', 'btnSecondaryInner'] as const;
@@ -93,10 +198,12 @@ export const slyScavengeClasses = function (): void {
   // variables. The preview has a small, different component tree; fingerprinting
   // it gives lyricsList the line class (MFEB...) instead of the real list class
   // (t3jT...). Exclude NPV/bar ancestry and prefer the panel with most lyric rows.
+  // Another song's panel still mounted beside this one is never the reference.
+  const currentSong = currentSongOnly();
   const nativeContainer = Array.from(
     document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)')
   )
-    .filter(el => !el.closest('#Desktop_PanelContainer_Id, [data-testid="lyrics-npv-section"], aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer'))
+    .filter(el => !el.closest('#Desktop_PanelContainer_Id, [data-testid="lyrics-npv-section"], aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer, [data-sly-leaving]') && currentSong(el))
     .sort((a, b) => b.querySelectorAll('[data-testid="lyrics-line"]').length - a.querySelectorAll('[data-testid="lyrics-line"]').length)[0] as HTMLElement | undefined;
   
   if (nativeContainer) {
@@ -112,16 +219,19 @@ export const slyScavengeClasses = function (): void {
     }
 
     const firstLine = nativeContainer.querySelector('[data-testid="lyrics-line"]');
+    // The names in use before this panel, given back if this panel's do not work.
+    const before = { wrapper: window.SPOTIFY_CLASSES.wrapper, wrapperClasses: window.SPOTIFY_CLASSES.wrapperClasses,
+      lyricsList: window.SPOTIFY_CLASSES.lyricsList, lyricsListClasses: window.SPOTIFY_CLASSES.lyricsListClasses };
     if (firstLine) {
-      // Discover structure from the line's actual ancestry instead of fixed
-      // child indexes, which changed in Spotify's new lyrics layout.
-      const list = firstLine.parentElement?.parentElement;
-      const wrapper = list?.parentElement;
-      if (list) {
+      // By structure, not by depth: the wrapper is the container's child holding the lines
+      // and the list is the wrapper's child holding them. Synced panels wrap each line once
+      // more than unsynced ones (live 2026-11: unsynced line → list → wrapper → container),
+      // so a fixed depth took the wrapper for the list on an unsynced panel.
+      const wrapper = Array.from(nativeContainer.children).find(c => c.contains(firstLine)) as HTMLElement | undefined;
+      const list = wrapper ? Array.from(wrapper.children).find(c => c.contains(firstLine)) as HTMLElement | undefined : undefined;
+      if (wrapper && list && list !== firstLine) {
         window.SPOTIFY_CLASSES.lyricsList = findHash(list.classList) || window.SPOTIFY_CLASSES.lyricsList;
         window.SPOTIFY_CLASSES.lyricsListClasses = list.className;
-      }
-      if (wrapper) {
         window.SPOTIFY_CLASSES.wrapper = findHash(wrapper.classList) || window.SPOTIFY_CLASSES.wrapper;
         window.SPOTIFY_CLASSES.wrapperClasses = wrapper.className;
       }
@@ -157,6 +267,18 @@ export const slyScavengeClasses = function (): void {
         // The padding helper is usually the second or last class on the spacer element
         window.SPOTIFY_CLASSES.paddingLineHelper = paddingLine.classList[paddingLine.classList.length - 1];
       }
+    }
+    if (firstLine && !isLyricsKitWorking() && worksWith(before)) {
+      // This panel's names do not give Spotify's typography and the previous ones do: keep those.
+      console.warn('[sly-scavenger] Lyrics wrapper/list names from this panel do not give Spotify\'s typography; keeping the previous ones.');
+      Object.assign(window.SPOTIFY_CLASSES, before);
+    } else if (firstLine && window.SPOTIFY_CLASSES.wrapperClasses && window.SPOTIFY_CLASSES.lyricsListClasses) {
+      // The slot that holds the lyrics panel in Spotify's layout (also there, with the
+      // artwork in it, in the expanded Now Playing view of a track without lyrics).
+      const slot = nativeContainer.parentElement;
+      if (slot) window.SPOTIFY_CLASSES.slotClass = findHash(slot.classList) || window.SPOTIFY_CLASSES.slotClass;
+      lyricsKitSource = 'live';
+      saveLyricsKitSnapshot();
     }
     console.log('[sly-scavenger] Fingerprinting complete — container dictionary updated.');
   } else {
@@ -209,8 +331,14 @@ let lastDeepScavengeTime = 0;
  * DEEP CSS SCAVENGER
  * Bypasses DOM ephemerality by reading Spotify's CSS directly via background worker fetch.
  */
+let lastDeepScavengeFailAt = 0;
+const DEEP_SCAVENGE_RETRY_MS = 60_000;
+
 export function slyDeepScavengeStyles(): void {
   if (hasDeepScavenged || isDeepScavenging) return;
+  if (!document.body) return;
+  // After a failed fetch, wait before fetching Spotify's whole stylesheet again.
+  if (lastDeepScavengeFailAt && Date.now() - lastDeepScavengeFailAt < DEEP_SCAVENGE_RETRY_MS) return;
 
   document.body.classList.add('sly-fallback');
 
@@ -226,6 +354,7 @@ export function slyDeepScavengeStyles(): void {
   safeBrowserCall(() => browser.runtime.sendMessage({ type: 'SLY_FETCH_CSS', url })).then((response: any) => {
     isDeepScavenging = false;
     if (!response || !response.success || !response.cssText) {
+        lastDeepScavengeFailAt = Date.now();
         document.body.classList.remove('sly-fallback');
         return;
     }
@@ -256,6 +385,40 @@ export function slyDeepScavengeStyles(): void {
     const unsyncedMatch = css.match(unsyncedRegex);
     if (unsyncedMatch) window.SPOTIFY_CLASSES.unsynced = unsyncedMatch[1];
 
+    // 2b. The lyrics wrapper, list, container and panel slot (see the kit notes above).
+    // Only fills names no live panel or snapshot has provided.
+    const listMatch = css.match(/\.([a-zA-Z0-9_-]+) \.([a-zA-Z0-9_-]+)\{[^}]*font-size:var\(--encore-text-size-larger-\d\)[^}]*font-family:var\(--encore-title-font-stack\)/);
+    // All three must match (the wrapper with its lyrics-view modifier, and the container),
+    // so a similar rule of another component is never taken for Spotify's lyrics.
+    const mod = listMatch && css.match(new RegExp(`\\.${listMatch[1]}\\.([a-zA-Z0-9_-]+)\\{padding-block-start:25vh\\}`));
+    const container = css.match(/\.([a-zA-Z0-9_-]+)\{grid-template-rows:1fr;width:100%;height:calc\(100vh - 73px\)/);
+    if (listMatch && mod && container && lyricsKitSource === 'default') {
+      const [, wrapper, list] = listMatch;
+      window.SPOTIFY_CLASSES.wrapper = wrapper;
+      window.SPOTIFY_CLASSES.wrapperClasses = `${wrapper} ${mod[1]}`;
+      window.SPOTIFY_CLASSES.lyricsList = list;
+      window.SPOTIFY_CLASSES.lyricsListClasses = list;
+      // The rest of the lyrics view, by the rules that style each part (2026-11 stylesheet).
+      const containerMod = css.match(new RegExp(`\\.${container[1]}\\.([a-zA-Z0-9_-]+)\\{height:100vh\\}`));
+      window.SPOTIFY_CLASSES.container = container[1];
+      window.SPOTIFY_CLASSES.containerClasses = containerMod ? `${container[1]} ${containerMod[1]}` : container[1];
+      // The top spacer paints the lyrics background.
+      const topSpacer = css.match(/\.([a-zA-Z0-9_-]+)\{background-color:var\(--lyrics-color-background\);grid-area:1\/1\/-1\/-1/);
+      if (topSpacer) window.SPOTIFY_CLASSES.topSpacer = topSpacer[1];
+      const pad = css.match(new RegExp(`\\.${window.SPOTIFY_CLASSES.lineBase}:not\\(\\.([a-zA-Z0-9_-]+)\\)\\{margin-bottom:\\.6em\\}`));
+      if (pad) window.SPOTIFY_CLASSES.paddingLineHelper = pad[1];
+      const footer = css.match(/\.([a-zA-Z0-9_-]+)\{z-index:1;opacity:0;width:100%;margin-top:-40px;[^}]*position:sticky;bottom:32px\}/);
+      if (footer) window.SPOTIFY_CLASSES.footerGrid = footer[1];
+      // Generic rules: only when exactly one class carries them.
+      const only = (re: RegExp): string | null => { const all = Array.from(css.matchAll(re)); return all.length === 1 ? all[0][1] : null; };
+      const inner1 = only(/\.([a-zA-Z0-9_-]+)\{margin-inline-end:auto;display:flex\}/g);
+      const inner2 = only(/\.([a-zA-Z0-9_-]+)\{margin-inline-start:auto;display:flex\}/g);
+      if (inner1) window.SPOTIFY_CLASSES.footerInner1 = inner1;
+      if (inner2) window.SPOTIFY_CLASSES.footerInner2 = inner2;
+      lyricsKitSource = 'css';
+    }
+    window.SPOTIFY_CLASSES.slotCandidates = Array.from(css.matchAll(/\.([a-zA-Z0-9_-]+)\{flex-shrink:0;height:100%;position:relative\}/g)).map((m) => m[1]);
+
     // 3. Extract standalone UI components
     const unsyncedMsgRegex = /\.([a-zA-Z0-9_-]+)\{[^}]*margin-top:62px!important[^}]*\}/;
     const unsyncedMsgMatch = css.match(unsyncedMsgRegex);
@@ -276,6 +439,7 @@ export function slyDeepScavengeStyles(): void {
     lastDeepScavengeTime = Date.now();
   }).catch((err: any) => {
     isDeepScavenging = false;
+    lastDeepScavengeFailAt = Date.now();
     document.body.classList.remove('sly-fallback');
     console.error('[sly-scavenger] Deep CSS Scavenge failed:', err);
   });

@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { googleTranslate } from '../../lib/translate/googleApi';
-import { myMemoryTranslate, toMyMemorySource } from '../../lib/translate/myMemoryApi';
 
 // Synthetic phrases only (no song lyrics). Response shapes follow the live
-// Google (dt=t&dt=rm) and MyMemory formats.
+// Google (dt=t&dt=rm) format.
 
 function jsonResponse(body: unknown, init: { status?: number; contentType?: string } = {}) {
   return {
@@ -67,55 +66,5 @@ describe('googleTranslate — romanization block', () => {
   it('throws on a captcha (non-JSON) page', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse('', { contentType: 'text/html' })));
     await expect(googleTranslate('x', 'en', false)).rejects.toThrow(/captcha/);
-  });
-});
-
-describe('myMemoryTranslate — langpair and status parsing', () => {
-  it("maps 'auto' to 'Autodetect' and keeps explicit sources", () => {
-    expect(toMyMemorySource('auto')).toBe('Autodetect');
-    expect(toMyMemorySource(undefined)).toBe('Autodetect');
-    expect(toMyMemorySource('ja')).toBe('ja');
-  });
-
-  it("sends langpair 'Autodetect|<tl>' for an unknown source", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ responseStatus: 200, responseData: { translatedText: 'test' } }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    await myMemoryTranslate('prueba', 'en');
-
-    const url = new URL(String(fetchMock.mock.calls[0][0]));
-    expect(url.searchParams.get('langpair')).toBe('Autodetect|en');
-  });
-
-  it('sends the resolved explicit source', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ responseStatus: 200, responseData: { translatedText: 'test' } }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    await myMemoryTranslate('テスト', 'en', 'ja');
-
-    const url = new URL(String(fetchMock.mock.calls[0][0]));
-    expect(url.searchParams.get('langpair')).toBe('ja|en');
-  });
-
-  it('rejects a string error status ("403") even with HTTP 200', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
-      responseStatus: '403',
-      responseDetails: "'AUTO' IS AN INVALID SOURCE LANGUAGE",
-      responseData: { translatedText: "'AUTO' IS AN INVALID SOURCE LANGUAGE" },
-    })));
-    await expect(myMemoryTranslate('x', 'en')).rejects.toThrow(/403/);
-  });
-
-  it('accepts a numeric or string 200 status', async () => {
-    vi.stubGlobal('fetch', vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ responseStatus: 200, responseData: { translatedText: 'one' } }))
-      .mockResolvedValueOnce(jsonResponse({ responseStatus: '200', responseData: { translatedText: 'two' } })));
-    await expect(myMemoryTranslate('x', 'en')).resolves.toBe('one');
-    await expect(myMemoryTranslate('x', 'en')).resolves.toBe('two');
-  });
-
-  it('rejects when the quota is finished', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ responseStatus: 200, quotaFinished: true, responseData: { translatedText: 'x' } })));
-    await expect(myMemoryTranslate('x', 'en')).rejects.toThrow(/quota/);
   });
 });

@@ -49,6 +49,8 @@ interface SpotifyClasses {
 }
 
 declare global {
+  /** True in debug builds (SLY_DEBUG=1) only: enables lib/testHooks.ts. */
+  const __SLY_TEST_HOOKS__: boolean | undefined;
   interface Window {
     SPOTIFY_CLASSES: SpotifyClasses;
     slyScavengeClasses: () => void;

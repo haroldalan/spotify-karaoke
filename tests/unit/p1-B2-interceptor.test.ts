@@ -27,7 +27,6 @@ async function loadContentScript(): Promise<void> {
   // Same order as entrypoints/spotify-lyrics.content/index.ts (styles before content).
   await import('../../lib/slyCore/state');
   await import('../../lib/slyCore/preFetch');
-  await import('../../lib/slyCore/adManager');
   await import('../../lib/slyCore/styles');
   await import('../../lib/slyCore/detector');
   await import('../../lib/slyCore/domEngine');

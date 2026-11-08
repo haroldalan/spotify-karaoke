@@ -5,7 +5,7 @@ import App from '../../entrypoints/popup/App';
 describe('Popup App Component', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        (global.browser.storage.sync.get as any).mockResolvedValue({
+        ((global as any).browser.storage.sync.get as any).mockResolvedValue({
             targetLang: 'es',
             dualLyrics: true,
             preferredMode: 'original'
@@ -54,7 +54,7 @@ describe('Popup App Component', () => {
 
         // 4. Verify storage write
         await waitFor(() => {
-            expect((global.browser.storage.sync.set as any)).toHaveBeenCalledWith({
+            expect(((global as any).browser.storage.sync.set as any)).toHaveBeenCalledWith({
                 targetLang: 'ja'
             });
         });
@@ -68,7 +68,7 @@ describe('Popup App Component', () => {
             fireEvent.click(checkbox);
         });
 
-        expect(global.browser.storage.sync.set).toHaveBeenCalledWith({
+        expect((global as any).browser.storage.sync.set).toHaveBeenCalledWith({
             dualLyrics: false
         });
     });

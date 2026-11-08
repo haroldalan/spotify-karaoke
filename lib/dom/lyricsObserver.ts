@@ -1,3 +1,4 @@
+import { traceEvent } from '../testHooks';
 import { getLyricsContainer, getLyricsLines } from './domQueries';
 import { isContextValid } from '../utils/browserUtils';
 import { applyLinesToDOM, capitalizeLine, isMeaningfullyDifferent } from './lyricsDOM';
@@ -23,6 +24,7 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
   console.log(`[sly-observer] ✅ createLyricsObserver: observing exact lyrics container (connected=${container.isConnected}, class="${container.className.slice(0, 40)}").`);
 
   const observer = new MutationObserver(() => {
+    traceEvent(`observer:${opts.getMode()}${opts.getIsApplying() ? ':applying' : ''}`);
     if (!isContextValid()) {
       observer.disconnect();
       opts.onInvalidate();
@@ -171,6 +173,8 @@ export function createLyricsObserver(opts: LyricsObserverOpts): MutationObserver
     subtree: true,
     childList: true,
   });
+  // The container this observer watches, so callers can reuse it for the same container.
+  (observer as MutationObserver & { slyTarget?: Element }).slyTarget = container;
 
   return observer;
 }

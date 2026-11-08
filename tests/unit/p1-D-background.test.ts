@@ -6,14 +6,6 @@ vi.mock('../../lib/lyricsProviders/lyricsEngine', () => ({
   getColorOnly: vi.fn().mockResolvedValue(null),
   clearColorCache: vi.fn(),
 }));
-vi.mock('../../lib/lyricsProviders/mxm', () => ({
-  mxmProvider: {
-    notifyMetadata: vi.fn(),
-    warmup: vi.fn(),
-    newInterception: vi.fn(),
-    fetchNativeLines: vi.fn(),
-  },
-}));
 
 import background from '../../entrypoints/background';
 import { processLines } from '../../lib/lyrics/lyricsProcessor';

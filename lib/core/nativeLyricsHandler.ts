@@ -1,7 +1,9 @@
+import { traceEvent } from '../testHooks';
 import { getNowPlayingTrackId, getLyricsLines } from '../dom/domQueries';
+import { noteNativeOverride } from '../dom/lyricsDOM';
 import { hasLyricWords, countWordLines } from '../lyrics/lineUtils';
 import { loadSongCache } from './lyricsCache';
-import type { SongCache, LyricsCacheEntry, LyricsMode } from './lyricsTypes';
+import type { SongCache, LyricsCacheEntry, LyricsMode, UnifiedSongCacheEntry } from './lyricsTypes';
 import { slyForensics } from '../slyCore/forensics';
 
 export interface NativeLyricsState {
@@ -10,7 +12,7 @@ export interface NativeLyricsState {
   songKey: string;
   mode: LyricsMode;
   currentActiveLang: string;
-  runtimeCache: Map<string, LyricsCacheEntry>;
+  runtimeCache: Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>;
 }
 
 /** Extra fields of a late SKL_NATIVE_LYRICS (K5). */
@@ -33,7 +35,7 @@ const hasWords = hasLyricWords;
 /**
  * K5: maps late native lines onto the snapshotted Spotify rows. The rows do not
  * line up 1:1 with Spotify's response: its trailing '' line gets no row, spacer
- * rows may render empty, and Musixmatch turns empty lines into '♪'. So only
+ * rows may render empty, and other sources mark empty lines their own way. So only
  * lines that carry words are counted, and they are written onto the rows that
  * carry words, in order. Spacer rows keep their text.
  * Returns null when the counts of word-carrying lines differ (a real mismatch).
@@ -54,6 +56,7 @@ function logLateMismatchOnce(trackId: string, detail: string): void {
 }
 
 function writeNativeLinesToDOM(nativeLines: string[]): void {
+  traceEvent('nativeWrite');
   getLyricsLines().forEach((el, i) => {
     if (nativeLines[i] !== undefined) {
       el.textContent = nativeLines[i];
@@ -81,13 +84,16 @@ export function applyNativeOverride(
   if (lateNativeLines.has(domTrackId)) {
     const rows = getLyricsLines();
     if (rows.length === 0) return false; // keep them pending until the panel renders
-    const aligned = alignNativeToRows(native, rows.map(rowText));
+    const spotifyRows = rows.map(rowText);
+    const aligned = alignNativeToRows(native, spotifyRows);
     state.pendingNativeLines.delete(domTrackId);
     lateNativeLines.delete(domTrackId);
     if (!aligned) {
       logLateMismatchOnce(domTrackId, `${native.filter(hasWords).length} native lines with words vs ${rows.filter(el => hasWords(rowText(el))).length} on screen`);
       return false;
     }
+    // The rows keep belonging to this cache when React re-renders Spotify's text.
+    noteNativeOverride(aligned, spotifyRows);
     state.cache.original = aligned;
     writeNativeLinesToDOM(aligned);
     return true;
@@ -101,7 +107,7 @@ export function applyNativeOverride(
 }
 
 /**
- * Applies native-script lines restored from Musixmatch to Pipeline B's cache
+ * Applies restored native-script lines (YouTube Music or LRCLIB) to Pipeline B's cache
  * (and the DOM in original mode). Resolves to true when the lines were applied.
  */
 export async function handleNativeLyrics(
@@ -143,6 +149,12 @@ export async function handleNativeLyrics(
       logLateMismatchOnce(trackId, `${nativeLines.filter(hasWords).length} native lines with words vs ${snapshot.filter(hasWords).length} snapshotted Spotify lines with words`);
       return false;
     }
+    // Spotify's rows for this track keep belonging to the native cache: the rows
+    // are only rewritten in Original mode, and React may re-render Spotify's text.
+    // The rows on screen are preferred (the snapshot may already be native lines
+    // loaded from storage); the hash ignores where the spacer lines sit.
+    const rowsOnScreen = getLyricsLines().map(rowText);
+    noteNativeOverride(aligned, alignNativeToRows(nativeLines, rowsOnScreen) ? rowsOnScreen : snapshot);
     linesToApply = aligned;
   } else {
     state.pendingNativeLines.set(trackId, nativeLines);

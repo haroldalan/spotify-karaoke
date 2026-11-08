@@ -12,7 +12,7 @@
  *   bridge.js                 — Bridge entry point (wires handlers, activates shield)
  *
  * NOT ported here (already covered by existing entrypoints):
- *   modules/bridge/mxm.js         → lib/mxmClient.ts
+ *   (modules/bridge/mxm.js was removed with Musixmatch)
  *   modules/bridge/interceptor.js → entrypoints/fetchInterceptor.ts
  */
 
@@ -33,6 +33,8 @@ declare global {
     // NOTE: window.spotifyState is an ISOLATED-world global (lib/slyCore/state.ts);
     // it does not exist in this MAIN-world script, so it is deliberately not declared here.
     slyScanSpotifyState: () => void;
+    /** Tags lyrics panels with their track and <html> with the playing one (domQueries currentSongOnly). */
+    slyTagLyricsPanels: () => void;
     __sly_spotify_token?: string;
     __sly_native_has_lyrics?: boolean | undefined;
     __sly_track_change_time?: number;
@@ -40,7 +42,6 @@ declare global {
     slyActivateShield: () => void;
     slyDeactivateShield: () => void;
     cachedToggleLyrics: ((...args: unknown[]) => unknown) | null;
-    SPOTIFY_CLASSES?: Record<string, string>;
     slyCloseTransitionActive?: boolean;
   }
 }
@@ -49,7 +50,7 @@ import {
   captureReturnPoint, 
   performAtomicRelease 
 } from '../lib/core/navigationController';
-import { getThemedPanelContainer, NOW_PLAYING_WIDGET } from '../lib/dom/domQueries';
+import { currentSongOnly, getThemedPanelContainer, NOW_PLAYING_WIDGET } from '../lib/dom/domQueries';
 import type { SlyAction } from '../lib/core/lyricsTypes';
 
 export default defineUnlistedScript(() => {
@@ -78,7 +79,7 @@ window.slyGetFiber = function (el: Element | null): unknown {
 
 window.SPOTIFY_CLASSES = {
   errorContainer: 'hfTlyhd7WCIk9xmP',
-};
+} as Window['SPOTIFY_CLASSES'];
 
 window.slyApplyGeneticLock = function (obj: unknown, prop: string, targetVal: unknown): void {
   if (!obj || typeof obj !== 'object' || !(prop in (obj as object))) return;
@@ -229,6 +230,70 @@ window.slyOmniscientSearch = function (
     return null;
   }
 
+  /* ---- Lyrics panel identity -------------------------------------------------
+     Spotify can keep earlier songs' lyrics panels mounted beside the current one (live
+     2026-11-08: five, off-screen or transparent, none marked as old). Each panel knows its
+     song: the row list's parent fiber carries `trackUri`, the themed container's carries
+     `item.uri` (verified on all five). They are written on the elements, and the playing
+     track on <html>, so the content script (another JS world, same DOM) can tell the
+     current song's panel apart (domQueries.ts currentSongOnly). */
+  const PANEL_TRACK_ATTR = 'data-sly-track-uri';
+  const PLAYING_TRACK_ATTR = 'data-sly-playing-uri';
+  const THEMED_PANEL = 'div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)';
+  let untaggedLogged = false;
+
+  /** The nearest track uri on a panel element's own fiber chain (a few levels only: further up is the overlay's current item). */
+  function panelTrackUri(el: Element): string | null {
+    return walkProps(el, 3, p => {
+      const item = p.item as Record<string, unknown> | null | undefined;
+      if (isTrackUri(p.trackUri)) return p.trackUri;
+      if (item && isTrackUri(item.uri)) return item.uri;
+      return null;
+    }) as string | null;
+  }
+
+  function setAttr(el: Element, name: string, value: string | null): void {
+    if (value === null) {
+      if (el.hasAttribute(name)) el.removeAttribute(name);
+    } else if (el.getAttribute(name) !== value) {
+      el.setAttribute(name, value);
+    }
+  }
+
+  window.slyTagLyricsPanels = function (): void {
+    setAttr(document.documentElement, PLAYING_TRACK_ATTR, findEntityUri());
+    const lists = new Set<Element>();
+    document.querySelectorAll('[data-testid="lyrics-line"]').forEach(row => {
+      if (row.parentElement && !row.closest(`#lyrics-root-sync, ${NPV_PREVIEW_ANCESTORS}`)) lists.add(row.parentElement);
+    });
+    const themed = Array.from(document.querySelectorAll(THEMED_PANEL)).filter(el => !el.closest(NPV_PREVIEW_ANCESTORS));
+    let untagged = 0;
+    for (const el of [...lists, ...themed]) {
+      // React reuses a panel's elements for the next song: re-read every pass.
+      const uri = panelTrackUri(el);
+      setAttr(el, PANEL_TRACK_ATTR, uri);
+      if (!uri) untagged++;
+    }
+    if (untagged && lists.size && !untaggedLogged) {
+      untaggedLogged = true;
+      console.warn(`[sly-bridge] ${untagged} lyrics panel element(s) without a track in Spotify's props (trackUri / item.uri renamed?): panels of other songs cannot be told apart.`);
+    }
+  };
+
+  // Re-tag as soon as lyric rows or a panel appear, in a microtask: before the content
+  // script reacts to the same rows. The shield's 500 ms loop re-tags too, for a song
+  // change that only re-renders props.
+  let tagQueued = false;
+  const touchesLyrics = (n: Node): boolean => n.nodeType === 1 &&
+    ((n as Element).matches('[data-testid="lyrics-line"], div[style*="--lyrics-color-active"]') ||
+     !!(n as Element).querySelector('[data-testid="lyrics-line"], div[style*="--lyrics-color-active"]'));
+  new MutationObserver(records => {
+    if (tagQueued) return;
+    if (!records.some(r => Array.prototype.some.call(r.addedNodes, touchesLyrics))) return;
+    tagQueued = true;
+    queueMicrotask(() => { tagQueued = false; window.slyTagLyricsPanels(); });
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
   /** First item/track/currentTrack/nowPlayingState.item with a spotify:track: uri (equal to wantUri when known). */
   function findTrackObject(el: Element | null, wantUri: string | null): Record<string, unknown> | null {
     return walkProps(el, 50, p => {
@@ -315,6 +380,7 @@ window.slyOmniscientSearch = function (
   let lastTrackSig = '';
 
   window.slyScanSpotifyState = function () {
+    window.slyTagLyricsPanels();
     // SLY FIX: Only reset cachedToggleLyrics if it's currently orphaned (no button in DOM).
     // This prevents a race where the scanner wipes a handler just found by the shield.
     if (!document.querySelector('[data-testid="lyrics-button"]')) {
@@ -323,8 +389,10 @@ window.slyOmniscientSearch = function (
 
     // Prefer a full-panel line; fall back to a Now Playing view preview line only
     // when the full panel has none (the preview still exposes language/provider).
+    // Never another song's panel still mounted beside this one (its language and provider).
+    const currentSong = currentSongOnly();
     const candidateLines = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-      .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(`[data-testid="now-playing-bar"], footer, ${NOW_PLAYING_WIDGET}`));
+      .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(`[data-testid="now-playing-bar"], footer, ${NOW_PLAYING_WIDGET}`) && currentSong(el));
     const lineNode = candidateLines.find(el => !el.closest(NPV_PREVIEW_ANCESTORS)) || candidateLines[0];
     
     // Class names can now arrive via SLY_UPDATE_CLASSES; only use a single safe
@@ -337,7 +405,7 @@ window.slyOmniscientSearch = function (
     const failNode = document.querySelector('.' + errorCls) || 
                      document.querySelector('.bRNotDNzO2suN6vM') || 
                      Array.from(document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'))
-                       .filter(el => !el.closest(NPV_PREVIEW_ANCESTORS))
+                       .filter(el => !el.closest(NPV_PREVIEW_ANCESTORS) && currentSong(el))
                        .flatMap(el => Array.from(el.querySelectorAll(':scope > div')))
                        .find(el => el.querySelectorAll('[data-testid="lyrics-line"]').length === 0 && el.classList.length > 0);
     const activeBtn = document.querySelector('[data-testid="lyrics-button"]');
@@ -345,12 +413,18 @@ window.slyOmniscientSearch = function (
     const aggregateState: Record<string, unknown> = {
       track: null, provider: undefined, syncType: undefined,
       isTimeSynced: undefined, isDenseTypeface: undefined, language: undefined,
+      lyricsTrackUri: null,
     };
 
     const resolved = resolveCurrentTrack(lineNode);
     if (resolved) aggregateState.track = resolved.track;
 
     const lyricsAnchor = lineNode || failNode || document.querySelector('#main-view');
+    // Sync flags (syncType / isTimeSynced) are read only from a full-panel lyric line:
+    // the Now Playing view preview card is a snippet whose data can say
+    // isTimeSynced=false for synced lyrics, and a failNode or #main-view anchor is not
+    // a lyric line at all. Provider/language still come from any anchor (K2).
+    const anchorIsFullPanelLine = !!lineNode && lyricsAnchor === lineNode && !lineNode.closest(NPV_PREVIEW_ANCESTORS);
     if (lyricsAnchor) {
       let fiber = window.slyGetFiber(lyricsAnchor) as Record<string, unknown> | null;
       let depth = 0;
@@ -361,8 +435,19 @@ window.slyOmniscientSearch = function (
           // color-lyrics shape is { lyrics: { language, ... } }; a component may receive that object as `lyrics`.
           const lyr = (props.lyrics && typeof props.lyrics === 'object') ? props.lyrics as Record<string, unknown> : undefined;
           if (aggregateState.provider === undefined) aggregateState.provider = props.provider || props.lyricsProvider || d?.provider;
-          if (aggregateState.syncType === undefined) aggregateState.syncType = props.syncType || d?.syncType;
-          if (aggregateState.isTimeSynced === undefined) aggregateState.isTimeSynced = props.isTimeSynced || d?.isTimeSynced;
+          if (anchorIsFullPanelLine) {
+            if (aggregateState.syncType === undefined) aggregateState.syncType = props.syncType || d?.syncType;
+            // typeof check, not ||: an explicit false must be kept.
+            if (aggregateState.isTimeSynced === undefined) {
+              aggregateState.isTimeSynced = typeof props.isTimeSynced === 'boolean'
+                ? props.isTimeSynced
+                : (typeof d?.isTimeSynced === 'boolean' ? d.isTimeSynced : undefined);
+            }
+            // DIAGNOSTIC: which track the on-screen rows belong to.
+            if (aggregateState.lyricsTrackUri === null && typeof props.trackUri === 'string') {
+              aggregateState.lyricsTrackUri = props.trackUri;
+            }
+          }
           if (aggregateState.isDenseTypeface === undefined) aggregateState.isDenseTypeface = props.isDenseTypeface || d?.isDenseTypeface;
           if (aggregateState.language === undefined) aggregateState.language = props.language || d?.language || lyr?.language;
         }
@@ -384,6 +469,7 @@ window.slyOmniscientSearch = function (
       syncType: aggregateState.syncType || null,
       isDenseTypeface: aggregateState.isDenseTypeface,
       language: aggregateState.language || null,
+      lyricsTrackUri: aggregateState.lyricsTrackUri,
       isPanelActive: activeBtn?.getAttribute('data-active') === 'true' || activeBtn?.getAttribute('aria-pressed') === 'true',
       nativeHasLyrics: window.__sly_native_has_lyrics ?? false, // BUG-31.1 Fix: Default to false to avoid standing down on tracks without lyrics
       detectionMethod: inGrace ? 'Grace Period (Default)' : 'Fiber Prop (Definitive)',
@@ -456,8 +542,14 @@ window.slyOmniscientSearch = function (
       if (trackId) {
         notifiedUri = track.uri as string;
         dispatchSlyAction({
-          type: 'SLY_MXM_NOTIFY_METADATA',
-          payload: { trackId, name: track.name as string, artist: (track.artists as any)?.[0]?.name || 'Unknown' },
+          type: 'SLY_NATIVE_NOTIFY_METADATA',
+          payload: {
+            trackId,
+            name: track.name as string,
+            artist: (track.artists as any)?.[0]?.name || 'Unknown',
+            // Picks the LRCLIB copy timed to this edit of the song (lrclibNative.ts).
+            durationMs: Number((track.duration as any)?.milliseconds) || undefined,
+          },
         });
       }
     }

@@ -1,17 +1,19 @@
+import { traceEvent } from '../testHooks';
 import { safeBrowserCall } from '../utils/browserUtils';
 import { hashString } from '../utils/hashUtils';
-import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId, getSlyLayoutHost, isPreviewLine } from '../dom/domQueries';
-import { snapshotOriginals, applyLinesToDOM } from '../dom/lyricsDOM';
+import { getNowPlayingKey, getLyricsContainer, getLyricsViewRoot, getLyricsLines, getNowPlayingTrackId, getSlyLayoutHost, isLyricsButtonActive, isPreviewLine, innerNeedsProcessing } from '../dom/domQueries';
+import { snapshotOriginals, applyLinesToDOM, retireRows, registerSnapshotGuard, cacheFitsNativeRows, noteCacheSkip, reconcileTakeoverCache } from '../dom/lyricsDOM';
 import { applyNativeOverride } from './nativeLyricsHandler';
 import { getStoredEntryDefect, resolveProcessed } from './processedCache';
 import { deleteSongCache, loadSongCache, saveSongCache, warmRuntimeCacheFromSession } from './lyricsCache';
 import { injectControls, syncButtonStates, setLoadingState, setButtonsDisabled, CONTROLS_ID } from '../dom/lyricsControls';
-import { parkPill } from '../dom/pillStateManager';
+import { parkPill, enterLoadingPill } from '../dom/pillStateManager';
+import { beginSongTransition, kickWhenPanelMounts } from '../dom/songTransition';
 import { createLyricsObserver } from '../dom/lyricsObserver';
 import { createSyncedLyricsRenderer, type LrcLine } from './syncedLyricsRenderer';
 import type { LyricsMode, SongCache, LyricsCacheEntry } from './lyricsTypes';
 import { StateStore } from './store';
-import { slyInternalState, spotifyState } from '../slyCore/state';
+import { isLeavingAnAd, slyInternalState, spotifyState, wasColorLyricsSeen } from '../slyCore/state';
 import { TakeoverEngine } from '../slyCore/takeoverEngine';
 import { MetadataEngine } from '../slyCore/metadataEngine';
 import { StatusEngine } from '../slyCore/statusEngine';
@@ -22,6 +24,26 @@ import { slyForensics } from '../slyCore/forensics';
  * can manage it without threading it through StateStore. Moved from StateStore in Step 5.
  */
 let lyricsObserver: MutationObserver | null = null;
+
+/**
+ * Keeps the lyricsObserver on the live lyrics container: recreated only when it
+ * is missing, watches another container, or its container left the DOM. The
+ * observer reads everything else through the store at mutation time.
+ */
+function ensureLyricsObserver(store: StateStore): void {
+  const target = (lyricsObserver as (MutationObserver & { slyTarget?: Element }) | null)?.slyTarget;
+  if (lyricsObserver && target && target.isConnected && target === getLyricsContainer()) return;
+  lyricsObserver?.disconnect();
+  lyricsObserver = createLyricsObserver({
+    getIsApplying: () => store.isApplying,
+    getMode: () => store.mode,
+    getCache: () => store.cache,
+    getCurrentActiveLang: () => store.currentActiveLang,
+    getDualLyricsEnabled: () => store.dualLyricsEnabled,
+    setApplying: (v) => { store.isApplying = v; },
+    onInvalidate: () => { lyricsObserver = null; },
+  });
+}
 
 const clearHUDFlags = (store?: StateStore) => {
   StatusEngine.clear();
@@ -66,7 +88,7 @@ const clearSlyLayoutClasses = (...classNames: string[]): void => {
  */
 export const isPipelineALive = (): boolean => {
   const sly = slyInternalState as any;
-  const hudLive = !!document.getElementById('sly-status-hud') || !!sly.statusHUDActive || !!sly.isAdHUDActive || !!sly.isFetchingHUD;
+  const hudLive = !!document.getElementById('sly-status-hud') || !!sly.statusHUDActive || !!sly.isFetchingHUD;
   const fetchLive = (sly.fetchingForUri?.size ?? 0) > 0 || !!sly.fetchingForTitle;
   const cl = sly.currentLyrics;
   const lyricsLive = !!cl && (!cl._slyUri || cl._slyUri === getTrackUri());
@@ -118,12 +140,56 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     opts.store.canonicalHash = appliedHash;
     return true;
   }
+  /**
+   * store.trackId is set at the song change. When the bridge could not name the
+   * track then (e.g. its track name was still empty), resolve it now and adopt
+   * the canonical hash already captured for it. Also corrects an id taken while
+   * the bridge still named the previous track (two consecutive tracks with the
+   * same title): getNowPlayingTrackId only names a track whose title matches
+   * the widget, so once the bridge catches up the id is the current one.
+   */
+  function resolveTrackBinding(): void {
+    const activeKey = getNowPlayingKey();
+    if (activeKey && activeKey !== store.songKey) return; // a song change is pending
+    const trackId = getNowPlayingTrackId();
+    if (!trackId || trackId === store.trackId) return;
+    const previous = store.trackId;
+    store.trackId = trackId;
+    store.canonicalHash = store.canonicalHashes.get(trackId) ?? null;
+    console.log(`[sly-lifecycle] 🔗 Track id ${previous ? `corrected (${previous} ➡️ ${trackId})` : `resolved after the song change: ${trackId}`} (canonicalHash ${store.canonicalHash}).`);
+  }
+
+  /**
+   * The current track's own canonical hash. SLY_CANONICAL_HASH only fills
+   * canonicalHashes, so a hash that arrives after the song change is read there.
+   */
+  function ownCanonicalHash(): number | null {
+    resolveTrackBinding();
+    if (store.canonicalHash !== null) return store.canonicalHash;
+    return store.trackId ? store.canonicalHashes.get(store.trackId) ?? null : null;
+  }
+
+  // Rows whose hash is another known track's canonical hash are that track's
+  // rows (e.g. the next track pre-rendered while the widget still shows this one).
+  // Unknown track id: never refuse on this rule.
+  registerSnapshotGuard((_texts, rowsHash) => {
+    const own = ownCanonicalHash();
+    const trackId = store.trackId;
+    if (!trackId) return null;
+    if (own !== null && Number(own) === rowsHash) return null;
+    const captured = store.canonicalHashes.get(trackId);
+    if (captured !== undefined && Number(captured) === rowsHash) return null;
+    for (const [otherId, hash] of store.canonicalHashes) {
+      if (otherId !== trackId && Number(hash) === rowsHash) return 'rows belong to another track';
+    }
+    return null;
+  }, ownCanonicalHash, () => wasColorLyricsSeen(store.trackId));
+
   function refreshSpotifyLyricsClasses(): void {
     // Same exclusions as getLyricsLines (Now Playing view preview incl. #Desktop_PanelContainer_Id
     // and [data-testid="lyrics-npv-section"], the bar and both widget testids).
-    const firstNativeLine = Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-      .find(el => !el.closest('#lyrics-root-sync') && !isPreviewLine(el));
-    const liveList = firstNativeLine?.parentElement?.parentElement;
+    // The current song's row list (never another song's panel mounted beside it).
+    const liveList = getLyricsContainer()?.parentElement;
     const knownListClass = window.SPOTIFY_CLASSES?.lyricsList;
     if (liveList && knownListClass && !liveList.classList.contains(knownListClass) && typeof (window as any).slyScavengeClasses === 'function') {
       console.log(`[sly-lifecycle] 🔎 Native lyrics list class changed (${knownListClass} → ${liveList.className}); refreshing Spotify fingerprints before setup.`);
@@ -146,10 +212,9 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
    * When `stateCtx` is a boolean or omitted, the legacy heuristic is used
    * (during the Step 1→2 transition, before the full sly:state bus is live).
    *
-   * Crucially, this function performs a GLOBAL document search for the existing
-   * pill — covering the document.body rescue location used by sly:release —
-   * and relocates it to the correct container before delegating to injectControls().
-   * injectControls() therefore never needs to re-parent.
+   * injectControls() moves the pill, wherever it is (parked on document.body after
+   * sly:release, or already home), to its home for the target: on Spotify's expanded
+   * view, the view itself.
    */
   function syncPill(stateCtx?: 'NATIVE_OK' | 'PIPELINE_A' | boolean) {
     const listCls = window.SPOTIFY_CLASSES?.lyricsList || 'GmI3DMxKYRsaA5DM';
@@ -162,7 +227,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // SLY FIX: Targeted injection logic for native lyrics container.
       const nativeContainer = getLyricsContainer();
       if (!nativeContainer || store.godState !== 'NATIVE_OK') return;
-      injectionTarget = nativeContainer;
+      injectionTarget = nativeContainer as HTMLElement;
       shouldShow = store.showPill;
     } else if (stateCtx === 'PIPELINE_A') {
       // SLY FIX: Targeted injection logic for our own Pipeline A container.
@@ -200,15 +265,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       };
     }
 
-    // Global pill relocation: find the pill anywhere in the document
-    // (including document.body where sly:release rescues it) and move it
-    // to the correct container before injectControls() runs.
-    // injectControls() therefore never needs its own re-parenting logic.
-    const existingPill = document.getElementById(CONTROLS_ID);
-    if (existingPill && existingPill.parentElement !== injectionTarget) {
-      injectionTarget.insertBefore(existingPill, injectionTarget.firstChild);
-    }
-
+    // injectControls puts the pill in its home for this container (wherever it is now).
     injectControls(injectionTarget, shouldShow, opts.store.mode, opts.store.preferredMode, opts.switchMode);
 
     return {
@@ -244,7 +301,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     }
 
     if (slyInternalState.isTransitioning) return;
-    if (slyInternalState?.currentLyrics && !slyInternalState.currentLyrics.failed) return;
+    if (slyInternalState?.currentLyrics && !(slyInternalState.currentLyrics as { failed?: boolean }).failed) return;
 
     const registryState = (window as any).slyPreFetchRegistry?.getState(store.songKey);
     const nativeStatus = registryState?.nativeStatus;
@@ -285,13 +342,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   }
 
   async function trySetup(): Promise<void> {
+    traceEvent('trySetup');
     // Ensure viewport observer is connected dynamically
     if (opts.store.domObserver) {
       (opts.store.domObserver as any).connectViewport();
     }
 
     const entryKey = getNowPlayingKey();
-    if (store.setupLock && store.lockOwnerKey === entryKey) return;
+    if (store.setupLock && store.lockOwnerKey === entryKey) { traceEvent('trySetup:locked'); return; }
     store.setupLock = true;
     store.lockOwnerKey = entryKey;
     try {
@@ -302,12 +360,13 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     } else if (!opts.store.songKey && activeKey) {
       opts.store.songKey = activeKey;
     }
+    resolveTrackBinding();
 
     refreshSpotifyLyricsClasses();
     
-    const { container } = syncPill(true); // Force visibility instantly. Do not let Ghost Guard or async tasks hide it.
+    const { container } = syncPill(true)!; // Force visibility instantly. Do not let Ghost Guard or async tasks hide it.
 
-    if (!container) return; // Wait for actual lines before proceeding with content sync
+    if (!container) { traceEvent('trySetup:noContainer'); return; } // Wait for actual lines before proceeding with content sync
 
     // SLY FIX: Synchronize track info on trySetup execution to ensure slyCore's fallback detector is aligned
     const meta = MetadataEngine.getNowPlaying();
@@ -338,6 +397,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         store.godState = 'NATIVE_OK';
       } else {
       console.log('[sly-lifecycle] ⏳ Yielding trySetup: HUD active or pending lyrics.');
+      traceEvent(`trySetup:yield(${store.godState}${slyInternalState.pendingLyricsData ? ',pending' : ''}${isPipelineALive() ? ',A' : ''}${getLyricsLines().length ? '' : ',noRows'})`);
       // BUG-1 Fix: Break the temporal deadlock. trySetup found the lyrics container
       // (pollForLyricsContainer called us), but yields because pendingLyricsData is set.
       // The injection gate in slyCheckNowPlaying may not have fired yet (it waits for
@@ -362,6 +422,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // Abort if slyCore is actively displaying custom lyrics. It handles its own pill injection.
     if (isSlyLayoutActive()) {
       console.log('[sly-lifecycle] 🚫 Bridge trySetup aborted: slyCore is active.');
+      traceEvent('trySetup:slyActive');
       return;
     }
 
@@ -399,27 +460,32 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
             console.warn(`[sly-lifecycle] trySetup fast path: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
             deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
             opts.store.cache = { original: [], processed: new Map() };
+            opts.store.cacheFromTakeover = false;
             fpProcessed = undefined;
           }
         }
       }
+      // Never paint lines cached for other rows (e.g. a takeover's lines after
+      // sly:release, or another song's cache while its rows are not on screen).
+      if (fpProcessed && !cacheFitsNativeRows(fpCache.original)) {
+        noteCacheSkip('trySetup hot-cache fast path', fpCache.original.length, getLyricsLines().length);
+        traceEvent(`trySetup:cacheMisfit(${fpCache.original.length}/${getLyricsLines().length})`);
+        fpProcessed = undefined;
+      }
       if (fpProcessed) {
+        // Same idempotency as syncSetup's fast path: the pill-removal trigger fires
+        // together with onLyricsInjected when Spotify re-mounts the row list.
+        const fpAlreadyPainted = opts.store.mode === fpPreferredMode &&
+          opts.store.lyricsAppliedForKey === opts.store.songKey &&
+          !getLyricsLines().some(innerNeedsProcessing);
         opts.store.mode = fpPreferredMode;
         const fpLines = fpPreferredMode === 'romanized' ? fpProcessed.romanized : fpProcessed.translated;
         const fpDual = opts.store.dualLyricsEnabled;
 
-        lyricsObserver?.disconnect();
-        lyricsObserver = createLyricsObserver({
-          getIsApplying: () => opts.store.isApplying,
-          getMode: () => opts.store.mode,
-          getCache: () => opts.store.cache,
-          getCurrentActiveLang: () => opts.store.currentActiveLang,
-          getDualLyricsEnabled: () => opts.store.dualLyricsEnabled,
-          setApplying: (v) => { opts.store.isApplying = v; },
-          onInvalidate: () => { lyricsObserver = null; },
-        });
+        ensureLyricsObserver(opts.store);
 
-        applyLinesToDOM(fpLines, fpCache.original, fpDual, (v) => { opts.store.isApplying = v; });
+        traceEvent(fpAlreadyPainted ? 'trySetup:fastPath(already)' : 'trySetup:fastPath');
+        if (!fpAlreadyPainted) applyLinesToDOM(fpLines, fpCache.original, fpDual, (v) => { opts.store.isApplying = v; });
         opts.store.lyricsAppliedForKey = opts.store.songKey;
         syncButtonStates(fpPreferredMode);
         setLoadingState(false);
@@ -433,16 +499,16 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     verifyAndHealCache(cache);
     auditOriginalLyrics(opts.store);
 
-    lyricsObserver?.disconnect();
-    lyricsObserver = createLyricsObserver({
-      getIsApplying: () => opts.store.isApplying,
-      getMode: () => opts.store.mode,
-      getCache: () => opts.store.cache,
-      getCurrentActiveLang: () => opts.store.currentActiveLang,
-      getDualLyricsEnabled: () => opts.store.dualLyricsEnabled,
-      setApplying: (v) => { opts.store.isApplying = v; },
-      onInvalidate: () => { lyricsObserver = null; },
-    });
+    ensureLyricsObserver(opts.store);
+
+    // The cache still does not belong to the rows on screen (verifyAndHealCache
+    // could not heal it): reapplyMode/autoSwitchIfNeeded would paint it on them.
+    if (opts.store.preferredMode !== 'original' && !cacheFitsNativeRows(opts.store.cache.original) &&
+        !reconcileTakeoverCache(opts.store, 'trySetup')) {
+      noteCacheSkip('trySetup', opts.store.cache.original.length, getLyricsLines().length);
+      clearHUDFlags(store); // never leave the pill shimmering with its buttons disabled
+      return;
+    }
 
       const s = performance.now();
 
@@ -477,6 +543,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   }
 
   async function syncSetup(): Promise<void> {
+    traceEvent('syncSetup');
     const entryKey = getNowPlayingKey();
     if (store.setupLock && store.lockOwnerKey === entryKey) return;
     store.setupLock = true;
@@ -489,6 +556,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       } else if (!opts.store.songKey && activeKey) {
         opts.store.songKey = activeKey;
       }
+      resolveTrackBinding();
       refreshSpotifyLyricsClasses();
       syncPill(true); // Force visibility instantly. Do not let Ghost Guard or async tasks hide it.
       const container = getLyricsContainer();
@@ -573,6 +641,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
               console.warn(`[sly-lifecycle] syncSetup fast path: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
               deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
               opts.store.cache = { original: [], processed: new Map() };
+              opts.store.cacheFromTakeover = false;
               processed = undefined;
             }
           }
@@ -588,22 +657,24 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
           }
         }
 
-        if (processed) {
-          lyricsObserver?.disconnect();
-          lyricsObserver = createLyricsObserver({
-            getIsApplying: () => opts.store.isApplying,
-            getMode: () => opts.store.mode,
-            getCache: () => opts.store.cache,
-            getCurrentActiveLang: () => opts.store.currentActiveLang,
-            getDualLyricsEnabled: () => opts.store.dualLyricsEnabled,
-            setApplying: (v) => { opts.store.isApplying = v; },
-            onInvalidate: () => { lyricsObserver = null; },
-          });
+        if (processed && !cacheFitsNativeRows(opts.store.cache.original)) {
+          noteCacheSkip('syncSetup fast path', opts.store.cache.original.length, getLyricsLines().length);
+          processed = undefined;
+        }
 
+        if (processed) {
+          ensureLyricsObserver(opts.store);
+
+          // Idempotent: quickApply (same text-matched result) or an earlier run
+          // already painted this key's processed lines and no row shows
+          // Spotify's own text, so a second full rewrite would change nothing.
+          const alreadyPainted = opts.store.mode === syncPreferredMode &&
+            opts.store.lyricsAppliedForKey === opts.store.songKey &&
+            !getLyricsLines().some(innerNeedsProcessing);
           opts.store.mode = syncPreferredMode;
           const lines = syncPreferredMode === 'romanized' ? processed.romanized : processed.translated;
           const dualLyricsEnabled = opts.store.dualLyricsEnabled;
-          applyLinesToDOM(lines, opts.store.cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
+          if (!alreadyPainted) applyLinesToDOM(lines, opts.store.cache.original, dualLyricsEnabled, (v) => { opts.store.isApplying = v; });
           syncButtonStates(syncPreferredMode);
           setLoadingState(false);
           
@@ -653,9 +724,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
               console.warn(`[sly-lifecycle] syncSetup post-storage fast path: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
               deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
               opts.store.cache = { original: [], processed: new Map() };
+              opts.store.cacheFromTakeover = false;
               spProcessed = undefined;
             }
           }
+        }
+        if (spProcessed && !cacheFitsNativeRows(spCache.original)) {
+          noteCacheSkip('syncSetup post-storage fast path', spCache.original.length, getLyricsLines().length);
+          spProcessed = undefined;
         }
         if (spProcessed) {
           opts.store.mode = spPreferredMode;
@@ -664,16 +740,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
           syncPill('NATIVE_OK');
 
-          lyricsObserver?.disconnect();
-          lyricsObserver = createLyricsObserver({
-            getIsApplying: () => opts.store.isApplying,
-            getMode: () => opts.store.mode,
-            getCache: () => opts.store.cache,
-            getCurrentActiveLang: () => opts.store.currentActiveLang,
-            getDualLyricsEnabled: () => opts.store.dualLyricsEnabled,
-            setApplying: (v) => { opts.store.isApplying = v; },
-            onInvalidate: () => { lyricsObserver = null; },
-          });
+          ensureLyricsObserver(opts.store);
 
           applyLinesToDOM(spLines, spCache.original, spDual, (v) => { opts.store.isApplying = v; });
           opts.store.lyricsAppliedForKey = opts.store.songKey;
@@ -737,19 +804,19 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // location from sly:release) so the pill is always correctly relocated here.
       syncPill('NATIVE_OK');
 
-      lyricsObserver?.disconnect();
-      lyricsObserver = createLyricsObserver({
-        getIsApplying: () => opts.store.isApplying,
-        getMode: () => opts.store.mode,
-        getCache: () => opts.store.cache,
-        getCurrentActiveLang: () => opts.store.currentActiveLang,
-        getDualLyricsEnabled: () => opts.store.dualLyricsEnabled,
-        setApplying: (v) => { opts.store.isApplying = v; },
-        onInvalidate: () => { lyricsObserver = null; },
-      });
+      ensureLyricsObserver(opts.store);
 
       if (opts.store.isSwitchingMode) {
         clearPoll();
+        return;
+      }
+
+      // Same rule as trySetup: no apply or automatic switch with a cache that
+      // does not belong to the rows on screen.
+      if (opts.store.preferredMode !== 'original' && !cacheFitsNativeRows(opts.store.cache.original) &&
+          !reconcileTakeoverCache(opts.store, 'syncSetup')) {
+        noteCacheSkip('syncSetup', opts.store.cache.original.length, getLyricsLines().length);
+        clearHUDFlags(store); // never leave the pill shimmering with its buttons disabled
         return;
       }
 
@@ -848,11 +915,116 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
   }
 
 
+  /**
+   * The next song's lyrics are ours and cached (L0): staged for slyCore's poll, which puts
+   * them in as soon as the bridge names the song and the view has a panel for it (no wait
+   * for Spotify's lyrics to load and be checked), while Spotify's new panel is held out of
+   * sight (the takeover marker's CSS hold). Returns whether they were staged.
+   */
+  function stageCachedTakeover(uri: string | null | undefined): boolean {
+    const sly = (window as any).slyInternalState;
+    if (typeof sly !== 'object' || !sly) return false;
+    const l0Hit = uri ? sly.l0Cache?.get(uri) : null;
+    const nativeStatus = uri ? (window as any).slyPreFetchRegistry?.getState(uri)?.nativeStatus : undefined;
+    const nativeFine = nativeStatus === 'SYNCED' || nativeStatus === 'NATIVE_OK';
+    const hit = !!(uri && l0Hit && !l0Hit.failed && !nativeFine && (l0Hit.lines || l0Hit.syncedLyrics || l0Hit.plainLyrics));
+    if (hit && uri) {
+      // The track the bridge still names (the previous one, while it catches up).
+      const bridgeUri = (window as any).spotifyState?.track?.uri as string | undefined;
+      const prevUri = bridgeUri && bridgeUri !== uri ? bridgeUri : undefined;
+      sly.stagedTakeover = { uri, prevUri, data: { ...l0Hit, _slyUri: uri, isInstant: true } };
+      document.documentElement.setAttribute('data-sly-takeover-uri', uri);
+      console.log(`[sly-lifecycle] ⚡ Cached lyrics staged for ${uri}.`);
+      // After the song change's own resets (this runs inside onSongChange).
+      kickWhenPanelMounts(() => queueMicrotask(injectStagedNow));
+    } else {
+      sly.stagedTakeover = null;
+    }
+    return hit;
+  }
+
+  /**
+   * The cached track the widget's title and artists name, when exactly one does. The
+   * widget names the new song ~0.3–1 s before the bridge gives its id; staging by title
+   * holds Spotify's incoming panel out of sight from the start (its romanized lyrics slid
+   * in for ~0.35 s before ours, live 2026-11-08). slyCore still puts ours in only once
+   * the bridge names that very track.
+   */
+  function cachedUriForTitle(title: string, artists: string): string | null {
+    const sly = (window as any).slyInternalState;
+    const registry = (window as any).slyPreFetchRegistry;
+    if (!title || !sly?.l0Cache || !registry?.getState) return null;
+    const matches: string[] = [];
+    for (const uri of sly.l0Cache.keys() as Iterable<string>) {
+      const entry = registry.getState(uri);
+      if (entry?.title?.toLowerCase() !== title) continue;
+      const artist = entry.artist?.toLowerCase();
+      if (artist && !artists.includes(artist)) continue;
+      matches.push(uri);
+    }
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  /**
+   * Puts the staged cached lyrics in now, as the next song's view arrives, without waiting
+   * for the bridge to name the track (~0.3–1 s; Spotify's lyrics slid in meanwhile, live
+   * 2026-11-08). Not when the bridge already names a third track: then slyCore's own
+   * check decides. A wrong guess (same title) is undone by slyCore's track-change check
+   * once the bridge names the real track (lastUri differs).
+   */
+  function injectStagedNow(): void {
+    const sly = (window as any).slyInternalState;
+    const staged = sly?.stagedTakeover as { uri: string; prevUri?: string; data: Record<string, unknown> } | null | undefined;
+    if (!staged || !isLyricsButtonActive()) return;
+    const bridgeUri = (window as any).spotifyState?.track?.uri as string | undefined;
+    if (bridgeUri && bridgeUri !== staged.uri && bridgeUri !== staged.prevUri) return;
+    sly.stagedTakeover = null;
+    const early = !!bridgeUri && bridgeUri !== staged.uri;
+    const data: Record<string, unknown> = { ...staged.data, _slyEarly: early, _slyPrevUri: staged.prevUri };
+    sly.lastUri = staged.uri;
+    // Staged only for a track known to need ours (stageCachedTakeover): what the detector
+    // would have concluded before a takeover. Without it, slyCore's recovery check gave
+    // Spotify's romanized lyrics back ~0.5 s later (live 2026-11-08).
+    sly.forceFallback = true;
+    sly.currentLyrics = data;
+    sly.pendingLyricsData = null;
+    sly.fetchingForTitle = '';
+    sly.fetchingForUri?.delete(staged.uri);
+    console.log(`[sly-lifecycle] ⚡ Cached lyrics in as the view arrives${early ? ' (before the bridge names the track)' : ''}.`);
+    document.dispatchEvent(new CustomEvent('sly:inject', { detail: { lyricsObj: data, isInstant: true } }));
+  }
+
+  /** A song change whose track the bridge had not named yet (onSongChange). */
+  let stageWhenNamed: { key: string; title: string } | null = null;
+  window.addEventListener('sly_state_update', () => {
+    const pending = stageWhenNamed;
+    if (!pending) return;
+    if (store.songKey !== pending.key) { stageWhenNamed = null; return; }
+    const track = (window as any).spotifyState?.track as { uri?: string; name?: string } | null | undefined;
+    if (!track?.uri || track.name?.toLowerCase() !== pending.title) return;
+    stageWhenNamed = null;
+    // Already in (put in as the view arrived): nothing to stage again.
+    if ((window as any).slyInternalState?.currentLyrics?._slyUri === track.uri && document.getElementById('lyrics-root-sync')) return;
+    if (stageCachedTakeover(track.uri)) return;
+    // Staged by title for another track (same title): Spotify's panel is not held for it.
+    const marker = document.documentElement.getAttribute('data-sly-takeover-uri');
+    if (marker && marker !== track.uri) document.documentElement.removeAttribute('data-sly-takeover-uri');
+    // Not cached: slyCore's check runs now rather than at its next tick.
+    (window as any).slyKickPoll?.();
+  });
+
   function onSongChange(newKey: string): void {
+    traceEvent(`songChange:${newKey.replace('Now playing: ', '').slice(0, 12)}`);
     if (!newKey || newKey === 'undefined' || newKey === 'null') return;
     const songKey = opts.store.songKey;
     console.log(`[sly-lifecycle] 🔄 onSongChange triggered. Moving from "${songKey || 'None'}" ➡️ "${newKey}". Synchronously purging TAKEOVER elements.`);
-    
+
+    // Before anything is taken down: the previous song's view leaves with Spotify's slide
+    // as it looked, and the pill stays where it is (songTransition.ts).
+    // The previous song's lines tell its slide apart when the next one is already there.
+    // Not after an ad: it has no lyrics slide to leave with, and the only slide then is the
+    // next song's (live 2026-11-08: marked leaving, its rows ignored for 1.5 s).
+    if (newKey !== songKey && !isLeavingAnAd()) beginSongTransition(opts.store.cache.original, opts.store.trackId, getNowPlayingTrackId());
     TakeoverEngine.purge();
     StatusEngine.clear();
 
@@ -875,7 +1047,6 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       sly.fetchingForTitle = '';
       sly.isFetchingHUD = false;
       sly.statusHUDActive = false;
-      sly.isAdHUDActive = false;
       sly.forceFallback = false;
 
       // Transactional State-Gate: lock the transition phase
@@ -907,11 +1078,15 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       if (uri) sly.lastUri = uri;
       if (titleFromKey) sly.lastTitle = titleFromKey;
     }
+    traceEvent(`lastUriSync:${uri ? 'yes' : isStateStale ? 'no(bridge names previous song)' : 'no(no uri)'}`);
 
-    const l0Hit = uri ? (window as any).slyInternalState?.l0Cache?.get(uri) : null;
-    const isNativeSynced = uri ? (window as any).slyPreFetchRegistry?.getState(uri)?.nativeStatus === 'SYNCED' : false;
-
-    const isTakeoverHit = !!(l0Hit && !l0Hit.failed && !isNativeSynced && (l0Hit.lines || l0Hit.syncedLyrics || l0Hit.plainLyrics));
+    const artistsFromKey = (newKey.split(' by ').slice(1).join(' by ') || '').toLowerCase();
+    // Staged by title (bridge not caught up): only a hold, everything else as for a miss.
+    const staged = stageCachedTakeover(uri ?? cachedUriForTitle(titleFromKey.toLowerCase(), artistsFromKey));
+    const isTakeoverHit = staged && !!uri;
+    // The bridge usually names the new track ~0.1–0.5 s after the widget does (the track
+    // id is unknown here): the cache is checked again as soon as it does.
+    stageWhenNamed = !uri && titleFromKey ? { key: newKey, title: titleFromKey.toLowerCase() } : null;
 
     if (!isTakeoverHit) {
       // Synchronously destroy the custom takeover container instantly on track skip
@@ -930,13 +1105,19 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         el.removeAttribute('data-sly-original');
       }
     });
+    // The rows still on screen hold the previous song's native text now: Spotify
+    // may keep them mounted for a while, and they must not be snapshotted as the
+    // new song's lyrics. Rows bound while the bridge already named the new track
+    // (they mounted before the label changed) stay the new track's.
+    const trackId = getNowPlayingTrackId();
+    retireRows({ original: opts.store.cache.original, trackId: store.trackId, fromTakeover: opts.store.cacheFromTakeover }, trackId);
 
     if (newKey) store.lastAuditedSongKey = '';
     store.godState = 'LOADING'; // Track is changing — no stable pill target until next state event.
     store.songKey = newKey;
-    
+
     // Synchronize canonicalHash from pre-warm map for the new song
-    const trackId = getNowPlayingTrackId();
+    store.trackId = trackId;
     store.canonicalHash = trackId ? (store.canonicalHashes.get(trackId) ?? null) : null;
     console.log(`[sly-lifecycle] 🔄 Set active canonicalHash to: ${store.canonicalHash} for track ${trackId}`);
 
@@ -960,6 +1141,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     lyricsObserver?.disconnect();
     lyricsObserver = null;
     opts.store.cache = { original: [], processed: new Map() };
+    opts.store.cacheFromTakeover = false;
     opts.store.pendingNativeLines.clear();
     opts.store.slyActiveContainer = null;
     opts.store.slyActiveDomElements = [];
@@ -974,6 +1156,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     warmRuntimeCacheFromSession(newKey, opts.store.runtimeCache);
 
     const hasHotCache = opts.store.runtimeCache.has(newKey);
+    traceEvent(`hotCache:${hasHotCache}`);
     console.log(`[sly-lifecycle] 🗄️ onSongChange cache path: hasHotCache=${hasHotCache} for "${newKey.slice(0, 60)}..."`);
     if (hasHotCache) {
       const runtimeEntry = opts.store.runtimeCache.get(newKey);
@@ -994,7 +1177,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
       // when the user is navigating with the panel closed. trySetup/syncSetup recreate
       // it correctly when they first run with a valid container.
       if (store.preferredMode !== 'original') {
-        lyricsObserver?.disconnect();
+        (lyricsObserver as MutationObserver | null)?.disconnect();
         lyricsObserver = createLyricsObserver({
           getIsApplying: () => opts.store.isApplying,
           getMode: () => opts.store.mode,
@@ -1073,7 +1256,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
     // in a prior container; leave it alone — syncPill() in trySetup/syncSetup
     // will relocate it once the new container is ready.
     if (!hasHotCache) {
-      parkPill(opts.store.preferredMode, opts.store.showPill);
+      // A pill on screen stays where it is, in its loading state, until syncPill() moves it:
+      // parking it on document.body hid it (body > pill is hidden) for the whole song
+      // change, a visible blink when Spotify keeps its panel. A pill that is not on screen
+      // (closed panel, detached container) is parked as before.
+      const pill = document.getElementById(CONTROLS_ID);
+      const onScreen = !!pill?.isConnected && pill.parentElement !== document.body;
+      if (onScreen) enterLoadingPill(opts.store.showPill);
+      else parkPill(opts.store.preferredMode, opts.store.showPill);
     } else {
       // Hot cache: just ensure the pill is not in loading state.
       const controls = document.getElementById(CONTROLS_ID);
@@ -1121,6 +1311,8 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
    * reactive .then() or prior load) → bail (let syncSetup handle the full flow).
    */
   function quickApply(): void {
+    traceEvent('quickApply');
+    resolveTrackBinding();
     if (opts.store.preferredMode === 'original') return;
     if (opts.store.slyActiveContainer) return;
     if (document.getElementById('lyrics-root-sync')) return;
@@ -1146,12 +1338,14 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         console.warn(`[sly-lifecycle] quickApply: Hash mismatch (${cacheHash} vs canonical ${opts.store.canonicalHash}). Discarding stale cache.`);
         deleteSongCache(opts.store.songKey, opts.store.runtimeCache);
         opts.store.cache = { original: [], processed: new Map() };
+        opts.store.cacheFromTakeover = false;
         processed = undefined;
       }
     }
 
     // Fallback: check runtimeCache directly in case onSongChange's pre-warm ran
     // but the cache object was replaced before the entries were copied over.
+    let sourceLines = opts.store.cache.original;
     if (!processed) {
       const runtimeEntry = opts.store.runtimeCache.get(songKey);
       if (runtimeEntry) {
@@ -1175,6 +1369,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
         } else {
           processed = rpEntry as typeof processed;
         }
+        if (processed && sourceLines.length === 0) sourceLines = runtimeEntry.original;
         }
       }
     }
@@ -1183,11 +1378,21 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 
     const lines = preferredMode === 'romanized' ? processed.romanized : processed.translated;
     if (!Array.isArray(lines) || lines.length === 0) return;
+    if (!cacheFitsNativeRows(sourceLines, domLines)) {
+      noteCacheSkip('quickApply', sourceLines.length, domLines.length);
+      return;
+    }
+    // Already painted (e.g. trySetup's fast path ran first in the same mutation
+    // batch when Spotify re-mounted the row list): nothing to rewrite.
+    if (opts.store.mode === preferredMode && opts.store.lyricsAppliedForKey === opts.store.songKey &&
+        !domLines.some(innerNeedsProcessing)) return;
     const dualEnabled = opts.store.dualLyricsEnabled;
     opts.store.mode = preferredMode;
+    // Originals are passed whatever dualEnabled is: text-matched alignment, the
+    // same result as syncSetup's apply (which can then skip its own rewrite).
     applyLinesToDOM(
       lines,
-      dualEnabled ? opts.store.cache.original : undefined,
+      opts.store.cache.original,
       dualEnabled,
       (v) => { opts.store.isApplying = v; },
       domLines,
@@ -1221,7 +1426,7 @@ export function createLifecycleController(opts: LifecycleControllerOpts) {
 export function setupSlyBridge(
   store: StateStore,
   switchMode: (m: LyricsMode, forceLang?: string, suppressLoading?: boolean) => Promise<void>,
-  autoSwitchIfNeeded: (forceRefresh?: boolean) => void,
+  autoSwitchIfNeeded: (forceRefresh?: boolean, cacheOverride?: SongCache) => void,
   syncPill: (stateCtx?: 'NATIVE_OK' | 'PIPELINE_A' | boolean) => void,
 ): void {
   // Created once — opts are evaluated lazily each RAF frame so scavenged CSS
@@ -1363,6 +1568,7 @@ export function setupSlyBridge(
     }
 
     store.cache.original = plainLines;
+    store.cacheFromTakeover = true;
 
     // SLY FIX: Instant Cache & Mode Hydration — placed AFTER cache invalidation.
     // By hydrating here, we guarantee the payload's processed data survives the
@@ -1452,7 +1658,29 @@ export function setupSlyBridge(
     });
   });
 
-  document.addEventListener('sly:release', () => {
+  /**
+   * slyCore's track-switch reset asks whether this pipeline has already painted the song
+   * it names (processed lines on screen for the current song key, in the preferred mode).
+   * By track id when this pipeline knows it; else by title (the bridge's title against
+   * the widget's label), since the reset can arrive before the id is resolved.
+   */
+  (window as any).slyPaintedCurrentSong = (uri: string, title: string): boolean => {
+    if (!store.songKey || store.lyricsAppliedForKey !== store.songKey) return false;
+    if (store.mode === 'original' || store.mode !== store.preferredMode) return false;
+    const id = String(uri || '').split(':').pop() || '';
+    if (store.trackId && /^[A-Za-z0-9]{22}$/.test(id)) return store.trackId === id;
+    const keyTitle = store.songKey.replace(/^Now playing: /, '').split(' by ')[0].trim().toLowerCase();
+    return !!title && keyTitle === String(title).trim().toLowerCase();
+  };
+
+  document.addEventListener('sly:release', (evt: Event) => {
+    // A track switch after Pipeline B already painted the new song (no takeover was on show):
+    // nothing of ours is released, the paint and the pill stay (slyResetPlayerState).
+    const detail = (evt as CustomEvent<{ reason?: string; keepPainted?: boolean } | null>).detail;
+    if (detail?.keepPainted && !store.slyActiveContainer) {
+      traceEvent('release:keptPaint');
+      return;
+    }
     store.godState = 'RELEASING'; // Pill is being rescued to document.body; awaiting next state event.
     store.mode = 'original'; // SLY FIX: Reset the painted mode back to original to keep the UI state coherent
     const s = performance.now();

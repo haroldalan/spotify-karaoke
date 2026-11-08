@@ -4,6 +4,9 @@ import { safeClone } from '../utils/browserUtils';
 import { slyPreFetchRegistry } from './preFetch';
 import { MetadataEngine } from './metadataEngine';
 
+/** Song change: up to this many reads, 100 ms apart, for the new track's title. */
+const SONG_CHANGE_WARM_TRIES = 20;
+
 // Queued tracks already sent a cache check this session (bounded).
 const QUEUE_WARM_MEMORY = 200;
 const queueWarmAttempted = new Set<string>();
@@ -31,15 +34,21 @@ export const WarmingEngine = {
       // At the instant sly:song_change fires, the now-playing widget DOM hasn't
       // updated yet, so MetadataEngine still returns the OLD song's title/artist.
       // A 100ms delay is enough for the widget to re-render with the new track.
-      setTimeout(() => {
+      // getNowPlaying names a title only once the bridge has caught up with the widget
+      // (never the previous track's title under the new id): retry until it does.
+      let tries = 0;
+      const attempt = () => {
         const meta = MetadataEngine.getNowPlaying();
         // Prefer MetadataEngine URI (DOM-derived, most current) over the event URI (may be stale).
         const targetUri = meta.uri || eventUri;
 
         if (targetUri && meta.title && meta.artist) {
           this.warmTrack(targetUri, meta.title, meta.artist);
+        } else if (++tries < SONG_CHANGE_WARM_TRIES) {
+          setTimeout(attempt, 100);
         }
-      }, 100);
+      };
+      setTimeout(attempt, 100);
     });
 
     // 2. Listen for state updates to warm the queue
@@ -180,6 +189,10 @@ export const WarmingEngine = {
           artist,
           nativeStatus,
           customStatus,
+          // A stored entry without a nativeStatus never learned Spotify's status (e.g. the
+          // detector's no-request MISSING guess, which FetchEngine does not forward): keep
+          // the defaulted MISSING marked as a guess, so the gated self-heal applies.
+          ...(!result.nativeStatus && nativeStatus === 'MISSING' ? { heuristic: true } : {}),
           reason: 'WarmingEngine Hydration'
         });
       }

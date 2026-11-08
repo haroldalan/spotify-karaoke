@@ -22,7 +22,7 @@ const NATIVE_7 = ['पंक्ति एक', 'पंक्ति दो', '♪
 // The shape a late upgrade really has: one line per line of Spotify's response
 // (color-lyrics-romanized-hindi.json has 8, the last one words:''), against 7 rows.
 const NATIVE_8_TRAILING_EMPTY = [...NATIVE_7, ''];
-// Musixmatch turns empty lines into '♪' (lib/mxmClient.ts).
+// A source that writes empty lines as '♪' (Musixmatch did, until it was removed in 3.1.6).
 const NATIVE_8_TRAILING_NOTE = [...NATIVE_7, '♪'];
 
 function setPlayingTrack(trackId: string): void {

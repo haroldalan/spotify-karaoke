@@ -1,14 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../lib/translate/googleApi', () => ({ googleTranslate: vi.fn() }));
-vi.mock('../../lib/translate/myMemoryApi', () => ({ myMemoryTranslate: vi.fn() }));
 
 import { googleTranslate } from '../../lib/translate/googleApi';
-import { myMemoryTranslate } from '../../lib/translate/myMemoryApi';
 import { googleProcess, alignToChunk } from '../../lib/translateClient';
 
 const mockGoogle = googleTranslate as unknown as ReturnType<typeof vi.fn>;
-const mockMyMemory = myMemoryTranslate as unknown as ReturnType<typeof vi.fn>;
 
 // Synthetic lines. Each is ~115 chars, so 4 lines fit in one 500-char Google chunk
 // and the 5th/6th go into a second chunk.
@@ -17,7 +14,6 @@ const LINES = ['A1', 'A2', 'A3', 'A4', 'B1', 'B2'].map(pad);
 
 beforeEach(() => {
   mockGoogle.mockReset();
-  mockMyMemory.mockReset();
 });
 
 describe('alignToChunk', () => {
@@ -59,36 +55,14 @@ describe('googleProcess — per-chunk alignment', () => {
     expect(res.romanized[0]).toMatch(/^[a-z]+$/i);
   });
 
-  it('uses MyMemory only for the translation (never as romanization) and passes the source', async () => {
+  it('rejects when Google fails: there is no second translator, and originals are never a translation', async () => {
     mockGoogle.mockRejectedValue(new Error('Google HTTP 429'));
-    // MyMemory merged the two lines into one.
-    mockMyMemory.mockResolvedValue('Hello. Thank you');
-
-    const lines = ['привет', 'спасибо'];
-    const res = await googleProcess(lines, 'en', true, 'ru');
-
-    expect(mockMyMemory).toHaveBeenCalledWith('привет\nспасибо', 'en', 'ru');
-    expect(res.translated).toEqual(['Hello. Thank you', 'спасибо']);
-    expect(res.romanized).toHaveLength(2);
-    expect(res.romanized).not.toContain('Hello. Thank you');
-    expect(res.romanized[0]).toMatch(/^[a-z]+$/i);
-    expect(res.isLowQualityRomanization).toBe(true);
+    await expect(googleProcess(['привет', 'спасибо'], 'en', true, 'ru')).rejects.toThrow('429');
+    expect(mockGoogle).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects when both providers fail (never returns originals as a translation)', async () => {
-    mockGoogle.mockRejectedValue(new Error('offline'));
-    mockMyMemory.mockRejectedValue(new Error('offline'));
-
-    await expect(googleProcess(['test line'], 'es', false, 'auto')).rejects.toThrow();
-  });
-
-  it('treats an empty Google translation as a failure and tries MyMemory', async () => {
+  it('treats an empty Google translation as a failure', async () => {
     mockGoogle.mockResolvedValue({ translated: '   ', romanized: null });
-    mockMyMemory.mockResolvedValue('prueba');
-
-    const res = await googleProcess(['test'], 'es', false, 'auto');
-
-    expect(mockMyMemory).toHaveBeenCalledWith('test', 'es', 'auto');
-    expect(res.translated).toEqual(['prueba']);
+    await expect(googleProcess(['test'], 'es', false, 'auto')).rejects.toThrow(/empty/);
   });
 });

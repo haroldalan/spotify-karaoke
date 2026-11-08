@@ -225,3 +225,71 @@ describe('SLY_TRACK_UPDATE payload (MUST-DO 5/6/7, K2)', () => {
     logSpy.mockRestore();
   });
 });
+
+describe('lyrics panel identity (several songs\' panels mounted, live 2026-11-08)', () => {
+  const NOW = 'spotify:track:0000000000000000000Now';
+  const OLD = 'spotify:track:0000000000000000000Old';
+
+  /** A themed panel whose list's parent fiber names `uri` (trackUri), like Spotify's. */
+  function mountPanel(uri: string | null): { themed: HTMLElement; list: HTMLElement } {
+    const themed = document.createElement('div');
+    themed.setAttribute('style', '--lyrics-color-active: #fff');
+    const list = document.createElement('div');
+    const row = document.createElement('div');
+    row.setAttribute('data-testid', 'lyrics-line');
+    row.textContent = 'invented line';
+    list.appendChild(row);
+    themed.appendChild(list);
+    document.body.appendChild(themed);
+    // Spotify: the list's own fiber, then its parent's with trackUri; the themed container's with item.uri.
+    setFiber(list, { memoizedProps: { className: 'x' }, return: { memoizedProps: uri ? { trackUri: uri } : {}, return: null } });
+    setFiber(themed, { memoizedProps: {}, return: { memoizedProps: uri ? { item: { uri } } : {}, return: null } });
+    return { themed, list };
+  }
+
+  it('tags each panel with its own track and <html> with the playing one', () => {
+    setFiber(document.querySelector('[data-testid="now-playing-bar"]'), { memoizedProps: { entityUri: NOW }, return: null });
+    const old = mountPanel(OLD);
+    const now = mountPanel(NOW);
+    w.slyTagLyricsPanels();
+    expect(old.list.getAttribute('data-sly-track-uri')).toBe(OLD);
+    expect(old.themed.getAttribute('data-sly-track-uri')).toBe(OLD);
+    expect(now.list.getAttribute('data-sly-track-uri')).toBe(NOW);
+    expect(now.themed.getAttribute('data-sly-track-uri')).toBe(NOW);
+    expect(document.documentElement.getAttribute('data-sly-playing-uri')).toBe(NOW);
+  });
+
+  it('re-reads a panel React reused for the next song, and drops a tag it can no longer read', () => {
+    const p = mountPanel(OLD);
+    w.slyTagLyricsPanels();
+    expect(p.list.getAttribute('data-sly-track-uri')).toBe(OLD);
+    setFiber(p.list, { memoizedProps: {}, return: { memoizedProps: { trackUri: NOW }, return: null } });
+    setFiber(p.themed, { memoizedProps: {}, return: null });
+    w.slyTagLyricsPanels();
+    expect(p.list.getAttribute('data-sly-track-uri')).toBe(NOW);
+    expect(p.themed.hasAttribute('data-sly-track-uri')).toBe(false);
+  });
+
+  it('never takes the overlay\'s current item from far up the chain as a panel\'s own track', () => {
+    const themed = document.createElement('div');
+    themed.setAttribute('style', '--lyrics-color-active: #fff');
+    document.body.appendChild(themed);
+    let deep: Record<string, unknown> = { memoizedProps: { item: { uri: NOW } }, return: null };
+    for (let i = 0; i < 6; i++) deep = { memoizedProps: {}, return: deep };
+    setFiber(themed, deep);
+    w.slyTagLyricsPanels();
+    expect(themed.hasAttribute('data-sly-track-uri')).toBe(false);
+  });
+
+  it('the scan reads the language from the playing song\'s panel, not another song\'s mounted first', () => {
+    setFiber(document.querySelector('[data-testid="now-playing-bar"]'), { memoizedProps: { entityUri: NOW }, return: null });
+    document.querySelectorAll('[data-testid="lyrics-line"]').forEach(l => l.remove()); // fixture rows
+    const old = mountPanel(OLD);
+    const now = mountPanel(NOW);
+    document.body.insertBefore(old.themed, document.body.firstChild);
+    setFiber(old.list.firstElementChild, { memoizedProps: { language: 'hi' }, return: null });
+    setFiber(now.list.firstElementChild, { memoizedProps: { language: 'ja' }, return: null });
+    w.slyScanSpotifyState();
+    expect(lastTrackUpdate()!.language).toBe('ja');
+  });
+});

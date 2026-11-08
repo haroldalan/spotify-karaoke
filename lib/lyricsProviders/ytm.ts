@@ -88,6 +88,7 @@ async function callYtmDirect(
   attempt = 0,
 ): Promise<unknown> {
   const key = attempt >= 2 ? YT_API_KEY_FALLBACK : await getApiKey(attempt === 1);
+  const started = Date.now();
   const response = await fetchWithTimeout(
     `${YT_BASE}/${endpoint}?alt=json&key=${key}`,
     {
@@ -99,6 +100,8 @@ async function callYtmDirect(
       body: JSON.stringify({ context: ANDROID_CONTEXT, ...payload }),
     },
   );
+
+  console.log(`[YTM] ${endpoint}: HTTP ${response.status} in ${Date.now() - started}ms`);
 
   if (response.status === 403 && (attempt === 0 || (attempt === 1 && key !== YT_API_KEY_FALLBACK))) {
     // Stale key: clear it from memory AND storage (otherwise getApiKey just
@@ -204,10 +207,37 @@ export interface YtmResult {
   keySource?: string;
 }
 
-export async function fetchYtmLyrics(title: string, artist: string): Promise<YtmResult | null> {
+const cleanYtmTitle = (title: string) => title.split(' (')[0].split(' - ')[0].trim();
+const cleanYtmArtist = (artist: string) => artist.split(',')[0].split(' feat.')[0].trim();
+
+/**
+ * Lookups running now, by song. The native-script lookup (nativeLyrics.ts) and the fallback fetch
+ * (lyricsEngine.ts) often ask for the same song at the same moment (live 2026-11-08: two
+ * concurrent searches, 9–12 s each): the second one shares the first one's answer.
+ */
+const inFlight = new Map<string, Promise<YtmResult | null>>();
+
+export function fetchYtmLyrics(title: string, artist: string): Promise<YtmResult | null> {
+  const key = `${cleanYtmTitle(title)}\u0000${cleanYtmArtist(artist)}`.toLowerCase();
+  const running = inFlight.get(key);
+  if (running) {
+    console.log(`[YTM] Sharing the lookup already running for ${cleanYtmTitle(title)} by ${cleanYtmArtist(artist)}`);
+    // A copy: each caller may annotate its result.
+    return running.then(r => (r ? { ...r } : r));
+  }
+  const started = Date.now();
+  const lookup = fetchYtmLyricsUnshared(title, artist).finally(() => {
+    inFlight.delete(key);
+    console.log(`[YTM] Lookup finished in ${Date.now() - started}ms`);
+  });
+  inFlight.set(key, lookup);
+  return lookup;
+}
+
+async function fetchYtmLyricsUnshared(title: string, artist: string): Promise<YtmResult | null> {
   try {
-    const cleanTitle = title.split(' (')[0].split(' - ')[0].trim();
-    const cleanArtist = artist.split(',')[0].split(' feat.')[0].trim();
+    const cleanTitle = cleanYtmTitle(title);
+    const cleanArtist = cleanYtmArtist(artist);
 
     console.log(`[YTM] Searching: ${cleanTitle} by ${cleanArtist}`);
     const searchRes = await callYtmDirect('search', {

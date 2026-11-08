@@ -12,13 +12,42 @@ export function slyGetCoreStyles(): string {
             /* No hardcoded background - allow mirroring to handle it */
         }
 
-        #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
+        :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
             transition: color 0.1s ease-out, opacity 0.1s ease-out !important;
         }
-        #lyrics-root-sync {
+        :is(#lyrics-root-sync, [data-sly-root-leaving]) {
             transition: background-color 0.4s cubic-bezier(0.3, 0, 0, 1) !important;
         }
-        #lyrics-root-sync .${window.SPOTIFY_CLASSES?.paddingLineHelper || 'aLaX8poOH8kdbmGf'} {
+        /* No themed lyrics panel (e.g. a track without Spotify lyrics): the root covers the
+           overlay's content (artwork) but stays below its header (z-index 4) and inside the
+           overlay's stacking context, so the player bar is never covered. */
+        /* Spotify's media switch in its expanded Now Playing view (see lyricsChip.ts): our
+           Lyrics button stands in for Spotify's disabled one, and another media option
+           steps our lyrics aside. */
+        :is(#lyrics-root-sync, [data-sly-root-leaving]).sly-stepped-aside { display: none !important; }
+        /* The playing track's lyrics are ours (takeoverEngine): Spotify's panel, when the
+           view is reopened, stays invisible for its first moments so ours replace it unseen.
+           Fail-safe: it becomes visible after 0.8 s if ours do not come. The previous song's
+           panel, sliding out, is not held (it vanished mid-slide, live 2026-11-08). */
+        html[data-sly-takeover-uri] [data-testid="root"] > div > div:has(button[role="radio"][value="lyrics"]) div[style*="--lyrics-color-active"]:not(#lyrics-root-sync):not(#Desktop_PanelContainer_Id *):not([data-sly-root-leaving]):not([data-sly-leaving] *) {
+            animation: sly-takeover-hold 0.8s steps(1, end);
+        }
+        @keyframes sly-takeover-hold { from { visibility: hidden; } to { visibility: visible; } }
+        /* Our lyrics in Spotify's slot (domEngine placeInOverlaySlot): the artwork container
+           stays as the panel's spacer and the cards collapse, as in Spotify's lyrics view. */
+        /* The previous song's slide while Spotify slides it out (songTransition.ts): with a
+           still copy of our lyrics on it, Spotify's panel under the copy stays hidden. */
+        [data-sly-leaving="ours"] div[style*="--lyrics-color-active"]:not([data-sly-root-leaving]):not([data-sly-root-leaving] *) { visibility: hidden !important; }
+        [data-sly-leaving="ours"] [data-sly-hide="content"] > * { visibility: hidden !important; }
+        .sly-lyrics-on [data-sly-hide="content"] > * { visibility: hidden !important; }
+        .sly-lyrics-on [data-sly-hide="collapse"] { display: none !important; }
+        button[role="radio"][value="lyrics"]:disabled:has(+ #sly-lyrics-chip) { display: none !important; }
+        :is(#lyrics-root-sync, [data-sly-root-leaving]).sly-root-overlay {
+            position: absolute !important; inset: 0 !important; z-index: 3 !important;
+            min-height: 0 !important; height: auto !important; overflow-y: auto !important; box-sizing: border-box;
+            background-color: var(--lyrics-color-background, var(--background-base, #121212));
+        }
+        :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.paddingLineHelper || 'aLaX8poOH8kdbmGf'} {
             height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important;
             overflow: hidden !important; border: none !important;
         }
@@ -59,7 +88,9 @@ export function slyGetCoreStyles(): string {
         /* Lock the layout host's scrolling and force layout ONLY when HUD (Loading/Error) is active.
            The host is the themed lyrics panel's parent (legacy UI: main.<mainContainer>), so this
            is keyed on our own class only, not on a Spotify tag/class. */
-        .sly-hud-active {
+        /* Not on Spotify's Now Playing overlay (the host when it shows no lyrics panel):
+           it keeps its own layout, and our root is a positioned layer inside it. */
+        .sly-hud-active:not([data-testid="root"] > div > div) {
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;
@@ -112,9 +143,6 @@ export function slyGetCoreStyles(): string {
             width: 40px; height: 40px; background-color: #1DB954; border-radius: 50%;
             animation: sly-pulse 1.5s infinite ease-in-out;
         }
-        .sly-hud-pulse.sly-pulse-ad {
-            background-color: #b3b3b3;
-        }
         @keyframes sly-pulse {
             0% { transform: scale(0.8); opacity: 0.5; }
             50% { transform: scale(1.2); opacity: 1; }
@@ -145,7 +173,7 @@ export function slyGetCoreStyles(): string {
         /* These styles are ONLY active if the deep scavenger fails or is pending (i.e. body has .sly-fallback). 
            This prevents them from unconditionally overriding Spotify's actual native CSS. */
         
-        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
+        body.sly-fallback :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'} {
             font-family: SpotifyMixUITitle, CircularSp-Arab, CircularSp-Hebr, CircularSp-Cyrl, CircularSp-Grek, CircularSp-Deva, "Helvetica Neue", helvetica, arial, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, "MS Gothic", sans-serif;
             font-weight: 700;
             /* DNA-Matched Responsive Scaling: 32px at 800px width -> 48px at 1200px width */
@@ -159,26 +187,26 @@ export function slyGetCoreStyles(): string {
             color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
         }
 
-        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.passedLine || 'XiH9KR6bhDwEFykV'} {
+        body.sly-fallback :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.passedLine || 'XiH9KR6bhDwEFykV'} {
             color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
             opacity: 0.5;
         }
 
-        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.activeLine || 'RL7r4lsMHxMySdFr'} {
+        body.sly-fallback :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.activeLine || 'RL7r4lsMHxMySdFr'} {
             color: var(--lyrics-color-active, #ffffff);
             transform: scale(1.02); /* Subtle native highlight pop */
         }
 
-        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.futureLine || 'Mnf9PkrVHsX90BNf'} {
+        body.sly-fallback :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.futureLine || 'Mnf9PkrVHsX90BNf'} {
             color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
         }
 
-        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.unsynced || 'AQFBg9wNhDoKJHvS'} {
+        body.sly-fallback :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.lineBase || 'WnslfFBWTgOIUgNH'}.${window.SPOTIFY_CLASSES?.unsynced || 'AQFBg9wNhDoKJHvS'} {
             color: var(--lyrics-color-inactive, rgba(255, 190, 177, 1));
             cursor: default;
         }
 
-        body.sly-fallback #lyrics-root-sync .${window.SPOTIFY_CLASSES?.attribution || 'NUBq_wlyuwoDUsSg'} {
+        body.sly-fallback :is(#lyrics-root-sync, [data-sly-root-leaving]) .${window.SPOTIFY_CLASSES?.attribution || 'NUBq_wlyuwoDUsSg'} {
             color: var(--lyrics-color-inactive, rgb(179, 179, 179));
             margin-top: 32px;
             font-family: SpotifyMixUI, CircularSp-Arab, CircularSp-Hebr, CircularSp-Cyrl, CircularSp-Grek, CircularSp-Deva, sans-serif;

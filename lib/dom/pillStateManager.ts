@@ -22,7 +22,7 @@
  *     disabled the pill in preferences it stays hidden even during loading.
  */
 
-import { CONTROLS_ID, syncButtonStates, setButtonsDisabled } from './lyricsControls';
+import { CONTROLS_ID, syncButtonStates, setButtonsDisabled, isPillDocked } from './lyricsControls';
 import type { LyricsMode } from '../core/lyricsTypes';
 
 // ---------------------------------------------------------------------------
@@ -61,6 +61,9 @@ export function parkPill(preferredMode: LyricsMode, showPill: boolean): void {
   setButtonsDisabled(true);
   // Keep the preferred-mode button highlighted so the pill looks intentional.
   syncButtonStates(preferredMode);
+
+  // In its home on Spotify's expanded view: it stays there through a song change.
+  if (isPillDocked(pill)) return;
 
   // Move to body only if it isn't already there.
   if (pill.parentElement !== document.body) {

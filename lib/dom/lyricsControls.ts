@@ -1,7 +1,52 @@
 import type { LyricsMode } from '../core/lyricsTypes';
-import { getLyricsContainer } from './domQueries';
+import { getLyricsContainer, getNowPlayingOverlay } from './domQueries';
 
 export const CONTROLS_ID = 'sly-lyrics-controls';
+
+/** Gap between Spotify's overlay header and the pinned pill (the CSS default is 12px from the top). */
+const PILL_GAP_PX = 12;
+
+/**
+ * In Spotify's 2026 Now Playing overlay the header (media switch, minimize) sits on top
+ * of the scroll area, invisible while idle but still taking clicks: the pill goes below
+ * it, or it cannot be clicked.
+ */
+export function alignPillBelowHeader(pill: HTMLElement): void {
+  const overlay = pill.closest('[data-testid="root"] > div > div');
+  const header = overlay
+    ? Array.from(overlay.children).find((c) => c.querySelector('button[role="radio"]')) as HTMLElement | undefined
+    : undefined;
+  const height = header?.getBoundingClientRect().height ?? 0;
+  pill.style.top = height > 0 ? `${Math.round(height + PILL_GAP_PX)}px` : '';
+}
+
+/** On Spotify's expanded view itself (styles: .sly-pill-docked). */
+const DOCKED_CLASS = 'sly-pill-docked';
+
+/**
+ * 2026 UI: the pill's one home is Spotify's expanded view itself, under its header, not
+ * the lyrics list. Spotify gives every song its own list and throws the previous one
+ * away on a skip, so a pill in the list vanished with it and came back (live
+ * 2026-11-08). In the view it is never touched by a skip. Legacy UI: the list.
+ */
+function placePill(pill: HTMLElement, container: Element): void {
+  const view = getNowPlayingOverlay();
+  if (view && view.contains(container)) {
+    if (pill.parentElement !== view) view.appendChild(pill);
+    pill.classList.add(DOCKED_CLASS);
+  } else {
+    pill.classList.remove(DOCKED_CLASS);
+    if (pill.parentElement !== container) container.insertBefore(pill, container.firstChild);
+  }
+  alignPillBelowHeader(pill);
+}
+
+/** The pill is in its home on Spotify's expanded view (where a skip never touches it). */
+export function isPillDocked(pill: Element | null = document.getElementById(CONTROLS_ID)): boolean {
+  if (!pill?.isConnected || !pill.classList.contains(DOCKED_CLASS)) return false;
+  const view = getNowPlayingOverlay();
+  return !!view && pill.parentElement === view;
+}
 
 export function setPillVisibility(visible: boolean): void {
   const controls = document.getElementById(CONTROLS_ID);
@@ -29,9 +74,7 @@ export function injectControls(
       mode === 'original' && preferredMode !== 'original' ? preferredMode : mode;
     syncButtonStates(displayMode);
 
-    if (existing.parentElement !== container) {
-      container.insertBefore(existing, container.firstChild);
-    }
+    placePill(existing, container);
     return;
   }
 
@@ -55,7 +98,7 @@ export function injectControls(
     wrap.appendChild(btn);
   });
 
-  container.insertBefore(wrap, container.firstChild);
+  placePill(wrap, container);
 }
 
 export function syncButtonStates(mode: LyricsMode): void {

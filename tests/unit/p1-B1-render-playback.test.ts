@@ -21,6 +21,11 @@ import { StatusEngine } from '../../lib/slyCore/statusEngine';
 import { TakeoverEngine } from '../../lib/slyCore/takeoverEngine';
 import '../../lib/slyCore/ui';
 
+/** Spotify's panel in a state with no lyrics on screen (its loading or error state): the
+ *  only kind of panel a status screen may be drawn in (statusEngine spotifyLyricsOnScreen). */
+const noSpotifyWords = () => document.querySelectorAll('div.bm5I7yGVN8NXt6vH9eiC [data-testid="lyrics-line"]').forEach((l) => { l.textContent = ''; });
+
+
 const FIXTURE_HTML = readFileSync(
   resolve(__dirname, '../fixtures/spotify-2026-lyrics-panel.html'),
   'utf8',
@@ -392,6 +397,7 @@ describe('slySeekTo Layer 1 (hidden range input)', () => {
 // ─── HUD show / clear ─────────────────────────────────────────────────────────
 
 describe('StatusEngine show → clear on the 2026 overlay', () => {
+  beforeEach(() => noSpotifyWords());
   it('hides the full themed panel (not the NPV preview) and restores it on clear()', () => {
     const themed = themedPanel();
     StatusEngine.show('Fetching [Title]', 'Searching...', false, { title: 'Test Song', artist: 'Test Artist' });
@@ -463,6 +469,7 @@ describe('StatusEngine show → clear on the 2026 overlay', () => {
 // ─── K11: sly-active / layout lock placement ─────────────────────────────────
 
 describe('K11 layout host', () => {
+  beforeEach(() => noSpotifyWords());
   it('puts sly-active and the HUD lock on the themed panel parent, not on the playlist <main>', () => {
     const host = themedPanel().parentElement!;
     expect(slyGetLayoutHost()).toBe(host);
@@ -482,7 +489,9 @@ describe('K11 layout host', () => {
   it('layout-lock CSS is keyed on the class, so it applies to the K11 host', () => {
     StatusEngine.show('Fetching [Title]', 'Searching...', false, {});
     const css = document.getElementById('sly-core-styles')!.textContent!;
-    expect(css).toMatch(/(^|\s)\.sly-hud-active\s*\{/);
+    expect(css).toMatch(/(^|\s)\.sly-hud-active[^{]*\{/);
+    // ...but never on Spotify's Now Playing overlay (it keeps its own layout).
+    expect(css).toContain('.sly-hud-active:not([data-testid="root"] > div > div)');
   });
 
   it('TakeoverEngine.purge restores the themed panel and removes sly-active from the same host', () => {
@@ -516,19 +525,133 @@ describe('K11 layout host', () => {
     expect(themedPanel().style.display).toBe('');
   });
 
-  it('falls back to main.<mainContainer> only when no themed container exists', () => {
+  it('without a themed panel (track without Spotify lyrics) the root goes inside the Now Playing overlay, never over the whole page', () => {
     themedPanel().remove();
     npvPreview().remove();
     w.SPOTIFY_CLASSES.mainContainer = 'TKq2Yidc5rgHzpJFRFYW';
-    expect(slyGetLayoutHost()).toBe(playlistMain());
+    const overlay = document.querySelector('button[role="radio"][value="lyrics"]')!.closest('[data-testid="root"] > div > div')!;
+    expect(slyGetLayoutHost()).toBe(overlay);
 
-    // Button active but no themed panel yet: the root goes under [data-testid="root"].
+    // Live round 2: the root went under [data-testid="root"] and sly-active onto the
+    // playlist <main>, so the HUD covered the whole page, player bar included.
     const root = w.slyPrepareContainer();
-    expect(root.parentElement).toBe(document.querySelector('[data-testid="root"]'));
-    expect(playlistMain().classList.contains('sly-active')).toBe(true);
+    expect(root.parentElement).toBe(overlay);
+    expect(root.classList.contains('sly-root-overlay')).toBe(true);
+    expect(overlay.classList.contains('sly-active')).toBe(true);
+    expect(playlistMain().classList.contains('sly-active')).toBe(false);
+    expect(document.querySelector('[data-testid="now-playing-bar"]')!.contains(root)).toBe(false);
 
     slyUntagLayoutHost('sly-active');
-    expect(playlistMain().classList.contains('sly-active')).toBe(false);
+    expect(overlay.classList.contains('sly-active')).toBe(false);
+  });
+
+  it('without a themed panel the status goes on our Lyrics button, never over Spotify\'s artwork and cards', () => {
+    themedPanel().remove();
+    npvPreview().remove();
+    const option = document.querySelector<HTMLButtonElement>('button[role="radio"][value="lyrics"]')!;
+    option.disabled = true; // Spotify has no lyrics for the song
+    const overlay = option.closest('[data-testid="root"] > div > div')!;
+    const retry = vi.fn();
+    w.slyTriggerLyricsFetch = retry;
+
+    StatusEngine.show('Fetching [Title]', 'Searching...', false, { title: 'Invented Song', artist: 'Invented Artist' });
+    expect(document.getElementById('lyrics-root-sync')).toBeNull();
+    expect(document.getElementById('sly-status-hud')).toBeNull();
+    expect(overlay.classList.contains('sly-hud-active')).toBe(false);
+    const chip = document.getElementById('sly-lyrics-chip')!;
+    expect(chip.previousElementSibling).toBe(option);
+    expect(chip.classList.contains('sly-chip-searching')).toBe(true);
+    const label = document.getElementById('sly-lyrics-status')!;
+    expect(label.nextElementSibling).toBe(option.parentElement); // beside the media switch
+    expect(label.textContent).toBe('Finding lyrics…');
+    expect(label.getAttribute('role')).toBe('status');
+    expect(StatusEngine.isShowing()).toBe(true);
+
+    StatusEngine.show('Even Spotify Karaoke couldn\'t find the lyrics for this song.', 'Add them to LRCLIB.', true,
+      { title: 'Invented Song', artist: 'Invented Artist', uri: 'spotify:track:0000000000000000000Inv' });
+    expect(chip.classList.contains('sly-chip-notfound')).toBe(true);
+    expect(chip.classList.contains('sly-chip-searching')).toBe(false);
+    expect(label.textContent).toBe('No lyrics found');
+    chip.click();
+    const pop = document.getElementById('sly-lyrics-popover')!;
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    const add = pop.querySelector('a')!;
+    expect(add.textContent).toBe('Add lyrics');
+    expect(add.getAttribute('href')).toContain('title=Invented+Song');
+    expect(add.target).toBe('_blank');
+    pop.querySelector('button')!.click(); // Retry
+    expect(retry).toHaveBeenCalledWith('Invented Song', 'Invented Artist', expect.any(String),
+      'spotify:track:0000000000000000000Inv', true, undefined, undefined);
+    expect(document.getElementById('sly-lyrics-popover')).toBeNull();
+
+    StatusEngine.clear();
+    expect(document.getElementById('sly-lyrics-chip')).toBeNull();
+    expect(document.getElementById('sly-lyrics-status')).toBeNull();
+    expect(StatusEngine.isShowing()).toBe(false);
+    delete w.slyTriggerLyricsFetch;
+  });
+
+  it('without Spotify\'s media switch the status is a toast, gone when cleared', () => {
+    themedPanel().remove();
+    npvPreview().remove();
+    const option = document.querySelector<HTMLButtonElement>('button[role="radio"][value="lyrics"]')!;
+    const overlay = option.closest('[data-testid="root"] > div > div')!;
+    // The switch is gone, but the overlay is still Spotify's Now Playing view.
+    option.parentElement!.querySelectorAll('button[role="radio"]').forEach(b => { if (b !== option) b.remove(); });
+    option.style.display = 'none';
+    option.disabled = false; // not our case: Spotify's option is usable, so our button stays out
+    StatusEngine.show('Fetching [Title]', 'Searching...', false, { title: 'Invented Song' });
+    expect(document.getElementById('lyrics-root-sync')).toBeNull();
+    expect(document.getElementById('sly-lyrics-chip')).toBeNull();
+    const toast = document.getElementById('sly-toast')!;
+    expect(toast.textContent).toBe('Finding lyrics…');
+    expect(toast.classList.contains('visible')).toBe(true);
+    StatusEngine.clear();
+    expect(toast.classList.contains('visible')).toBe(false);
+    expect(overlay.contains(document.getElementById('sly-status-hud'))).toBe(false);
+  });
+
+  it('Spotify\'s lyrics on screen: no status over them; shown once they are gone (previous track\'s panel)', () => {
+    vi.useFakeTimers();
+    try {
+      document.querySelector('div.bm5I7yGVN8NXt6vH9eiC [data-testid="lyrics-line"]')!.textContent = 'Invented line';
+      StatusEngine.show('Fetching [Title]', 'Searching...', true, {});
+      expect(document.getElementById('sly-status-hud')).toBeNull();
+      expect(themedPanel().style.display).toBe('');
+      noSpotifyWords(); // Spotify swapped the previous track's panel away
+      vi.advanceTimersByTime(300);
+      expect(document.getElementById('sly-status-hud')).not.toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a themed panel without lyrics on screen (its error state): the status is the full HUD inside it', () => {
+    StatusEngine.show('Fetching [Title]', 'Searching...', false, {});
+    const root = document.getElementById('lyrics-root-sync')!;
+    expect(root.classList.contains('sly-root-notice')).toBe(false);
+    expect(root.classList.contains('sly-root-overlay')).toBe(false);
+    expect(themedPanel().parentElement!.classList.contains('sly-hud-active')).toBe(true);
+  });
+
+  it('the legacy UI (no [data-testid="root"]) still falls back to main.<mainContainer>', () => {
+    themedPanel().remove();
+    npvPreview().remove();
+    w.SPOTIFY_CLASSES.mainContainer = 'TKq2Yidc5rgHzpJFRFYW';
+    document.querySelector('[data-testid="root"]')!.removeAttribute('data-testid');
+    expect(slyGetLayoutHost()).toBe(playlistMain());
+  });
+
+  it('a root moved from the overlay back to a themed panel loses its overlay positioning', () => {
+    const panel = themedPanel();
+    const parent = panel.parentElement!;
+    panel.remove();
+    npvPreview().remove();
+    const root = w.slyPrepareContainer();
+    expect(root.classList.contains('sly-root-overlay')).toBe(true);
+    parent.appendChild(panel); // Spotify's lyrics panel appears (e.g. lyrics loaded late)
+    const again = w.slyPrepareContainer();
+    expect(again).toBe(root);
+    expect(root.parentElement).toBe(parent);
+    expect(root.classList.contains('sly-root-overlay')).toBe(false);
   });
 });
 
@@ -626,5 +749,94 @@ describe('slyUpdateSync RAF loop', () => {
     const els = lyricsObj.domElements as HTMLElement[];
     expect(els[1].classList.contains(w.SPOTIFY_CLASSES.activeLine)).toBe(false);
     expect(pending.size).toBe(1);
+  });
+
+  it('time back at the start of a track (the next song began): lines held, then followed', () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const lyricsObj = buildSynced();
+    const els = lyricsObj.domElements as HTMLElement[];
+    w.slyGetPlaybackSeconds = () => 11;
+    runFrame();
+    expect(els[2].classList.contains(w.SPOTIFY_CLASSES.activeLine)).toBe(true);
+
+    w.slyGetPlaybackSeconds = () => 0.2;
+    now += 16;
+    runFrame();
+    now += 300;
+    runFrame();
+    expect(els[2].classList.contains(w.SPOTIFY_CLASSES.activeLine)).toBe(true);
+    expect(pending.size).toBe(1);
+
+    // No song change came: a restart of the same song. Followed after the hold.
+    now += 300;
+    runFrame();
+    expect(els[0].classList.contains(w.SPOTIFY_CLASSES.activeLine)).toBe(true);
+  });
+
+  it('a seek back within the song is followed at once', () => {
+    let now = 5000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const lyricsObj = buildSynced();
+    const els = lyricsObj.domElements as HTMLElement[];
+    w.slyGetPlaybackSeconds = () => 11;
+    runFrame();
+    w.slyGetPlaybackSeconds = () => 6;
+    now += 16;
+    runFrame();
+    expect(els[1].classList.contains(w.SPOTIFY_CLASSES.activeLine)).toBe(true);
+  });
+});
+
+// ─── 2026-11-07: flicker — the theme mirror runs every poll tick ─────────────
+
+describe('slyMirrorNativeTheme writes only what changed', () => {
+  it('a second call with the same colours changes nothing, and the root keeps its own layout styles', async () => {
+    const panel = themedPanel();
+    panel.style.setProperty('--lyrics-color-active', 'rgb(1, 2, 3)');
+    panel.style.setProperty('--lyrics-color-background', 'rgb(40, 50, 60)');
+    const root = document.createElement('div');
+    root.id = 'lyrics-root-sync';
+    root.style.minHeight = '100%';
+    panel.parentElement!.appendChild(root);
+    w.slyMirrorNativeTheme(root, {}, panel);
+    expect(root.style.getPropertyValue('--lyrics-color-active').trim()).toBe('rgb(1, 2, 3)');
+    expect(root.style.minHeight).toBe('100%'); // not wiped by a cssText rewrite
+    const changes: MutationRecord[] = [];
+    const obs = new MutationObserver((list) => changes.push(...list));
+    obs.observe(root, { attributes: true });
+    obs.observe(panel, { attributes: true });
+    w.slyMirrorNativeTheme(root, {}, panel);
+    await Promise.resolve();
+    obs.disconnect();
+    expect(changes).toHaveLength(0);
+    root.remove();
+  });
+});
+
+describe('status popover keys', () => {
+  it('Escape closes only the popover: Spotify never sees it, and focus goes back to the Lyrics button', () => {
+    themedPanel().remove();
+    npvPreview().remove();
+    const option = document.querySelector<HTMLButtonElement>('button[role="radio"][value="lyrics"]')!;
+    option.disabled = true;
+    StatusEngine.show('Even Spotify Karaoke couldn\'t find the lyrics for this song.', 'Add them.', true, { title: 'Invented Song', artist: 'Invented Artist' });
+    const chip = document.getElementById('sly-lyrics-chip')!;
+    chip.click();
+    expect(document.getElementById('sly-lyrics-popover')).not.toBeNull();
+    const spotifyHandler = vi.fn();
+    document.addEventListener('keydown', spotifyHandler);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    document.removeEventListener('keydown', spotifyHandler);
+    expect(document.getElementById('sly-lyrics-popover')).toBeNull();
+    expect(spotifyHandler).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(chip);
+    // Without a popover open, Escape is Spotify's again.
+    const again = vi.fn();
+    document.addEventListener('keydown', again);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    document.removeEventListener('keydown', again);
+    expect(again).toHaveBeenCalled();
+    StatusEngine.clear();
   });
 });

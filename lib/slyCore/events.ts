@@ -1,6 +1,9 @@
 import { getLyricsViewRoot } from '../dom/domQueries';
+import { kickWhenPanelMounts } from '../dom/songTransition';
 import { isContextValid } from '../utils/browserUtils';
 import { findActiveViewport } from '../core/navigationController';
+import { closeIntentOverlay, isClosingPress, openIfSpotifyDoesNot } from './nowPlayingOpener';
+import { isLyricsIntentSessionActive } from '../dom/domQueries';
 // Port of: lyric-test/modules/core/events.js
 /* modules/content-events.js: Global Event Observers (Navigation & Interactions) */
 
@@ -84,10 +87,26 @@ document.addEventListener('pointerdown', (e: Event) => {
       console.log(`[sly-audit] Hijacking event to prevent Spotify navigation hijack. Intent: ${intent} | Current Scroll: ${scrollPos}px`);
       window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: intent } }, '*');
     } else {
-      console.log('[sly-audit] Bypassing hijack for OPEN because provider is not null and label is not "Lyrics".');
+      console.log('[sly-audit] Not hijacking OPEN (only CLOSE is hijacked); Spotify\'s native onClick opens the lyrics overlay.');
     }
   }
 }, true); // Use capture phase to beat React's internal listeners
+
+// For a track Spotify has no lyrics for, its click opens nothing: open the expanded Now
+// Playing view instead, where the extension shows its own lyrics. On click (not
+// pointerdown) so Spotify's own handler has run first; keyboard activation counts too.
+// Capture phase: the attributes still show the state before this click.
+document.addEventListener('click', (e: Event) => {
+  const btn = (e.target as HTMLElement | null)?.closest?.('[data-testid="lyrics-button"]');
+  if (!btn) return;
+  // Pressed again while the expanded view the extension opened is up: close it.
+  if (isLyricsIntentSessionActive()) {
+    setTimeout(() => { if (isLyricsIntentSessionActive()) closeIntentOverlay(); }, 300);
+    return;
+  }
+  const isPressed = btn.getAttribute('data-active') === 'true' || btn.getAttribute('aria-pressed') === 'true';
+  if (!isPressed && !isClosingPress()) openIfSpotifyDoesNot();
+}, true);
 
 // --- LYRICS PANEL CLOSE DETECTOR ---
 // Dispatches 'sly:panel_close' when [data-testid="lyrics-button"] loses data-active="true".
@@ -100,6 +119,60 @@ document.addEventListener('pointerdown', (e: Event) => {
 let lyricsButtonObserver: MutationObserver | null = null;
 let observedButton: Element | null = null;
 
+/** How long Spotify gets to remove its view after the lyrics button turns inactive. */
+export const CLOSE_SETTLE_MAX_MS = 800;
+let closeWait: MutationObserver | null = null;
+let closeWaitTimer: ReturnType<typeof setTimeout> | null = null;
+
+const overlayOnScreen = (): boolean => !!document.querySelector('button[role="radio"][value="lyrics"]');
+
+/**
+ * The button turns inactive ~50 ms before Spotify removes its view (live 2026-11). Cleaning
+ * up at once took the pill away and showed Spotify's own panel behind ours for those
+ * frames. The cleanup waits until the view is gone (everything then leaves together), or
+ * CLOSE_SETTLE_MAX_MS when it stays (another media option chosen): then as before.
+ */
+// The view opened: kickWhenPanelMounts (songTransition.ts) runs the check as soon as
+// Spotify's lyrics panel is mounted, instead of at the next poll tick.
+const checkWhenPanelMounts = kickWhenPanelMounts;
+export { OVERLAY_PANEL_SELECTOR } from '../dom/songTransition';
+
+function dispatchPanelCloseWhenGone(btn: HTMLElement): void {
+  if (closeWait) closeWait.disconnect();
+  if (closeWaitTimer) clearTimeout(closeWaitTimer);
+  closeWait = null;
+  closeWaitTimer = null;
+  // The current button: Spotify may have swapped it (reopened on a new node) meanwhile.
+  const stillClosed = () => !buttonIsActive(document.querySelector('[data-testid="lyrics-button"]') ?? btn);
+  const fire = () => {
+    if (closeWait) closeWait.disconnect();
+    if (closeWaitTimer) clearTimeout(closeWaitTimer);
+    closeWait = null;
+    closeWaitTimer = null;
+    if (stillClosed()) document.dispatchEvent(new CustomEvent('sly:panel_close'));
+  };
+  if (!overlayOnScreen()) { fire(); return; }
+  closeWait = new MutationObserver(() => { if (!overlayOnScreen()) fire(); });
+  closeWait.observe(document.body, { childList: true, subtree: true });
+  closeWaitTimer = setTimeout(fire, CLOSE_SETTLE_MAX_MS);
+}
+
+/** The lyrics button's last known state (any node); null before the first button. */
+let lastButtonActive: boolean | null = null;
+const buttonIsActive = (btn: Element): boolean =>
+  btn.getAttribute('data-active') === 'true' || btn.getAttribute('aria-pressed') === 'true';
+
+function onButtonState(btn: HTMLElement): void {
+  const active = buttonIsActive(btn);
+  if (lastButtonActive === true && !active) {
+    console.log('[sly] Panel close detected via lyrics button observer → dispatching sly:panel_close');
+    dispatchPanelCloseWhenGone(btn);
+  } else if (lastButtonActive === false && active) {
+    checkWhenPanelMounts();
+  }
+  lastButtonActive = active;
+}
+
 function attachLyricsButtonObserver(): void {
   const btn = document.querySelector('[data-testid="lyrics-button"]');
   if (!btn || btn === observedButton) return; // already watching this exact node
@@ -111,18 +184,16 @@ function attachLyricsButtonObserver(): void {
   }
 
   observedButton = btn;
+  // Spotify swaps the button on close (the new one inactive) and again on open (the new
+  // one born active, live 2026-11): an open then has no attribute change at all, so the
+  // state is compared across button nodes.
+  onButtonState(btn as HTMLElement);
 
+  // Spotify flips both attributes in one render: one decision per batch, not per record
+  // (two records sent two closes when the view was already gone).
   lyricsButtonObserver = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === 'attributes' && (mutation.attributeName === 'data-active' || mutation.attributeName === 'aria-pressed')) {
-        const wasActive = mutation.oldValue === 'true';
-        const isNowInactive = (btn as HTMLElement).getAttribute('data-active') !== 'true' && (btn as HTMLElement).getAttribute('aria-pressed') !== 'true';
-        if (wasActive && isNowInactive) {
-          console.log('[sly] Panel close detected via lyrics button observer → dispatching sly:panel_close');
-          document.dispatchEvent(new CustomEvent('sly:panel_close'));
-        }
-      }
-    }
+    const relevant = mutations.filter(m => m.type === 'attributes' && (m.attributeName === 'data-active' || m.attributeName === 'aria-pressed'));
+    if (relevant.length) onButtonState(btn as HTMLElement);
   });
 
   lyricsButtonObserver.observe(btn, {
@@ -133,12 +204,32 @@ function attachLyricsButtonObserver(): void {
   console.log('[sly] Lyrics button observer attached.');
 }
 
-// Observe the DOM for the lyrics button's first appearance (or re-appearance after React reconciliation)
+// Observe the DOM for the lyrics button's first appearance (or re-appearance after React reconciliation).
+//
+// Spotify replaces the button node right after the view closes (live 2026-11), so the
+// finder must see changes deep inside the now-playing bar. The script runs at
+// document_start, before the bar exists: watching the body without subtree (the old
+// fallback) never saw a replacement, so close and reopen went unnoticed until the poll.
+// The finder watches the whole body only until the bar exists, then just the bar.
+let finderTarget: Element | null = null;
+const NOW_PLAYING_BAR = '[data-testid="now-playing-bar"]';
+
+function retargetButtonFinder(): void {
+  const bar = document.querySelector(NOW_PLAYING_BAR);
+  const target = bar ?? document.body;
+  if (!target || target === finderTarget) return;
+  buttonFinderObserver.disconnect();
+  finderTarget = target;
+  buttonFinderObserver.observe(target, { childList: true, subtree: true });
+}
+
 const buttonFinderObserver = new MutationObserver(() => {
   if (!isContextValid()) {
     buttonFinderObserver.disconnect();
     return;
   }
+  // Narrow to the bar once it exists; back to the body if the bar itself was replaced.
+  if (finderTarget === document.body || !finderTarget?.isConnected) retargetButtonFinder();
   const btn = document.querySelector('[data-testid="lyrics-button"]');
   if (btn && btn !== observedButton) {
     attachLyricsButtonObserver();
@@ -152,18 +243,7 @@ function initButtonFinder(): void {
     document.addEventListener('DOMContentLoaded', initButtonFinder);
     return;
   }
-  // 2026 UI: the now-playing bar is aside[data-testid="now-playing-bar"]; the old
-  // .main-nowPlayingBar-container / .Root__now-playing-bar classes no longer exist.
-  const target = document.querySelector('[data-testid="now-playing-bar"]') ||
-    document.querySelector('.Root') ||
-    document.body;
-
-  // Performance: Only use subtree: true if we have a narrow target. 
-  // If we fall back to .Root or body, we use a less aggressive observation.
-  const isBroadTarget = target === document.body || target?.classList.contains('Root');
-  // V10 Fix: Actually use isBroadTarget to limit observation scope.
-  // With subtree:true on document.body, every single DOM mutation fires the callback.
-  buttonFinderObserver.observe(target, { childList: true, subtree: !isBroadTarget });
+  retargetButtonFinder();
   // Also try right away in case the button already exists at script load time
   attachLyricsButtonObserver();
 }

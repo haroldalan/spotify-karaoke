@@ -278,11 +278,11 @@ export async function saveSongCache(
   browser.runtime.sendMessage({
     type: 'SLY_SAVE_L0_CACHE',
     payload: { key, entry, PERSISTED_CACHE_MAX }
-  }).then((resp) => {
+  }).then((resp: any) => {
     if (resp && resp.ok === false) {
       console.warn('[SKaraoke:Content] saveSongCache: background reported storage failure (quota exceeded?). Data lives in memory only for this session.', resp.error);
     }
-  }).catch((err) => {
+  }).catch((err: unknown) => {
     console.warn('[SKaraoke:Content] saveSongCache: message send failed (background unavailable?):', err);
   });
 }

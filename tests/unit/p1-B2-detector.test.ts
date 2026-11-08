@@ -6,12 +6,13 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import '../../lib/slyCore/state';
+import { recordColorLyricsSeen } from '../../lib/slyCore/state';
 import '../../lib/slyCore/preFetch';
 import {
   classifyOnScreenLines,
   getFullPanelLineTexts,
   getNowPlayingViewTrackId,
+  resetPanelGraceTrack,
   resolveTrackState,
 } from '../../lib/slyCore/detector';
 
@@ -54,11 +55,15 @@ function resetInternalState(): void {
   s.failedFetchUris.clear();
   s.l0Cache.clear();
   s.nativeLookupPendingUntil.clear();
+  s.colorLyricsSeenAt.clear();
   s.songSettlingUntil = 0;
   s.songChangeTime = Date.now() - 10_000;
   s.panelIntentCooldown = 0;
   // Panel opened 5s ago, so the forensic scan's 1000ms grace has passed.
   s.panelOpenTime = Date.now() - 5_000;
+  // ...on the track each test sets (a track change since the previous test's last pass
+  // would otherwise restart that grace).
+  resetPanelGraceTrack();
 }
 
 /** Replace the full-panel line texts (not the preview) with the given strings. */
@@ -84,6 +89,15 @@ describe('detector DOM helpers on the 2026 fixture', () => {
     const texts = getFullPanelLineTexts();
     expect(texts).toEqual(FULL_PANEL_TEXTS);
     expect(texts.some(t => t.startsWith('Preview line'))).toBe(false);
+  });
+
+  it('the previous song\'s slide, while it leaves, is not read', () => {
+    const firstRow = document.querySelector('.t3jTARRdoLQZ0LowMbxg [data-testid="lyrics-line"]')!;
+    const leaving = document.createElement('div');
+    leaving.setAttribute('data-sly-leaving', 'spotify');
+    leaving.innerHTML = '<div data-testid="lyrics-line"><div>Previous song invented line</div></div>';
+    firstRow.parentElement!.insertBefore(leaving, firstRow);
+    expect(getFullPanelLineTexts()).toEqual(FULL_PANEL_TEXTS);
   });
 
   it('prefers data-sly-original over the rewritten textContent', () => {
@@ -138,6 +152,7 @@ describe('slyDetectNativeState on the 2026 fixture', () => {
   });
 
   it('flags the fixture lines (romanized Hindi tagged "id") as a romanized fallback', async () => {
+    recordColorLyricsSeen(FIXTURE_TRACK_ID); // rows attributable: Spotify requested this track's lyrics
     setBridgeTrack(FIXTURE_URI, 'Test Song', 'id');
     await w.slyDetectNativeState();
 
@@ -202,6 +217,7 @@ describe('ROMANIZED registry handling', () => {
 
   it('heals ROMANIZED to NATIVE_OK only when the on-screen lines are native script', async () => {
     registerRomanized();
+    recordColorLyricsSeen(FIXTURE_TRACK_ID); // the rows are this track's: Spotify requested its lyrics
     setFullPanelTexts(['यह एक परीक्षण पंक्ति है', 'यह दूसरी परीक्षण पंक्ति है', 'यहाँ कोई असली गीत नहीं है']);
     await w.slyDetectNativeState();
     expect(w.slyPreFetchRegistry.getState(FIXTURE_URI)?.nativeStatus).toBe('NATIVE_OK');
@@ -233,6 +249,7 @@ describe('ROMANIZED registry handling', () => {
   it('turns a stale MISSING record into ROMANIZED (not NATIVE_OK) when the live lines are romanized', async () => {
     w.slyPreFetchRegistry.register(FIXTURE_URI, 'MISSING', { source: 'native', nativeStatus: 'MISSING' });
     setBridgeTrack(FIXTURE_URI, 'Test Song', 'id');
+    recordColorLyricsSeen(FIXTURE_TRACK_ID); // the rows are this track's: Spotify requested its lyrics
     await w.slyDetectNativeState();
     expect(w.slyPreFetchRegistry.getState(FIXTURE_URI)?.nativeStatus).toBe('ROMANIZED');
     expect(w.slyInternalState.forceFallback).toBe(true);
@@ -255,6 +272,7 @@ describe('forensic scan with a synced bridge (realistic first tick)', () => {
   });
 
   it('does not record SYNCED on the first tick, so the scan still flags romanized lines after the grace', async () => {
+    recordColorLyricsSeen(FIXTURE_TRACK_ID);
     setBridgeTrack(FIXTURE_URI, 'Test Song', 'id');
     w.spotifyState.isTimeSynced = true;
 
@@ -277,7 +295,52 @@ describe('forensic scan with a synced bridge (realistic first tick)', () => {
     expect(reportedStatuses()).not.toContain('SYNCED');
   });
 
+  it('a NATIVE_OK record contradicted by romanized lines on screen is demoted to ROMANIZED (and reported)', async () => {
+    // Recorded from the previous song's native-script rows still on screen (live 2026-11-08).
+    w.slyPreFetchRegistry.register(FIXTURE_URI, 'NATIVE_OK', { source: 'native', nativeStatus: 'NATIVE_OK', reason: 'Self-Heal (DOM Evidence)' });
+    recordColorLyricsSeen(FIXTURE_TRACK_ID);
+    setBridgeTrack(FIXTURE_URI, 'Test Song', 'id');
+    w.spotifyState.isTimeSynced = true;
+    await w.slyDetectNativeState();
+    vi.setSystemTime(Date.now() + 1500);
+    await w.slyDetectNativeState();
+    expect(w.slyInternalState.forceFallback).toBe(true);
+    expect(w.slyPreFetchRegistry.getState(FIXTURE_URI)?.nativeStatus).toBe('ROMANIZED');
+    expect(reportedStatuses()).toContain('ROMANIZED');
+  });
+
+  it('our lyrics on screen for the track: Spotify\'s rows under them (with our lines) do not heal ROMANIZED', async () => {
+    w.slyPreFetchRegistry.register(FIXTURE_URI, 'ROMANIZED', { source: 'native', nativeStatus: 'ROMANIZED' });
+    recordColorLyricsSeen(FIXTURE_TRACK_ID);
+    setFullPanelTexts(NATIVE_TEXTS); // Pipeline B wrote the cached takeover lines into them
+    setBridgeTrack(FIXTURE_URI, 'Test Song', 'hi');
+    const root = document.createElement('div');
+    root.id = 'lyrics-root-sync';
+    document.body.appendChild(root);
+    w.slyInternalState.currentLyrics = { _slyUri: FIXTURE_URI, lines: [] };
+    await w.slyDetectNativeState();
+    vi.setSystemTime(Date.now() + 1500);
+    await w.slyDetectNativeState();
+    expect(w.slyPreFetchRegistry.getState(FIXTURE_URI)?.nativeStatus).toBe('ROMANIZED');
+    expect(reportedStatuses()).not.toContain('NATIVE_OK');
+    root.remove();
+    w.slyInternalState.currentLyrics = null;
+  });
+
+  it('a NATIVE_OK record with native-script lines on screen is trusted (no scan)', async () => {
+    w.slyPreFetchRegistry.register(FIXTURE_URI, 'NATIVE_OK', { source: 'native', nativeStatus: 'NATIVE_OK', reason: 'De-Romanization Success' });
+    recordColorLyricsSeen(FIXTURE_TRACK_ID);
+    setFullPanelTexts(NATIVE_TEXTS);
+    setBridgeTrack(FIXTURE_URI, 'Test Song', 'hi');
+    await w.slyDetectNativeState();
+    vi.setSystemTime(Date.now() + 1500);
+    await w.slyDetectNativeState();
+    expect(w.slyInternalState.forceFallback).toBe(false);
+    expect(w.slyPreFetchRegistry.getState(FIXTURE_URI)?.nativeStatus).toBe('NATIVE_OK');
+  });
+
   it('records SYNCED once the grace has passed for native-script synced lines', async () => {
+    recordColorLyricsSeen(FIXTURE_TRACK_ID);
     setFullPanelTexts(NATIVE_TEXTS);
     setBridgeTrack(FIXTURE_URI, 'Test Song', 'hi');
     w.spotifyState.isTimeSynced = true;
@@ -308,6 +371,7 @@ describe('forensic scan with a synced bridge (realistic first tick)', () => {
   });
 
   it('a persisted SYNCED record does not block the scan; it is demoted to ROMANIZED', async () => {
+    recordColorLyricsSeen(FIXTURE_TRACK_ID);
     // Shape of a warming hydration of a record saved by an older build.
     w.slyPreFetchRegistry.register(FIXTURE_URI, 'NATIVE_OK', { nativeStatus: 'SYNCED', reason: 'WarmingEngine Hydration' });
     setBridgeTrack(FIXTURE_URI, 'Test Song', 'id');
@@ -369,6 +433,7 @@ describe('2026-11 UI: widget-title desync guard (no track id in the DOM)', () =>
   });
 
   it('S3 control: with the widget title matching, the forensic scan runs on the same lines', async () => {
+    recordColorLyricsSeen(NOV_URI.split(':').pop());
     setBridgeTrack(NOV_URI, 'Test Song', 'id');
     await w.slyDetectNativeState();
 
@@ -488,5 +553,30 @@ describe('2026-11 UI: structural "lyrics not available" scan', () => {
     const state = await w.slyDetectNativeState();
     expect(state.hasUnavailableMessage).toBe(false);
     expect(missingReports()).toHaveLength(0);
+  });
+});
+
+// Live 2026-11-08: after an ad, Spotify's expanded view kept the ad's title link
+// (a[data-testid="ad-link"]) mounted. A page-wide check kept the Ad Break screen up
+// over the next song; only the now-playing bar says whether an ad is playing.
+describe('ad detection after an ad', () => {
+  beforeEach(() => {
+    loadFixture(NOV_PANEL_HTML);
+    resetInternalState();
+    setBridgeTrack(FIXTURE_URI);
+  });
+
+  it('a stale ad title link outside the now-playing bar is not an ad', async () => {
+    const root = document.querySelector('[data-testid="root"]') ?? document.body;
+    root.insertAdjacentHTML('beforeend', '<div data-testid="context-item-info-title"><a data-testid="ad-link" href="/premium">Spotify</a></div>');
+    document.querySelector('[data-testid="now-playing-bar"]')!.setAttribute('data-testadtype', 'ad-type-none');
+    expect((await w.slyDetectNativeState()).isAd).toBe(false);
+  });
+
+  it('the ad title link in the now-playing bar is an ad', async () => {
+    const bar = document.querySelector('[data-testid="now-playing-bar"]')!;
+    bar.removeAttribute('data-testadtype');
+    bar.insertAdjacentHTML('afterbegin', '<div data-testid="context-item-info-title"><a data-testid="ad-link" href="/premium">Spotify</a></div>');
+    expect((await w.slyDetectNativeState()).isAd).toBe(true);
   });
 });

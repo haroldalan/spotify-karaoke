@@ -24,7 +24,7 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     // Cloud Sync: Reconcile local state with cross-device storage.sync
-    browser.storage.sync.get(['targetLang', 'dualLyrics', 'showPill', 'preferredMode']).then((data) => {
+    browser.storage.sync.get(['targetLang', 'dualLyrics', 'showPill', 'preferredMode']).then((data: Record<string, any>) => {
       if (!isMounted) return;
       if (data.targetLang) {
         setTargetLang(data.targetLang as string);
@@ -72,7 +72,7 @@ export default function App() {
 
   useEffect(() => {
     const listener = (
-      changes: Record<string, browser.storage.StorageChange>,
+      changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
       area: string
     ) => {
       if (area !== 'sync') return;
@@ -175,7 +175,7 @@ export default function App() {
     }
   }
 
-  async function handleReset(e: React.MouseEvent) {
+  async function handleReset(e: MouseEvent) {
     e.preventDefault();
     setShowConfirmModal(true);
   }
@@ -198,6 +198,8 @@ export default function App() {
         k.startsWith('spotify:track:') ||
         k.includes('|') || // title|artist keys
         k === 'sly_native_status' || // native-status markers (kept outside the lyrics index)
+        k.startsWith('skl_mxm') || // left behind by the removed Musixmatch client
+        k.startsWith('skl_native_lines') || // restored native-script lines per track
         k === 'ytm_api_key' || k === 'ytm_key_source' // cached YouTube Music key
       );
       if (lyricsKeys.length > 0) await browser.storage.local.remove(lyricsKeys);

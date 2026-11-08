@@ -75,27 +75,27 @@ describe('Fetch Interceptor (window.fetch Hijack)', () => {
         });
 
         const originalPostMessage = window.postMessage.bind(window);
-        vi.spyOn(window, 'postMessage').mockImplementation((message, targetOrigin, transfer) => {
+        vi.spyOn(window, 'postMessage').mockImplementation(((message: any, targetOrigin?: any, transfer?: any) => {
             originalPostMessage(message, targetOrigin || '*', transfer);
-        });
+        }) as any);
 
         window.addEventListener('message', (event) => {
             if (event.data?.source === 'SLY_ACTION_GATEWAY') {
                 const action = event.data.action;
-                if (action?.type === 'SLY_MXM_NEW_INTERCEPTION') {
+                if (action?.type === 'SLY_NATIVE_NEW_INTERCEPTION') {
                     window.postMessage({
                         source: 'SLY_ACTION_GATEWAY',
                         action: {
-                            type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE',
+                            type: 'SLY_NATIVE_NEW_INTERCEPTION_RESPONSE',
                             requestId: action.requestId,
                             generation: 1
                         }
                     }, '*');
-                } else if (action?.type === 'SLY_MXM_FETCH_NATIVE') {
+                } else if (action?.type === 'SLY_NATIVE_FETCH') {
                     window.postMessage({
                         source: 'SLY_ACTION_GATEWAY',
                         action: {
-                            type: 'SLY_MXM_FETCH_NATIVE_RESPONSE',
+                            type: 'SLY_NATIVE_FETCH_RESPONSE',
                             requestId: action.requestId,
                             ok: true,
                             lines: [

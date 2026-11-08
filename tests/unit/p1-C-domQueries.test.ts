@@ -10,6 +10,7 @@ import {
   getSlyLayoutHost,
   getThemedPanelContainer,
   getViewportRoot,
+  isLyricsOptionDisabled,
   titlesMatch,
 } from '../../lib/dom/domQueries';
 
@@ -96,10 +97,29 @@ describe('p1-C domQueries on the 2026 lyrics overlay', () => {
     expect(host).toBe(getThemedPanelContainer()?.parentElement);
     expect(host?.classList.contains('QkWpHgKU0KPSQGTuVpP3')).toBe(true);
 
-    // No themed container (legacy UI): fall back to main.<mainContainer>.
+    // No themed container on the 2026 UI (track without lyrics): Spotify's Now Playing
+    // overlay, never the playlist <main> or the app root.
     getThemedPanelContainer()!.removeAttribute('style');
     (window as any).SPOTIFY_CLASSES = { mainContainer: 'TKq2Yidc5rgHzpJFRFYW' };
+    const overlay = document.querySelector('button[role="radio"][value="lyrics"]')!.closest('[data-testid="root"] > div > div');
+    expect(getSlyLayoutHost()).toBe(overlay);
+
+    // Legacy UI (no [data-testid="root"]): fall back to main.<mainContainer>.
+    document.querySelector('[data-testid="root"]')!.removeAttribute('data-testid');
     expect(getSlyLayoutHost()?.tagName).toBe('MAIN');
+  });
+});
+
+describe('isLyricsOptionDisabled', () => {
+  it('reads Spotify\'s media switch: disabled lyrics option means no lyrics for the track', () => {
+    document.body.innerHTML = new DOMParser().parseFromString(FIXTURE, 'text/html').body.innerHTML;
+    const option = document.querySelector<HTMLButtonElement>('button[role="radio"][value="lyrics"]')!;
+    expect(isLyricsOptionDisabled()).toBe(false);
+    option.disabled = true;
+    expect(isLyricsOptionDisabled()).toBe(true);
+    option.disabled = false;
+    option.setAttribute('aria-disabled', 'true');
+    expect(isLyricsOptionDisabled()).toBe(true);
   });
 });
 

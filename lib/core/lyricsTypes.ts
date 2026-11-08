@@ -12,6 +12,8 @@ export interface ProcessedCache {
   translationFailed?: boolean;
   /** Memory-only result (failed translation or flagged romanization): never persisted, retried next session. */
   transient?: boolean;
+  /** ROMANIZER_VERSION the romanization was made with (processedCache.ts). */
+  romanizerVersion?: number;
 }
 
 export interface SongCache {
@@ -43,7 +45,7 @@ export interface UnifiedSongCacheEntry {
   lyrics: {
     syncedLyrics?: string;
     plainLyrics?: string;
-    source: 'SPOTIFY' | 'YTM' | 'LRCLIB' | 'MUSIXMATCH' | 'NONE';
+    source: 'SPOTIFY' | 'YTM' | 'LRCLIB' | 'NATIVE' | 'NONE';
   };
   processed: {
     [targetLang: string]: ProcessedCache;
@@ -79,16 +81,12 @@ export type SlyAction =
   | { type: 'SLY_INTERCEPT_END' }
   | { type: 'SLY_FORCE_FALLBACK' }
   | { type: 'SLY_PREFETCH_REPORT'; trackId?: string; state: string; nativeStatus?: string; metadata?: any }
-  | { type: 'SKL_NATIVE_LYRICS'; trackId?: string; nativeLines: string[]; isRomanizedUpgrade?: boolean; canonHash?: string; late?: boolean; spotifyLineCount?: number }
-  | { type: 'SLY_MXM_WARMUP' }
-  | { type: 'SLY_MXM_NOTIFY_METADATA'; payload: { trackId: string; name: string; artist: string } }
-  | { type: 'SLY_MXM_NEW_INTERCEPTION'; payload: { trackId: string }; requestId: string }
-  | { type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE'; generation: number; requestId: string }
-  | { type: 'SLY_MXM_FETCH_NATIVE'; payload: { providerLyricsId: string | null; trackId: string; hexGid: string; interceptId: number }; requestId: string }
-  | { type: 'SLY_MXM_FETCH_NATIVE_RESPONSE'; ok: boolean; lines: any[] | null; requestId: string }
-  | { type: 'SLY_GET_MXM_TOKEN' }
-  | { type: 'SLY_MXM_TOKEN_RESPONSE'; token: string; expiry: number }
-  | { type: 'SLY_SET_MXM_TOKEN'; payload: { token: string; expiry: number } }
+  | { type: 'SKL_NATIVE_LYRICS'; trackId?: string; nativeLines: string[]; isRomanizedUpgrade?: boolean; canonHash?: string; late?: boolean; spotifyLineCount?: number; romanizedWordLines?: string[] }
+  | { type: 'SLY_NATIVE_NOTIFY_METADATA'; payload: { trackId: string; name: string; artist: string; durationMs?: number } }
+  | { type: 'SLY_NATIVE_NEW_INTERCEPTION'; payload: { trackId: string }; requestId: string }
+  | { type: 'SLY_NATIVE_NEW_INTERCEPTION_RESPONSE'; generation: number; requestId: string }
+  | { type: 'SLY_NATIVE_FETCH'; payload: { trackId: string; hexGid: string; interceptId: number; spotifyWordLines?: number }; requestId: string }
+  | { type: 'SLY_NATIVE_FETCH_RESPONSE'; ok: boolean; lines: any[] | null; requestId: string }
   | { type: 'SLY_TRACK_UPDATE'; payload: Record<string, any> }
   | { type: 'SLY_UPDATE_CLASSES'; classes: Record<string, string> }
   | { type: 'SLY_TRIGGER_NATIVE_CLOSE' }

@@ -39,13 +39,13 @@ export async function enqueueStorageOperation<T>(operation: () => Promise<T>): P
 /**
  * Helper for performing a safe set operation within the queue.
  */
-export async function safeStorageSet(items: Record<string, any>): Promise<void> {
+export async function safeStorageSet(items: Record<string, any>): Promise<void | null> {
   return enqueueStorageOperation(() => safeBrowserCall(() => browser.storage.local.set(items)));
 }
 
 /**
  * Helper for performing a safe remove operation within the queue.
  */
-export async function safeStorageRemove(keys: string | string[]): Promise<void> {
+export async function safeStorageRemove(keys: string | string[]): Promise<void | null> {
   return enqueueStorageOperation(() => safeBrowserCall(() => browser.storage.local.remove(keys)));
 }

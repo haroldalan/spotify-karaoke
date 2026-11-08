@@ -1,35 +1,13 @@
-import Kuroshiro from '@sglkc/kuroshiro';
-import KuromojiAnalyzer from '@sglkc/kuroshiro-analyzer-kuromoji';
 import { pinyin } from 'pinyin-pro';
 import CyrillicToTranslit from 'cyrillic-to-translit-js';
 import Sanscript from '@indic-transliteration/sanscript';
+import { romanizeHindiLine } from './hindiRomanizer';
+import { romanizeThaiLine } from './thaiRomanizer';
+import { romanizeJapaneseLines } from './japaneseRomanizer';
 import { romanize as romanizeKorean } from '@romanize/korean';
-import romanizeThai from '@dehoist/romanize-thai';
 import { transliterate } from 'transliteration';
 import { romanize as romanizeTamil } from 'tamil-romanizer';
 import type { ScriptType } from './scriptDetector';
-
-let kuroshiroReady: Promise<Kuroshiro> | null = null;
-
-export async function getKuroshiro(): Promise<Kuroshiro> {
-  if (!kuroshiroReady) {
-    kuroshiroReady = (async () => {
-      try {
-        const instance = new Kuroshiro();
-        await instance.init(
-          new KuromojiAnalyzer({
-            dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji/dict',
-          })
-        );
-        return instance;
-      } catch (e) {
-        kuroshiroReady = null;
-        throw e;
-      }
-    })();
-  }
-  return kuroshiroReady;
-}
 
 const cyrillicTranslitRu = CyrillicToTranslit({ preset: 'ru' });
 const cyrillicTranslitUk = CyrillicToTranslit({ preset: 'uk' });
@@ -57,7 +35,13 @@ try {
   }
 } catch { /* ignore validation error */ }
 
+/**
+ * Romanizes lines with the bundled engines. Rejects when Japanese cannot be
+ * romanized (its dictionary did not load): a per-line transliteration would read
+ * kanji as Chinese, so the caller must flag it or use another source.
+ */
 export async function romanizeLocally(lines: string[], script: ScriptType): Promise<string[]> {
+  if (script === 'japanese') return romanizeJapaneseLines(lines);
   return Promise.all(lines.map((line) => romanizeLine(line, script)));
 }
 
@@ -66,10 +50,6 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
 
   try {
     switch (script) {
-      case 'japanese': {
-        const k = await getKuroshiro();
-        return k.convert(line, { to: 'romaji', mode: 'spaced' });
-      }
       case 'chinese':
         return pinyin(line, { toneType: 'none', type: 'string', nonZh: 'consecutive' }).replace(/\s+/g, ' ');
 
@@ -82,6 +62,9 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
           : cyrillicTranslitRu.transform(line);
 
       case 'devanagari':
+        // Hindi as it is written in Latin letters (schwa deletion), not Sanskrit IAST.
+        return romanizeHindiLine(line);
+
       case 'gujarati':
       case 'gurmukhi':
       case 'telugu':
@@ -94,7 +77,7 @@ async function romanizeLine(line: string, script: ScriptType): Promise<string> {
         return romanizeTamil(line);
 
       case 'thai':
-        return romanizeThai(line);
+        return romanizeThaiLine(line);
 
       default:
         return transliterate(line);

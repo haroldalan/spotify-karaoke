@@ -7,7 +7,7 @@ import {
 } from '../../lib/colorLyricsInterceptor';
 import { base62ToHex } from '../../lib/utils/spotifyUtils';
 import { isLikelyRomanizedFallback, nonLatinLetterRatio } from '../../lib/lyrics/romanizedDetector';
-import type { MxmClient } from '../../lib/mxmClient';
+import type { NativeLyricsClient } from '../../lib/colorLyricsInterceptor';
 
 // Synthetic color-lyrics response (real shape, invented text; romanized Hindi tagged "id").
 const fixture = JSON.parse(
@@ -81,7 +81,6 @@ function fakeMxm(
         newInterception: vi.fn(newInterceptionImpl),
         fetchNativeLines: vi.fn(fetchImpl),
         notifyMetadata: vi.fn(),
-        warmup: vi.fn(),
     };
 }
 
@@ -100,7 +99,7 @@ function actions(type?: string): any[] {
 async function run(body: any, mxm: ReturnType<typeof fakeMxm>, url = URL_WG) {
     const res = fakeSpotifyResponse(body);
     const fallback = fakeSpotifyResponse(body);
-    const out = await handleColorLyrics(res, fallback, url, mxm as unknown as MxmClient);
+    const out = await handleColorLyrics(res, fallback, url, mxm as unknown as NativeLyricsClient);
     return { out, json: await out.json() as any };
 }
 
@@ -122,7 +121,7 @@ describe('handleColorLyrics: romanized-fallback gate (K3)', () => {
         const { json, out } = await run(cloneFixture(), mxm);
 
         expect(mxm.newInterception).toHaveBeenCalledWith(TRACK_ID);
-        expect(mxm.fetchNativeLines).toHaveBeenCalledWith('12345678', TRACK_ID, base62ToHex(TRACK_ID), 7);
+        expect(mxm.fetchNativeLines).toHaveBeenCalledWith(TRACK_ID, base62ToHex(TRACK_ID), 7, expect.any(Number)); // + Spotify's lines with words
 
         const reports = actions('SLY_PREFETCH_REPORT');
         expect(reports).toEqual([
@@ -368,7 +367,7 @@ describe('handleColorLyrics: hold budget and late native lines (K5)', () => {
             fakeSpotifyResponse(cloneFixture()),
             fakeSpotifyResponse(cloneFixture()),
             URL_WG,
-            mxm as unknown as MxmClient,
+            mxm as unknown as NativeLyricsClient,
         ).then((r) => { settled = true; return r; });
 
         await vi.advanceTimersByTimeAsync(NATIVE_HOLD_BUDGET_MS - 1);
@@ -418,7 +417,7 @@ describe('handleColorLyrics: hold budget and late native lines (K5)', () => {
             fakeSpotifyResponse(cloneFixture()),
             fakeSpotifyResponse(cloneFixture()),
             URL_WG,
-            mxm as unknown as MxmClient,
+            mxm as unknown as NativeLyricsClient,
         );
         await vi.advanceTimersByTimeAsync(NATIVE_HOLD_BUDGET_MS);
         const json = await (await p).json() as any;
@@ -428,7 +427,7 @@ describe('handleColorLyrics: hold budget and late native lines (K5)', () => {
 
         gen.resolve(3);
         await vi.waitFor(() => expect(actions('SKL_NATIVE_LYRICS')).toHaveLength(1));
-        expect(mxm.fetchNativeLines).toHaveBeenCalledWith('12345678', TRACK_ID, base62ToHex(TRACK_ID), 3);
+        expect(mxm.fetchNativeLines).toHaveBeenCalledWith(TRACK_ID, base62ToHex(TRACK_ID), 3, expect.any(Number)); // + Spotify's lines with words
         expect(actions('SKL_NATIVE_LYRICS')[0].late).toBe(true);
     });
 
@@ -441,7 +440,7 @@ describe('handleColorLyrics: hold budget and late native lines (K5)', () => {
             fakeSpotifyResponse(cloneFixture()),
             fakeSpotifyResponse(cloneFixture()),
             URL_WG,
-            mxm as unknown as MxmClient,
+            mxm as unknown as NativeLyricsClient,
         );
         await vi.advanceTimersByTimeAsync(NATIVE_HOLD_BUDGET_MS);
         await p;
@@ -460,10 +459,10 @@ describe('handleColorLyrics: hold budget and late native lines (K5)', () => {
         const queue = [first.promise, second.promise];
         const mxm = fakeMxm(() => queue.shift()!);
 
-        const p1 = handleColorLyrics(fakeSpotifyResponse(cloneFixture()), fakeSpotifyResponse(cloneFixture()), URL_WG, mxm as unknown as MxmClient);
+        const p1 = handleColorLyrics(fakeSpotifyResponse(cloneFixture()), fakeSpotifyResponse(cloneFixture()), URL_WG, mxm as unknown as NativeLyricsClient);
         await vi.advanceTimersByTimeAsync(NATIVE_HOLD_BUDGET_MS);
         await p1;
-        const p2 = handleColorLyrics(fakeSpotifyResponse(cloneFixture()), fakeSpotifyResponse(cloneFixture()), URL_WG, mxm as unknown as MxmClient);
+        const p2 = handleColorLyrics(fakeSpotifyResponse(cloneFixture()), fakeSpotifyResponse(cloneFixture()), URL_WG, mxm as unknown as NativeLyricsClient);
         await vi.advanceTimersByTimeAsync(NATIVE_HOLD_BUDGET_MS);
         await p2;
 
@@ -480,6 +479,31 @@ describe('handleColorLyrics: URL handling', () => {
         await run(cloneFixture(), mxm, `https://gae2-spclient.spotify.com/color-lyrics/v2/track/${TRACK_ID}/image/https%3A%2F%2Fi.scdn.co%2Fimage%2Fab67?format=json`);
 
         expect(actions('SLY_FETCH_START')).toEqual([expect.objectContaining({ trackId: TRACK_ID })]);
-        expect(mxm.fetchNativeLines).toHaveBeenCalledWith('12345678', TRACK_ID, base62ToHex(TRACK_ID), 7);
+        expect(mxm.fetchNativeLines).toHaveBeenCalledWith(TRACK_ID, base62ToHex(TRACK_ID), 7, expect.any(Number)); // + Spotify's lines with words
+    });
+});
+
+// ─── 2026-11-07: Spotify's timings and romanized lines kept for restored native lines ──
+
+describe('handleColorLyrics: native lines written onto Spotify\'s lines', () => {
+    const spotifyWordLines = () => fixture.lyrics.lines.map((l: any) => l.words).filter((w: string) => /[\p{L}\p{N}]/u.test(w));
+
+    it('synced native lines with as many word lines keep Spotify\'s timings and carry Spotify\'s romanized lines', async () => {
+        const mxm = fakeMxm(async () => syncedNative(SPOTIFY_WORD_LINE_COUNT));
+        const { json } = await run(cloneFixture(), mxm);
+        const native = NATIVE_WORDS.slice(0, SPOTIFY_WORD_LINE_COUNT);
+        expect(json.lyrics.lines.map((l: any) => l.words)).toEqual(expectedSwappedWords(native));
+        // Spotify's (licensed) timings, not the copy's.
+        expect(json.lyrics.lines.map((l: any) => l.startTimeMs)).toEqual(fixture.lyrics.lines.map((l: any) => l.startTimeMs));
+        expect(json.lyrics.syncType).toBe('LINE_SYNCED');
+        const msg = actions('SKL_NATIVE_LYRICS')[0];
+        expect(msg.romanizedWordLines).toEqual(spotifyWordLines());
+    });
+
+    it('a different number of lines keeps the copy\'s own timings and sends no romanized lines', async () => {
+        const mxm = fakeMxm(async () => syncedNative(SPOTIFY_WORD_LINE_COUNT + 2));
+        const { json } = await run(cloneFixture(), mxm);
+        expect(json.lyrics.lines.map((l: any) => l.startTimeMs)).toEqual(syncedNative(SPOTIFY_WORD_LINE_COUNT + 2).map((l) => l.startTimeMs));
+        expect(actions('SKL_NATIVE_LYRICS')[0].romanizedWordLines).toBeUndefined();
     });
 });

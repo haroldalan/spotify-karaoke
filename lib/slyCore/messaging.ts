@@ -1,10 +1,11 @@
 // @ts-nocheck
+import { TEST_HOOKS_ENABLED } from '../testHooks';
 import { safeClone } from '../utils/browserUtils';
 import { countWordLines } from '../lyrics/lineUtils';
 import { FetchEngine } from './fetchEngine';
 
 import { StatusEngine } from './statusEngine';
-import { clearNativeLookupPending, markNativeLookupPending } from './state';
+import { clearNativeLookupPending, markNativeLookupPending, recordColorLyricsSeen } from './state';
 
 declare global {
   interface Window {
@@ -113,11 +114,32 @@ window.addEventListener('message', (event) => {
   const action = data.action;
   if (!action) return;
 
+  // Spotify asked for (or the interceptor reported on) color-lyrics for this id.
+  // Keyed by the message's own id: a next-track prefetch counts once that track plays.
+  if (action.type === 'SLY_COLOR_LYRICS_REQUEST' || action.type === 'SLY_FETCH_START' ||
+      action.type === 'SLY_PREFETCH_REPORT' || action.type === 'SLY_CANONICAL_HASH' ||
+      action.type === 'SKL_NATIVE_LYRICS') {
+    recordColorLyricsSeen(action.trackId);
+  }
+
   if (action.type === 'SLY_FETCH_START') {
+    // A next-track prefetch must not pause the playing track's decision engine.
+    // An unknown playing id counts as the current track.
+    const trackId = action.trackId as string | undefined;
+    const playingId = playingTrackId();
+    if (trackId && playingId && trackId !== playingId) return;
     window.slyInternalState.isSpotifyFetching = true;
+    window.slyInternalState.spotifyFetchingTrackId = trackId;
 
   } else if (action.type === 'SLY_FETCH_END') {
+    const trackId = action.trackId as string | undefined;
+    const playingId = playingTrackId();
+    // The END for the request that set the flag always clears it, even after a skip,
+    // so the flag can never stay stuck.
+    const ownsFlag = !!trackId && window.slyInternalState.spotifyFetchingTrackId === trackId;
+    if (trackId && playingId && trackId !== playingId && !ownsFlag) return;
     window.slyInternalState.isSpotifyFetching = false;
+    window.slyInternalState.spotifyFetchingTrackId = undefined;
     if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
 
   } else if (action.type === 'SLY_INTERCEPT_START') {
@@ -186,7 +208,7 @@ window.addEventListener('message', (event) => {
     // the Spotify lines already on screen. If it cannot be applied, it is a
     // failed native restoration: do not mark the track NATIVE_OK or release a
     // takeover for it; fall back to Layer 2 like SLY_FORCE_FALLBACK.
-    // Compare lines WITH WORDS: Spotify's '♪' / trailing '' lines have no Musixmatch counterpart.
+    // Compare lines WITH WORDS: Spotify's '♪' / trailing '' lines have no counterpart in the native copy.
     const lateMismatch = late && (
       !Array.isArray(nativeLines) ||
       (typeof spotifyWordLineCount === 'number'
@@ -200,6 +222,14 @@ window.addEventListener('message', (event) => {
         window.slyInternalState.forceFallback = true;
         setTimeout(() => window.slyCheckNowPlaying?.(), 100);
       }
+      return;
+    }
+    // A late success for a prefetched NEXT track: Pipeline B drops these lines for a
+    // non-current track, and Spotify will play that track from its cached romanized
+    // response. Keep the registry ROMANIZED so Layer 2 arms when it plays.
+    const lateFor = playingTrackId();
+    if (late && trackId && lateFor && trackId !== lateFor) {
+      console.log(`[sly-dom] Late native lyrics for non-current track ${trackId} not applied; keeping ROMANIZED.`);
       return;
     }
     if (trackId) {
@@ -229,27 +259,31 @@ window.addEventListener('message', (event) => {
         document.dispatchEvent(new CustomEvent('sly:panel_close'));
       }
     }
-  } else if (action.type === 'SLY_MXM_WARMUP') {
-    safeSendMessage({ type: 'SLY_MXM_WARMUP' });
+  } else if (action.type === 'SLY_NATIVE_NOTIFY_METADATA') {
+    safeSendMessage({ type: 'SLY_NATIVE_NOTIFY_METADATA', payload: action.payload });
 
-  } else if (action.type === 'SLY_MXM_NOTIFY_METADATA') {
-    safeSendMessage({ type: 'SLY_MXM_NOTIFY_METADATA', payload: action.payload });
-
-  } else if (action.type === 'SLY_MXM_NEW_INTERCEPTION') {
+  } else if (action.type === 'SLY_NATIVE_NEW_INTERCEPTION') {
     const { requestId, payload } = action;
-    safeSendMessage({ type: 'SLY_MXM_NEW_INTERCEPTION', payload }, (r) => {
+    safeSendMessage({ type: 'SLY_NATIVE_NEW_INTERCEPTION', payload }, (r) => {
       window.postMessage({ 
         source: 'SLY_ACTION_GATEWAY', 
-        action: { type: 'SLY_MXM_NEW_INTERCEPTION_RESPONSE', requestId, generation: r?.generation }
+        action: { type: 'SLY_NATIVE_NEW_INTERCEPTION_RESPONSE', requestId, generation: r?.generation }
       }, '*');
     });
 
-  } else if (action.type === 'SLY_MXM_FETCH_NATIVE') {
+  } else if (TEST_HOOKS_ENABLED && (action.type as string) === 'SLY_TEST_HOOK') {
+    // Debug builds only (lib/testHooks.ts): relays a test hook from the page console.
+    const { requestId, payload } = action as unknown as { requestId: string; payload: unknown };
+    safeSendMessage({ type: 'SLY_TEST_HOOK', payload }, (r) => {
+      window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_TEST_HOOK_RESPONSE', requestId, result: r } }, '*');
+    });
+
+  } else if (action.type === 'SLY_NATIVE_FETCH') {
     const { requestId, payload } = action;
-    safeSendMessage({ type: 'SLY_MXM_FETCH_NATIVE', payload }, (r) => {
+    safeSendMessage({ type: 'SLY_NATIVE_FETCH', payload }, (r) => {
       window.postMessage({ 
         source: 'SLY_ACTION_GATEWAY', 
-        action: { type: 'SLY_MXM_FETCH_NATIVE_RESPONSE', requestId, ok: r?.ok ?? false, lines: r?.lines }
+        action: { type: 'SLY_NATIVE_FETCH_RESPONSE', requestId, ok: r?.ok ?? false, lines: r?.lines }
       }, '*');
     });
   }

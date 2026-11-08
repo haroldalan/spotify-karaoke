@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { handleColorLyrics } from '../../lib/colorLyricsInterceptor';
-import type { MxmClient } from '../../lib/mxmClient';
+import type { NativeLyricsClient } from '../../lib/colorLyricsInterceptor';
 import { slyScavengeClasses, SPOTIFY_CLASSES } from '../../lib/slyCore/scavenger';
 
 const fixture = JSON.parse(
@@ -48,10 +48,9 @@ describe('interceptor exception after SLY_INTERCEPT_START (A -> B2 Layer-1 pendi
       newInterception: vi.fn(async () => 1),
       fetchNativeLines: vi.fn(async () => [null] as any[]),
       notifyMetadata: vi.fn(),
-      warmup: vi.fn(),
     };
     const out = await handleColorLyrics(
-      fakeSpotifyResponse(fixture), fakeSpotifyResponse(fixture), URL_WG, mxm as unknown as MxmClient,
+      fakeSpotifyResponse(fixture), fakeSpotifyResponse(fixture), URL_WG, mxm as unknown as NativeLyricsClient,
     );
     const json = await out.json() as any;
 

@@ -120,6 +120,18 @@ function isUntouchedRomanization(original: string[], romanized: unknown): boolea
  * the quality checks, so a flagged result kept in memory is not discarded and
  * re-requested over and over.
  */
+/**
+ * Bumped when a local romanizer changes its output. 2: Devanagari as written in Hindi
+ * (hindiRomanizer.ts) instead of Sanskrit IAST ("hama batem"). 3: Thai by word with
+ * RTGS vowels (thaiRomanizer.ts), Japanese by word (japaneseRomanizer.ts).
+ */
+export const ROMANIZER_VERSION = 3;
+const DEVANAGARI = /[\u0900-\u097F]/;
+/** Thai, or Japanese kana (Chinese without kana is romanized as before). */
+const THAI_OR_KANA = /[\u0E00-\u0E7F\u3040-\u30FF]/;
+/** [version that changed the script's romanization, the script]. */
+const ROMANIZER_CHANGES: ReadonlyArray<readonly [number, RegExp]> = [[2, DEVANAGARI], [3, THAI_OR_KANA]];
+
 export function getStoredEntryDefect(
   original: string[],
   lang: string,
@@ -136,6 +148,10 @@ export function getStoredEntryDefect(
   if (isEchoedTranslation(original, entry.translated, lang)) return `translation into "${lang}" is the original text`;
   if (isUntouchedRomanization(original, entry.romanized)) {
     return 'romanization is the original text';
+  }
+  const version = entry.romanizerVersion ?? 1;
+  if (ROMANIZER_CHANGES.some(([changedIn, script]) => version < changedIn && original.some(l => script.test(l)))) {
+    return 'romanized with an older romanizer';
   }
   return null;
 }

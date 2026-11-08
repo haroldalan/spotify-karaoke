@@ -2,8 +2,11 @@
 // Port of: lyric-test/modules/core/detector.js
 import { getTrackDuration } from '../utils/spotifyUtils';
 import { isLikelyRomanizedFallback, nonLatinLetterRatio } from '../lyrics/romanizedDetector';
-import { isNativeLookupPending } from './state';
-import { NOW_PLAYING_WIDGET, getNowPlayingTitle, getThemedPanelContainer, isLyricsButtonActive, titlesMatch } from '../dom/domQueries';
+import { isNativeLookupPending, wasColorLyricsSeen } from './state';
+import { slyGetNativePanel } from './domEngine';
+import { NOW_PLAYING_WIDGET, currentSongOnly, getNowPlayingTitle, getThemedPanelContainer, isLyricsButtonActive, isLyricsOptionDisabled, titlesMatch } from '../dom/domQueries';
+import { rowsOnScreenAreRetired } from '../dom/lyricsDOM';
+import { traceEvent } from '../testHooks';
 /* modules/content-detector.js: Spotify DOM & State Scanner */
 
 export interface DetectorState {
@@ -23,10 +26,48 @@ export interface DetectorState {
 
 let lastDetectionDebugSignature = '';
 let lastKeptRomanizedUri = '';
+let lastHeuristicHealSkipUri = '';
 // Onset of the current DOM-vs-bridge track-id disagreement (see the desync guard).
 let trackIdMismatchKey = '';
 let trackIdMismatchSince = 0;
 const TRACK_ID_MISMATCH_GRACE_MS = 4000;
+
+/** With the overlay open and no color-lyrics request seen for the track this long, Spotify has no lyrics for it. */
+export const NO_REQUEST_MISSING_MS = 4000;
+// Clock of the no-request MISSING verdict: (re)starts when the track changes or the
+// overlay opens (not songChangeTime/panelOpenTime: Pipeline B can skip
+// slyResetPlayerState, and the network-safety guard zeroes panelOpenTime).
+let noRequestClock = { uri: '', since: 0 };
+// The track whose native UNSYNCED was last reported to the background (at most once per uri).
+let lastUnsyncedReportUri = '';
+// The track the open-panel grace (panelOpenTime) runs for. Pipeline B can take a track
+// switch first (it moves lastUri, so content.ts never zeroes panelOpenTime): the grace
+// restarts here too, so the previous track's rows still mounted after a skip get the
+// same 1000ms settle before any SYNCED / UNSYNCED / forensic evidence is read from them.
+let panelGraceUri = '';
+
+/** Test hook: restart the no-request MISSING clock. */
+export function resetNoRequestClock(): void {
+  noRequestClock = { uri: '', since: 0 };
+}
+
+/** Test hook: forget which track's UNSYNCED status was already reported. */
+export function resetUnsyncedReportMemo(): void {
+  lastUnsyncedReportUri = '';
+}
+
+/** Test hook: forget the panel-grace track (the next pass adopts its uri without restarting the grace). */
+export function resetPanelGraceTrack(): void {
+  panelGraceUri = '';
+}
+
+/** False if the element or any ancestor is hidden with an inline display:none (our HUD/takeover hide that way). */
+function isShownInline(el: Element | null | undefined): boolean {
+  for (let node: Element | null = el ?? null; node; node = node.parentElement) {
+    if ((node as HTMLElement).style?.display === 'none') return false;
+  }
+  return !!el;
+}
 
 declare global {
   interface Window {
@@ -38,10 +79,15 @@ declare global {
 const LYRICS_PREVIEW_SELECTOR = `#Desktop_PanelContainer_Id, [data-testid="lyrics-npv-section"], aside[aria-label="Now playing view"], aside.NowPlayingView, [data-testid="now-playing-bar"], footer, ${NOW_PLAYING_WIDGET}`;
 
 
-/** Full-panel Spotify lyric line wrappers (excludes our takeover root and the Now Playing view preview). */
+/**
+ * Full-panel Spotify lyric line wrappers (excludes our takeover root, the Now Playing view
+ * preview, and the previous song's slide while it leaves: its rows read as the new song's
+ * made a romanized song look native, live 2026-11-08).
+ */
 function getFullPanelLineElements(): Element[] {
+  const currentSong = currentSongOnly(); // never another song's panel still mounted beside it
   return Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-    .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(LYRICS_PREVIEW_SELECTOR));
+    .filter(el => !el.closest('#lyrics-root-sync') && !el.closest(LYRICS_PREVIEW_SELECTOR) && !el.closest('[data-sly-leaving]') && currentSong(el));
 }
 
 /**
@@ -90,6 +136,11 @@ export function getNowPlayingViewTrackId(): string | null {
 /**
  * Analyzes Spotify's current UI and internal state to determine
  * if our fallback lyrics are needed.
+ *
+ * Status reports to the background are sent without waiting (the local registry is
+ * updated in the same step): awaiting a service-worker round trip held up every poll
+ * that reported (longer while the worker wakes up), and with it the re-insertion of our
+ * lyrics when the view reopens.
  */
 window.slyDetectNativeState = async function (): Promise<DetectorState> {
   const { track } = window.spotifyState || {};
@@ -114,8 +165,11 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
 
   // 0. QUICK AD SCAN (Sovereign Check)
   // We do this first so we can bypass desync guards for ads.
-  const adLink = document.querySelector('a[data-testid="now-playing-widget-ad-link"]') ||
-                 document.querySelector('a[data-testid="ad-link"]');
+  // The ad's title link, in the now-playing bar only: Spotify's expanded view kept the
+  // ad's title link mounted after the ad ended (live 2026-11-08), and a page-wide query
+  // kept the Ad Break screen up over the next song for good.
+  const adScope: ParentNode = document.querySelector('[data-testid="now-playing-bar"]') ?? document;
+  const adLink = adScope.querySelector('a[data-testid="now-playing-widget-ad-link"], a[data-testid="ad-link"]');
   const adWidget = document.querySelector(NOW_PLAYING_WIDGET.split(', ').map(s => `${s}[aria-label="Advertisement"]`).join(', '));
   // Locale-independent: the now-playing bar carries data-testadtype="ad-type-none" while music plays
   // (verified 2026-10 and 2026-11); any other value means an ad is playing.
@@ -139,8 +193,8 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
 
   // We check URL, Button states (Main), and Native Container presence.
   const onLyricsPath = window.location.pathname === '/lyrics' || window.location.pathname.startsWith('/lyrics');
-  const mainBtnPressed = document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('aria-pressed') === 'true' ||
-                         document.querySelector('[data-testid="lyrics-button"]')?.getAttribute('data-active') === 'true';
+  // Includes the expanded Now Playing view the extension opened for lyrics Spotify lacks.
+  const mainBtnPressed = isLyricsButtonActive();
   // Do not treat the persistent Now Playing preview or a mounted-but-closed
   // themed shell as the full lyrics panel. In the new UI, the button's active
   // state is authoritative; DOM evidence is only a fallback for old layouts
@@ -264,10 +318,11 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   state.hasNativeLines = !isSettling && debugLineElements.length > 0;
   const lyricsButton = document.querySelector('[data-testid="lyrics-button"]');
   const lyricsButtonActive = lyricsButton?.getAttribute('data-active') === 'true' || lyricsButton?.getAttribute('aria-pressed') === 'true';
-  const panelRoot = Array.from(document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)'))
-    .find(el => !el.closest(LYRICS_PREVIEW_SELECTOR));
+  const panelRoot = getThemedPanelContainer();
   const previewLineCount = document.querySelectorAll('#Desktop_PanelContainer_Id [data-testid="lyrics-line"], aside[aria-label="Now playing view"] [data-testid="lyrics-line"]').length;
-  const debugSignature = [state.title, state.currentTrackId, state.isOnLyricsPage, lyricsButtonActive, debugLineElements.length, !!panelRoot, previewLineCount].join('|');
+  // DIAGNOSTIC only this round: the trackUri on the full-panel rows' fiber chain.
+  const lyricsTrackUri = window.spotifyState?.lyricsTrackUri ?? null;
+  const debugSignature = [state.title, state.currentTrackId, state.isOnLyricsPage, lyricsButtonActive, debugLineElements.length, !!panelRoot, previewLineCount, lyricsTrackUri].join('|');
   if (debugSignature !== lastDetectionDebugSignature) {
     lastDetectionDebugSignature = debugSignature;
     console.info('[sly-debug] Panel/track state', {
@@ -279,16 +334,34 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
       fullPanelLineCount: debugLineElements.length,
       themedPanelFound: !!panelRoot,
       nowPlayingPreviewLineCount: previewLineCount,
+      lyricsTrackUri,
       firstPanelLines: debugLineElements.slice(0, 3).map(el => el.textContent?.trim()),
     });
   }
 
+  // Spotify's own full-panel rows are what the user sees: overlay open, rows mounted,
+  // the native panel not hidden by our HUD/takeover (inline display:none), and no
+  // takeover rows on screen. Hidden or covered rows are no evidence of anything.
+  const nativePanel = slyGetNativePanel();
+  const nativeRowsLive = state.isOnLyricsPage && state.hasNativeLines &&
+    (!nativePanel || isShownInline(nativePanel)) && isShownInline(debugLineElements[0]) &&
+    !document.querySelector('#lyrics-root-sync [data-testid="lyrics-line"]');
+  // Rows can be attributed to the current track only if Spotify asked for its lyrics:
+  // the previous track's rows can stay mounted after a skip to a no-lyrics track, and
+  // must never be recorded or reported for the new one.
+  // Rows Pipeline B retired at the song change (still the previous track's, the same
+  // elements with the same text) are not this track's either.
+  const rowsAttributable = wasColorLyricsSeen(state.currentTrackId) && !rowsOnScreenAreRetired();
+
   // 3. GRACE PERIOD HANDLING
 
   // We give Spotify a 2-second window to load its own lyrics before we intervene
+  // The grace also restarts when the track changes under an open panel (see panelGraceUri).
+  const graceTrackChanged = !!panelGraceUri && !!state.currentUri && panelGraceUri !== state.currentUri;
+  if (state.currentUri) panelGraceUri = state.currentUri;
   if (!state.isOnLyricsPage) {
     window.slyInternalState.panelOpenTime = 0;
-  } else if (!window.slyInternalState.panelOpenTime) {
+  } else if (!window.slyInternalState.panelOpenTime || graceTrackChanged) {
     window.slyInternalState.panelOpenTime = Date.now();
   }
   const timeSinceOpen = window.slyInternalState.panelOpenTime
@@ -311,17 +384,32 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   };
   const onScreenIsNativeScript = (): boolean => onScreenVerdict().hasNativeLetters;
 
-  // K5: the interceptor's Musixmatch lookup for this track has not reported back yet
+  // K5: the interceptor's native-script lookup for this track has not reported back yet
   // (it can outlive SLY_INTERCEPT_END when the hold budget expires and finish "late"
   // with SKL_NATIVE_LYRICS or SLY_FORCE_FALLBACK). Until then, Spotify's romanized
   // lines are not final: do not arm the fallback or record a verdict from them.
   const nativeLookupPending = isNativeLookupPending(state.currentTrackId);
 
+  // A heuristic MISSING (no color-lyrics request seen; never reported) heals only from
+  // rows attributable to this track: without a request for its lyrics, mounted rows are
+  // another track's (e.g. the next track's rows mounting before the bridge switches).
+  // Its heal is never reported either: the background never got that MISSING, so there
+  // is nothing to undo there (a later guarded SYNCED pass reports the real status).
+  const heuristicMissing = state.preFetch?.heuristic === true && state.preFetch?.nativeStatus === 'MISSING';
+  // Any MISSING (stored or guessed) heals only from rows that belong to this track:
+  // a skip to a no-lyrics track leaves the previous track's rows mounted for a moment.
+  const missingHealAllowed = rowsAttributable;
+  if (!rowsAttributable && state.hasNativeLines && state.currentUri && lastHeuristicHealSkipUri !== state.currentUri &&
+      (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING')) {
+    lastHeuristicHealSkipUri = state.currentUri;
+    console.log(`[sly-detector] Rows on screen for ${state.currentUri} (${heuristicMissing ? 'heuristic ' : ''}MISSING) are not attributable to it (no color-lyrics request seen, or the previous track's rows): not healing.`);
+  }
+
   // Live full-panel lyrics are stronger evidence than a previously persisted
   // MISSING result. NPV preview lines are excluded from hasNativeLines above.
   // If those lines are a romanized fallback, record ROMANIZED instead of NATIVE_OK
   // so the native-script fallback (and its quiet stand-down) still applies.
-  if (state.hasNativeLines && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING')) {
+  if (state.hasNativeLines && missingHealAllowed && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING')) {
     const healedStatus = onScreenVerdict().romanized
       ? 'ROMANIZED'
       : 'NATIVE_OK';
@@ -342,8 +430,8 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
       });
       if (healedStatus === 'NATIVE_OK') window.slyInternalState.l0Cache?.delete(state.currentUri);
     }
-    if (state.currentUri && typeof browser !== 'undefined' && browser.runtime?.id) {
-      await browser.runtime.sendMessage({
+    if (state.currentUri && !heuristicMissing && typeof browser !== 'undefined' && browser.runtime?.id) {
+      void browser.runtime.sendMessage({
         type: 'SLY_REPORT_NATIVE_STATUS',
         payload: { title: state.title, artist: state.artist, uri: state.currentUri, status: healedStatus, source: 'native' },
       }).catch(() => {});
@@ -359,6 +447,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
 
     if (!window.slyInternalState.forceFallback && !alreadyFailedThisSession) {
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ${reason} state for track ${state.currentTrackId}. Triggering Fallback.`);
+      traceEvent(`fallback:${reason}`);
       window.slyInternalState.forceFallback = true;
     }
   } else if (state.preFetch?.nativeStatus === 'ROMANIZED') {
@@ -370,6 +459,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     if (!window.slyInternalState.forceFallback && !alreadyFailedThisSession &&
         !window.slyInternalState.interceptorActive && !nativeLookupPending) {
       console.log(`[sly-detector] 🔎 EVIDENCE: Pre-fetch registry confirmed ROMANIZED for track ${state.currentTrackId}. Triggering Fallback.`);
+      traceEvent('fallback:registryRomanized');
       window.slyInternalState.forceFallback = true;
     }
   } else if (state.preFetch?.nativeStatus === 'NATIVE_OK' || state.preFetch?.nativeStatus === 'SYNCED' || state.preFetch?.state === 'NATIVE_OK' || state.preFetch?.state === 'SYNCED') {
@@ -391,8 +481,16 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
   // recorded as "DOM Evidence (Synced)", and records persisted by older builds carry
   // it for romanized tracks too. So the scan still runs over SYNCED and, when it
   // fires, demotes the entry to ROMANIZED (see below).
-  const registryConfirmsNative = state.preFetch?.nativeStatus === 'NATIVE_OK';
+  // Only on live rows that belong to this track (see nativeRowsLive / rowsAttributable):
+  // stale previous-track rows must not arm the fallback or be recorded and reported.
+  // A NATIVE_OK that the on-screen lines contradict (no native script on them, and no
+  // native-script upgrade on its way to them) is not trusted: one recorded from the
+  // previous song's rows still on screen (live 2026-11-08) kept a romanized song on
+  // Spotify's lines for good.
+  const upgradeOnItsWay = !!window.slyInternalState.nativeUpgradedLines?.length;
+  const registryConfirmsNative = state.preFetch?.nativeStatus === 'NATIVE_OK' && (upgradeOnItsWay || onScreenIsNativeScript());
   if (state.hasNativeLines && timeSinceOpen > 1000 &&
+      nativeRowsLive && rowsAttributable &&
       !window.slyInternalState.forceFallback &&
       !alreadyFailedThisSession &&
       !window.slyInternalState.interceptorActive &&
@@ -404,8 +502,15 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
 
     if (romanized) {
       console.log(`[sly-detector] 🔎 EVIDENCE: Forensic DOM scan: on-screen lines look like a romanized fallback (${verdict.reason}, lang=${verdict.lang}, tag=${window.spotifyState?.language ?? 'none'}). Triggering Fallback.`);
+      traceEvent(`fallback:forensic(${verdict.reason})`);
       window.slyInternalState.forceFallback = true;
       const liveEntry = state.currentUri ? window.slyPreFetchRegistry?.getState(state.currentUri) : null;
+      if (state.preFetch?.nativeStatus === 'NATIVE_OK' || liveEntry?.nativeStatus === 'NATIVE_OK') {
+        // Same direct correction for a NATIVE_OK the on-screen lines contradict.
+        console.log(`[sly-detector] ⚠️ Registry NATIVE_OK for ${state.currentUri} is contradicted by romanized lines on screen; demoting to ROMANIZED.`);
+        if (state.preFetch?.nativeStatus === 'NATIVE_OK') { state.preFetch.nativeStatus = 'ROMANIZED'; state.preFetch.state = 'ROMANIZED'; }
+        if (liveEntry?.nativeStatus === 'NATIVE_OK') { liveEntry.nativeStatus = 'ROMANIZED'; liveEntry.state = 'ROMANIZED'; }
+      }
       if (state.preFetch?.nativeStatus === 'SYNCED' || liveEntry?.nativeStatus === 'SYNCED') {
         // ROMANIZED (priority 1) cannot outrank SYNCED (3) through register(), and the
         // NATIVE_OK/SYNCED branch above would reset the fallback on the next tick.
@@ -427,7 +532,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
         });
         // Report Romanization failure for persistent 0ms hijack next time
         if (typeof browser !== 'undefined' && browser.runtime?.id) {
-          await browser.runtime.sendMessage({
+          void browser.runtime.sendMessage({
             type: 'SLY_REPORT_NATIVE_STATUS',
             payload: { title: state.title, artist: state.artist, uri: state.currentUri, status: 'ROMANIZED', source: 'native' }
           }).catch(() => {});
@@ -456,20 +561,73 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
                             state.preFetch?.nativeStatus === 'MISSING' ||
                             state.preFetch?.state === 'MISSING') && !state.hasNativeLines;
 
-  const isNativeUnsynced = !document.hidden &&
-                           ((window.spotifyState.isTimeSynced === false && 
-                             window.spotifyState.lyricsProvider !== null &&
-                             window.spotifyState.lyricsProvider !== undefined) || 
-                            state.preFetch?.nativeStatus === 'UNSYNCED' ||
-                            state.preFetch?.state === 'UNSYNCED');
+  // Live UNSYNCED evidence, guarded like the SYNCED evidence: the bridge's fiber flag
+  // (read from a full-panel line only) on live rows of this track, past the same 1000ms
+  // panel grace (after a skip the previous track's rows can stay mounted for a moment
+  // while the new id is already seen), after the Layer-1 lookup settled. A ROMANIZED
+  // verdict (network or forensic) means Spotify's response is synced, so it is never
+  // overridden here.
+  const liveUnsyncedEvidence = !document.hidden && timeSinceOpen > 1000 &&
+                               nativeRowsLive && rowsAttributable && !nativeLookupPending &&
+                               window.spotifyState.isTimeSynced === false &&
+                               window.spotifyState.lyricsProvider !== null &&
+                               window.spotifyState.lyricsProvider !== undefined &&
+                               state.preFetch?.nativeStatus !== 'ROMANIZED';
+
+  const isNativeUnsynced = liveUnsyncedEvidence ||
+                           (!document.hidden &&
+                            (state.preFetch?.nativeStatus === 'UNSYNCED' ||
+                             state.preFetch?.state === 'UNSYNCED'));
 
   const isNativeSynced = window.spotifyState.isTimeSynced === true && !window.slyInternalState.forceFallback;
+
+  // No-lyrics signal (locale-independent): the overlay has been open on this track for
+  // NO_REQUEST_MISSING_MS and Spotify never requested its color-lyrics, nothing is on
+  // screen, and nothing else knows better. A local guess: registered as heuristic and
+  // never reported (FetchEngine does not forward it either).
+  const si = window.slyInternalState;
+  const overlayActive = state.isOnLyricsPage && isLyricsButtonActive();
+  if (!overlayActive || !state.currentUri) {
+    noRequestClock = { uri: '', since: 0 };
+  } else if (noRequestClock.uri !== state.currentUri) {
+    noRequestClock = { uri: state.currentUri, since: Date.now() };
+  }
+  const knownNativeStatus = ['NATIVE_OK', 'SYNCED', 'ROMANIZED', 'UNSYNCED'].includes(state.preFetch?.nativeStatus as string);
+  // Spotify says so itself when its media switch disables the lyrics option (the overlay
+  // shows artwork): 1 s of that is enough, request seen or not.
+  const spotifySaysNoLyrics = isLyricsOptionDisabled();
+  const noRequestWaitMs = spotifySaysNoLyrics ? 1000 : NO_REQUEST_MISSING_MS;
+  const noColorLyricsRequest = !!state.currentUri?.startsWith('spotify:track:') && overlayActive &&
+    debugLineElements.length === 0 && previewLineCount === 0 && !state.hasUnavailableMessage &&
+    !document.hidden && !!si.interceptorReady && !si.interceptorFailed &&
+    !si.interceptorActive && !si.isSpotifyFetching &&
+    (spotifySaysNoLyrics || !wasColorLyricsSeen(state.currentTrackId)) && !si.forceFallback && !alreadyFailedThisSession &&
+    !knownNativeStatus &&
+    noRequestClock.uri === state.currentUri && Date.now() - noRequestClock.since > noRequestWaitMs;
 
   // Determine the finalized state
   // SLY FIX: Prioritize NATIVE_OK above all other states. If we have live lines, 
   // we must trust them even if the registry previously forced a fallback.
   // This allows for Self-Healing of incorrect MISSING records in the cache.
-  if (isNativeSynced) {
+  if (noColorLyricsRequest) {
+    // First: a stale or undefined bridge isTimeSynced must not pre-empt it.
+    state.lyricsState = 'MISSING_NO_REQUEST';
+    if (state.preFetch?.nativeStatus !== 'MISSING') {
+      console.log(`[sly-detector] 🔎 EVIDENCE: ${spotifySaysNoLyrics ? "Spotify's lyrics option is disabled" : 'no color-lyrics request'} for track ${state.currentTrackId} after ${Date.now() - noRequestClock.since}ms with the overlay open. Treating as MISSING (local guess, not reported).`);
+    }
+    if (window.slyPreFetchRegistry) {
+      window.slyPreFetchRegistry.register(state.currentUri, 'MISSING', {
+        title: state.title,
+        artist: state.artist,
+        uri: state.currentUri,
+        nativeStatus: 'MISSING',
+        source: 'native',
+        reason: spotifySaysNoLyrics ? "Spotify's lyrics option disabled" : 'No color-lyrics request (4s)',
+        heuristic: true,
+      });
+      state.preFetch = window.slyPreFetchRegistry.getState(state.currentUri) ?? state.preFetch;
+    }
+  } else if (isNativeSynced) {
     state.lyricsState = 'SYNCED';
     // SLY FIX: Report SYNCED state so it's cached proactively for future plays.
     // Not for a ROMANIZED track showing Latin lines (e.g. after a failed fallback
@@ -481,12 +639,15 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     // lines (full panel visible past its 1000ms grace, no Layer-1 result pending)
     // and they do not look like a romanized fallback. Otherwise a first-tick SYNCED
     // would block the scan for the rest of the session and persist.
+    // Also only on live rows of this track (not hidden behind our HUD/takeover, not the
+    // previous track's rows still mounted after a skip).
     const syncedEvidenceVerified = state.hasNativeLines && timeSinceOpen > 1000 &&
+      nativeRowsLive && rowsAttributable &&
       !nativeLookupPending && !onScreenVerdict().romanized;
     if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus !== 'SYNCED' && !keepRomanized && syncedEvidenceVerified) {
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'SYNCED' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+        void browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
       }
       if (window.slyPreFetchRegistry) {
         window.slyPreFetchRegistry.register(state.currentUri, 'SYNCED', { ...payload, nativeStatus: 'SYNCED', reason: 'DOM Evidence (Synced)' });
@@ -494,16 +655,23 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     }
   } else if (isNativeUnsynced) {
     state.lyricsState = state.preFetch?.nativeStatus === 'UNSYNCED' ? 'PERSISTED_UNSYNCED' : 'NATIVE_UNSYNCED';
-    // SLY FIX: Always report native Unsynced state to Background to ensure persistent 0ms hijack next time,
-    // even if our LOCAL preFetch registry already knows it (e.g. from Interceptor report).
+    // Record only new live evidence (never the registry echoing itself, never a status
+    // that already ranks higher). Report a native UNSYNCED (live, or e.g. from the
+    // interceptor) to the background at most once per track for the 0ms hijack next
+    // time. Never on preFetch.state alone: that can be FetchEngine's custom state.
+    const nativeNow = state.preFetch?.nativeStatus;
+    const recordUnsynced = liveUnsyncedEvidence && nativeNow !== 'UNSYNCED' && nativeNow !== 'SYNCED' && nativeNow !== 'NATIVE_OK';
     if (state.currentUri && !state.isAd) {
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'UNSYNCED' as const, source: 'native' };
-      if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+      // Update the local registry first (synchronously) so an overlapping pass sees it.
+      if (recordUnsynced && window.slyPreFetchRegistry) {
+        window.slyPreFetchRegistry.register(state.currentUri, 'UNSYNCED', { ...payload, nativeStatus: 'UNSYNCED', reason: 'Bridge isTimeSynced=false (full panel)' });
       }
-      // Also update local registry so concurrent fetches see it
-      if (window.slyPreFetchRegistry) {
-        window.slyPreFetchRegistry.register(state.currentUri, 'UNSYNCED', { ...payload, nativeStatus: 'UNSYNCED', reason: 'DOM Evidence (Unsynced)' });
+      if ((recordUnsynced || nativeNow === 'UNSYNCED') && lastUnsyncedReportUri !== state.currentUri) {
+        lastUnsyncedReportUri = state.currentUri;
+        if (typeof browser !== 'undefined' && browser.runtime?.id) {
+          void browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+        }
       }
     }
   } else if (state.hasNativeLines) {
@@ -519,11 +687,18 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
       lastKeptRomanizedUri = state.currentUri;
       console.log(`[sly-detector] ⚠️ ROMANIZED track ${state.currentUri} has Latin DOM lines — keeping ROMANIZED, not promoting to NATIVE_OK.`);
     }
-    if (state.currentUri && !state.isAd && !keepRomanized && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING' || wasRomanized)) {
+    const healsMissing = missingHealAllowed && (state.preFetch?.nativeStatus === 'MISSING' || state.preFetch?.state === 'MISSING');
+    // Our lyrics are on screen for this track: Spotify's rows under them are hidden and may
+    // carry our own lines (Pipeline B's cache of the takeover), not Spotify's. Read as
+    // native evidence, they gave a romanized song back to Spotify, live 2026-11-08. A real
+    // native-script upgrade arrives through the interceptor, not through these rows.
+    const ourLines = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
+    const oursOnScreen = !!document.getElementById('lyrics-root-sync') && !!ourLines && ourLines._slyUri === state.currentUri;
+    if (state.currentUri && !state.isAd && !keepRomanized && !oursOnScreen && (healsMissing || (wasRomanized && rowsAttributable))) {
       console.log(`[sly-detector] 🩹 SELF-HEAL: Native lines found for track ${state.currentUri} which was tagged ${state.preFetch.nativeStatus}. Updating registry to NATIVE_OK.`);
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'NATIVE_OK' as const, source: 'native' };
-      if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+      if (!heuristicMissing && typeof browser !== 'undefined' && browser.runtime?.id) {
+        void browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
       }
       if (window.slyPreFetchRegistry) {
         window.slyPreFetchRegistry.register(state.currentUri, 'NATIVE_OK', { ...payload, nativeStatus: 'NATIVE_OK', reason: 'Self-Heal (DOM Evidence)' });
@@ -543,7 +718,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
     if (state.currentUri && !state.isAd && state.preFetch?.nativeStatus !== 'MISSING') {
       const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'MISSING' as const, source: 'native' };
       if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+        void browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
       }
       // Also update local registry so concurrent fetches see it
       if (window.slyPreFetchRegistry) {
@@ -559,7 +734,7 @@ window.slyDetectNativeState = async function (): Promise<DetectorState> {
       if (isTimeout && state.currentUri && !state.isAd) {
         const payload = { title: state.title, artist: state.artist, uri: (window as any).spotifyState?.track?.uri, status: 'MISSING' as const, source: 'native' };
         if (typeof browser !== 'undefined' && browser.runtime?.id) {
-        await browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
+        void browser.runtime.sendMessage({ type: 'SLY_REPORT_NATIVE_STATUS', payload }).catch(() => {});
       }
         // Also update local registry so concurrent fetches see it
         if (window.slyPreFetchRegistry) {
@@ -576,7 +751,7 @@ export interface TrackStateResolution {
   trackId: string;
   sourceState: 'SYNCED' | 'UNSYNCED' | 'ROMANIZED' | 'MISSING' | 'LOADING';
   action: 'NATIVE_ORIGINAL' | 'NATIVE_UPGRADED' | 'TAKEOVER_SYNCED' | 'TAKEOVER_UNSYNCED' | 'STANDBY';
-  provider: 'SPOTIFY' | 'YTM' | 'LRCLIB' | 'MUSIXMATCH' | 'NONE';
+  provider: 'SPOTIFY' | 'YTM' | 'LRCLIB' | 'NATIVE' | 'NONE';
 }
 
 export function resolveTrackState(
@@ -654,11 +829,11 @@ export function resolveTrackState(
     return resolution;
   }
 
-  // Priority 2: Spotify is Synced but Romanized -> Musixmatch native upgrade.
+  // Priority 2: Spotify is Synced but Romanized -> native-script upgrade (YouTube Music / LRCLIB).
   if (spotifyStatus === 'ROMANIZED') {
     if (window.slyInternalState.pendingNativeLines?.has(trackId)) {
       resolution.action = 'NATIVE_UPGRADED';
-      resolution.provider = 'MUSIXMATCH';
+      resolution.provider = 'NATIVE';
       return resolution;
     }
   }

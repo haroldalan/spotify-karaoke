@@ -12,10 +12,17 @@ import {
 import type { NativeStatus } from '../lib/lyricsProviders/lyricsCache';
 import { lyricsPersistence } from '../lib/lyricsProviders/lyricsPersistence';
 import { getLyricsForTrack, getColorOnly, clearColorCache } from '../lib/lyricsProviders/lyricsEngine';
-import { mxmProvider } from '../lib/lyricsProviders/mxm';
+import { nativeLyricsProvider, LEGACY_MUSIXMATCH_KEYS } from '../lib/lyricsProviders/nativeLyrics';
+import { lrcLooksRomanized } from '../lib/lyricsProviders/lrclibNative';
 import { hashString } from '../lib/utils/hashUtils';
+import { TEST_HOOKS_ENABLED, handleTestHook } from '../lib/testHooks';
 
 export default defineBackground(() => {
+  // 0. Musixmatch was removed (2026-11): drop what its client left in storage.
+  browser.runtime.onInstalled?.addListener(({ reason }: { reason: string }) => {
+    if (reason === 'update') void browser.storage.local.remove(LEGACY_MUSIXMATCH_KEYS).catch(() => {});
+  });
+
   // 1. Dynamic TTL Resolution Logic: getDynamicTTL (lib/lyricsProviders/lyricsCache.ts)
   //    derives the TTL from the fetched data (synced 30d / unsynced 24h / failure 12h).
 
@@ -112,6 +119,7 @@ export default defineBackground(() => {
     lyricsCache.clear();
     clearColorCache();
     reportedNativeStatus.clear();
+    nativeLyricsProvider.resetMemory();
     upgradeQueue.length = 0;
   });
 
@@ -133,18 +141,20 @@ export default defineBackground(() => {
           albumArtUrl?: string; 
           uri?: string; 
           forceRefresh?: boolean;
-          // MXM fields
+          // Native-script lookup fields (SLY_NATIVE_*)
           trackId?: string;
           providerLyricsId?: string | null;
           hexGid?: string;
           interceptId?: number;
           name?: string;
+          durationMs?: number;
+          spotifyWordLines?: number;
           status?: string;
           nativeStatus?: string;
         };
       },
-      sender,
-      sendResponse,
+      sender: any,
+      sendResponse: (response?: any) => void,
     ) => {
       // ----------------------------------------------------------------
       // New handler: Centralized Storage Writes (BUG-A3)
@@ -231,6 +241,12 @@ export default defineBackground(() => {
       // ----------------------------------------------------------------
       // Existing handler: romanization + translation pipeline
       // ----------------------------------------------------------------
+      // Debug builds only: simulated outages for live testing (lib/testHooks.ts).
+      if (TEST_HOOKS_ENABLED && (msg.type as string) === 'SLY_TEST_HOOK') {
+        handleTestHook((msg as { payload?: Record<string, unknown> }).payload).then(sendResponse);
+        return true;
+      }
+
       if (msg.type === 'PROCESS') {
         // sourceLang is Spotify's language tag: only a hint (contract K1).
         processLines(msg.lines ?? [], msg.targetLang ?? 'en', msg.sourceLang ?? null)
@@ -291,12 +307,14 @@ export default defineBackground(() => {
           return true;
         }
 
-        // SLY FIX: Proactively notify Musixmatch of this track's metadata.
-        // This ensures the interceptor (MAIN world) has the metadata ready 
-        // if it needs to perform an upgrade search.
+        // Gives the native-script lookup this track's metadata early, in case it
+        // needs to search for the lyrics in the original script.
+        // Only when the page bridge has not named the track yet: the bridge pairs id and
+        // title from one source, while a cache check can carry a title read a moment too
+        // early (live 2026-11-08: the previous song's title overwrote the new id's).
         if (uri && title && artist) {
           const trackId = uri.split(':').pop();
-          if (trackId) mxmProvider.notifyMetadata(trackId, title, artist);
+          if (trackId) nativeLyricsProvider.notifyMetadata(trackId, title, artist, undefined, { ifUnknown: true });
         }
 
         const cacheKey = lyricsCache.getCacheKey(title!, artist!, uri);
@@ -433,8 +451,11 @@ export default defineBackground(() => {
               const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
               const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
               const retryThreshold = !stored.ok ? dayAgo : weekAgo;
-   
-              if (needsUpgrade && lastCheck < retryThreshold) {
+              // Romanized synced lyrics saved before native-script copies were looked for: once.
+              const needsNativeCheck = !!stored.ok && stored.data?.isSynced === true && !stored.data.nativeChecked
+                && lrcLooksRomanized(stored.data.syncedLyrics);
+
+              if (needsNativeCheck || (needsUpgrade && lastCheck < retryThreshold)) {
                 enqueueUpgrade({
                   title,
                   artist,
@@ -548,43 +569,39 @@ export default defineBackground(() => {
       }
 
       // ----------------------------------------------------------------
-      // ROBUST MUSIXMATCH HANDLERS (Background-Centric)
+      // Native-script lookup (lib/lyricsProviders/nativeLyrics.ts)
       // ----------------------------------------------------------------
-      
-      if (msg.type === 'SLY_MXM_WARMUP') {
-        mxmProvider.warmup();
-        return false; // No response needed
-      }
-
-      if (msg.type === 'SLY_MXM_NOTIFY_METADATA') {
-        const { trackId, name, artist } = msg.payload ?? {};
+      if (msg.type === 'SLY_NATIVE_NOTIFY_METADATA') {
+        const { trackId, name, artist, durationMs } = msg.payload ?? {};
         if (trackId && name && artist) {
-          mxmProvider.notifyMetadata(trackId, name, artist);
+          nativeLyricsProvider.notifyMetadata(trackId, name, artist, typeof durationMs === 'number' ? durationMs : undefined);
         }
         return false;
       }
 
-      if (msg.type === 'SLY_MXM_NEW_INTERCEPTION') {
+      if (msg.type === 'SLY_NATIVE_NEW_INTERCEPTION') {
         const { trackId } = msg.payload ?? {};
-        if (trackId) {
-          const gen = mxmProvider.newInterception(trackId);
-          sendResponse({ generation: gen });
-        }
+        // Always answer: without a trackId the caller gets generation 0 (its own
+        // timeout fallback) at once instead of waiting 15 s for nothing.
+        sendResponse({ generation: trackId ? nativeLyricsProvider.newInterception(trackId) : 0 });
         return true;
       }
 
-      if (msg.type === 'SLY_MXM_FETCH_NATIVE') {
-        const { providerLyricsId, trackId, hexGid, interceptId } = msg.payload ?? {};
-        mxmProvider.fetchNativeLines(
-          providerLyricsId ?? null,
+      if (msg.type === 'SLY_NATIVE_FETCH') {
+        const { trackId, hexGid, interceptId, spotifyWordLines } = msg.payload ?? {};
+        // Promise.resolve().then also turns a synchronous throw into the catch below.
+        Promise.resolve().then(() => nativeLyricsProvider.fetchNativeLines(
           trackId ?? '',
           hexGid ?? '',
-          interceptId ?? 0
-        ).then(lines => {
+          interceptId ?? 0,
+          typeof spotifyWordLines === 'number' ? spotifyWordLines : undefined,
+        )).then(lines => {
           sendResponse({ ok: !!lines, lines });
-        }).catch(err => {
-          console.error('[SKaraoke:BG] MXM Background Fetch failed:', err);
-          sendResponse({ ok: false, error: err.message });
+        }).catch((err: unknown) => {
+          const name = (err as Error | undefined)?.name ?? typeof err;
+          const message = (err as Error | undefined)?.message ?? String(err);
+          console.error(`[SKaraoke:BG] Native-script lookup threw: ${name}: ${message}`);
+          sendResponse({ ok: false, error: message });
         });
         return true;
       }
@@ -595,7 +612,7 @@ export default defineBackground(() => {
       if (msg.type === 'SLY_MARK_ENTRY_POINT') {
         if (sender.tab?.id) {
           const tabId = sender.tab.id;
-          browser.storage.local.get('slyEntryPoints').then((res) => {
+          browser.storage.local.get('slyEntryPoints').then((res: any) => {
             const entryPoints = new Set(res.slyEntryPoints || []);
             entryPoints.add(tabId);
             browser.storage.local.set({ slyEntryPoints: Array.from(entryPoints) });
@@ -607,7 +624,7 @@ export default defineBackground(() => {
       if (msg.type === 'SLY_NAV_BACK') {
         if (sender.tab?.id) {
           const tabId = sender.tab.id;
-          browser.storage.local.get('slyEntryPoints').then(async (res) => {
+          browser.storage.local.get('slyEntryPoints').then(async (res: any) => {
             const entryPoints = new Set(res.slyEntryPoints || []);
             const isEntryPoint = (msg as any).isEntryPoint || entryPoints.has(tabId);
             
@@ -618,7 +635,7 @@ export default defineBackground(() => {
               await browser.storage.local.set({ slyEntryPoints: Array.from(entryPoints) });
             } else {
               console.log('[sly-bg] Requesting tabs.goBack for non-entry-point navigation.');
-              browser.tabs.goBack(tabId).catch((err) => {
+              browser.tabs.goBack(tabId).catch((err: any) => {
                 console.warn('[sly-bg] tabs.goBack failed, falling back to Home:', err.message);
                 browser.tabs.update(tabId, { url: 'https://open.spotify.com/' }).catch(() => {});
               });

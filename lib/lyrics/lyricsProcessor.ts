@@ -1,6 +1,6 @@
 import { detectScript, GOOGLE_ROMANIZE_SCRIPTS, SCRIPT_TO_LANG } from './scriptDetector';
 import type { ScriptType } from './scriptDetector';
-import { googleProcess } from '../translateClient';
+import { googleProcess, googleRomanize } from '../translateClient';
 import { romanizeLocally } from './localRomanizer';
 import { preserveCasing } from './casePreserver';
 import { transliterate } from 'transliteration';
@@ -83,6 +83,37 @@ async function romanizeLocallySafe(lines: string[], script: ScriptType): Promise
   }
 }
 
+/** A kanji left in a Japanese romanization: the dictionary had no reading for it. */
+const UNREAD_KANJI_RE = /\p{Script=Han}/u;
+
+/**
+ * Local romanization; for Japanese whose dictionary did not load, Google's romanization
+ * instead (transliteration would read kanji as Chinese). Still flagged low quality when
+ * neither works, which keeps the result out of the persistent cache so it is retried.
+ * Japanese lines with a kanji the dictionary does not know (昏) are also asked of Google.
+ */
+async function romanizeWithFallback(
+  lines: string[],
+  script: ScriptType,
+  sourceLang: string,
+): Promise<{ romanized: string[]; lowQuality: boolean }> {
+  const local = await romanizeLocallySafe(lines, script);
+  if (script !== 'japanese') return local;
+  if (!local.lowQuality) {
+    const unread = local.romanized.flatMap((r, i) => (UNREAD_KANJI_RE.test(r) ? [i] : []));
+    if (unread.length === 0) return local;
+    const google = await googleRomanize(unread.map((i) => lines[i]), sourceLang);
+    if (!google) return local;
+    const romanized = [...local.romanized];
+    unread.forEach((lineIdx, k) => { romanized[lineIdx] = google[k]; });
+    return { romanized, lowQuality: false };
+  }
+  const google = await googleRomanize(lines, sourceLang);
+  if (google) return { romanized: google, lowQuality: false };
+  console.warn('[SKaraoke:BG] Japanese dictionary and Google romanization both unavailable; using transliteration.');
+  return local;
+}
+
 function safeTransliterate(line: string): string {
   try {
     return transliterate(line);
@@ -135,7 +166,7 @@ export async function processLines(
     }
 
     if (alreadyInTarget) {
-      const { romanized, lowQuality } = await romanizeLocallySafe(lines, script);
+      const { romanized, lowQuality } = await romanizeWithFallback(lines, script, sourceLang);
       return { translated: [...lines], romanized, ...(lowQuality ? { isLowQualityRomanization: true } : {}) };
     }
 
@@ -143,7 +174,7 @@ export async function processLines(
     // must not throw away the (network-free) romanization.
     const [trans, rom] = await Promise.allSettled([
       googleProcess(lines, targetLang, false, sourceLang),
-      romanizeLocallySafe(lines, script),
+      romanizeWithFallback(lines, script, sourceLang),
     ]);
     const romanized = rom.status === 'fulfilled' ? rom.value.romanized : lines.map(l => safeTransliterate(l));
     const lowQuality = rom.status !== 'fulfilled' || rom.value.lowQuality;

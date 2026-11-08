@@ -1,9 +1,11 @@
+import { hasFault } from '../testHooks';
 export async function googleTranslate(
   text: string,
   targetLang: string,
   includeRomanization: boolean,
   sourceLang: string = 'auto'
 ): Promise<{ translated: string; romanized: string | null }> {
+  if (await hasFault('google')) throw new Error('Google network error or rate-limited (test hook)');
   const params = new URLSearchParams({
     client: 'gtx',
     sl: sourceLang,

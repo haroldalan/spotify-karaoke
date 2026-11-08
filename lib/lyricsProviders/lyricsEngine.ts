@@ -2,12 +2,33 @@
 
 import { fetchYtmLyrics } from './ytm';
 import { fetchLrcLibLyrics } from './lrclib';
+import { findNativeLrclib, lrcLooksRomanized, lrcTexts } from './lrclibNative';
+import { countWordLines } from '../lyrics/lineUtils';
+import { getTrackMetadata } from './nativeLyrics';
 import { extractImageColor } from './color';
 import type { FetchedLyricsResult } from './lyricsCache';
 
 /**
+ * Synced lyrics that read like a romanized stand-in (YouTube Music often has only those for
+ * Indian-language songs): a synced native-script copy from LRCLIB replaces them. English
+ * and other Latin-script lyrics never trigger the extra search.
+ */
+async function nativeInstead(syncedLyrics: string | undefined, title: string, artist: string, uri: string): Promise<FetchedLyricsResult | null> {
+  if (!lrcLooksRomanized(syncedLyrics)) return null;
+  const trackId = uri.startsWith('spotify:track:') ? uri.split(':').pop() || '' : '';
+  const durationMs = getTrackMetadata(trackId)?.durationMs;
+  console.log(`[sw-engine] The synced lyrics found are romanized: looking for a native-script copy on LRCLIB.`);
+  const referenceWordLines = countWordLines(lrcTexts(syncedLyrics!));
+  const match = await findNativeLrclib({ title, artist, durationMs, referenceWordLines }, 'fallback').catch(() => null);
+  if (!match) return null;
+  console.log(`[sw-engine] ✅ SUCCESS: Native-script synced lyrics found on LRCLIB.`);
+  return { ok: true, data: { syncedLyrics: match.syncedLyrics, isSynced: true, source: 'LRCLIB', nativeChecked: true } };
+}
+
+/**
  * Executes the multi-source search strategy.
- * Priority: Synced YTM > Synced LRCLIB > Plain YTM > Plain LRCLIB
+ * Priority: Synced YTM > Synced LRCLIB > Plain YTM > Plain LRCLIB; romanized synced lyrics
+ * give way to a native-script synced copy (nativeInstead).
  */
 async function performFetch(title: string, artist: string, uri = 'N/A'): Promise<FetchedLyricsResult> {
   // Broadcast progress to content scripts (they may display this in the status HUD)
@@ -16,7 +37,8 @@ async function performFetch(title: string, artist: string, uri = 'N/A'): Promise
   const ytm = await fetchYtmLyrics(title, artist).catch(() => null);
   if (ytm?.isSynced) {
     console.log(`[sw-engine] ✅ SUCCESS: Synced lyrics found on YouTube Music [Key: ${ytm.keySource}].`);
-    return { ok: true, data: { syncedLyrics: ytm.syncedLyrics, isSynced: true, source: ytm.source } };
+    return await nativeInstead(ytm.syncedLyrics, title, artist, uri)
+      ?? { ok: true, data: { syncedLyrics: ytm.syncedLyrics, isSynced: true, source: ytm.source, nativeChecked: true } };
   }
 
   browser.runtime.sendMessage({ type: 'SLY_BACKGROUND_EVENT', event: 'Consulting LRCLIB...' }).catch(() => {});
@@ -24,7 +46,8 @@ async function performFetch(title: string, artist: string, uri = 'N/A'): Promise
   const lrc = await fetchLrcLibLyrics(title, artist).catch(() => null);
   if (lrc?.isSynced) {
     console.log(`[sw-engine] ✅ SUCCESS: Synced lyrics found on LRCLIB.`);
-    return { ok: true, data: { syncedLyrics: lrc.syncedLyrics, isSynced: true, source: 'LRCLIB' } };
+    return await nativeInstead(lrc.syncedLyrics, title, artist, uri)
+      ?? { ok: true, data: { syncedLyrics: lrc.syncedLyrics, isSynced: true, source: 'LRCLIB', nativeChecked: true } };
   }
 
   if (ytm?.plainLyrics) {

@@ -1,3 +1,4 @@
+import { resetSpotifyRomanization } from './spotifyRomanization';
 import { isContextValid, safeBrowserCall } from '../utils/browserUtils';
 import { applyLinesToDOM } from '../dom/lyricsDOM';
 import { setPillVisibility } from '../dom/lyricsControls';
@@ -26,6 +27,7 @@ export function resetContentCaches(store: StateStore): void {
   store.pendingNativeLines.clear();
   store.canonicalHashes.clear();
   store.canonicalHash = null;
+  resetSpotifyRomanization();
   const removed = clearSessionProcessedCache();
   console.log(`[sly-cache] 🧹 Cache reset: cleared runtime cache, processed results and ${removed} session entries.`);
 }
@@ -33,7 +35,7 @@ export function resetContentCaches(store: StateStore): void {
 
 export function startStorageListener(opts: StorageListenerOpts): void {
   safeBrowserCall(async () => {
-    browser.storage.onChanged.addListener((changes, area) => {
+    browser.storage.onChanged.addListener((changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => {
       if (!isContextValid()) return;
       if (area === 'local') {
         if ('sly_cacheResetAt' in changes && changes.sly_cacheResetAt.newValue !== undefined) {

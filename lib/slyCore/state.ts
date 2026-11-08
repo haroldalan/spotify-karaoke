@@ -13,6 +13,10 @@ export interface SpotifyBridgeState {
    *  primary subtag ('ja-JP' → 'ja'), or null. Unreliable for romanized lyrics
    *  (e.g. romanized Hindi is tagged 'id'): treat it as a hint only. */
   language?: string | null;
+  /** DIAGNOSTIC only (L1 round): the first string `trackUri` prop on the full-panel
+   *  lyric line's fiber chain, or null (no full-panel line, or no such prop). No
+   *  decision may depend on it yet. */
+  lyricsTrackUri?: string | null;
   // Added dynamically by bridge listener:
   accessToken?: string;
   queue?: unknown[];
@@ -31,13 +35,14 @@ export interface SlyInternalState {
   fetchingForTitle: string;
   fetchingForUri: Set<string>;
   failedFetchUris: Set<string>;
+  /** When slyCore's check last saw an ad playing (Date.now()); 0: none yet. */
+  lastAdSeenAt: number;
   pendingLyricsData: unknown | null;
   songChangeTime: number;
   songSettlingUntil: number;
   panelOpenTime: number;
   statusHUDActive: boolean;
   isFetchingHUD: boolean;
-  isAdHUDActive: boolean;
   // Added dynamically by detector:
   forceFallback?: boolean;
   // Added dynamically by messaging:
@@ -48,11 +53,19 @@ export interface SlyInternalState {
   /** Heartbeat: the MAIN-world interceptor has answered SLY_INTERCEPTOR_READY at
    *  least once this page load. Not cleared on track changes. */
   interceptorReady?: boolean;
-  /** K5: Layer-1 (Musixmatch native-script) lookups that have not reported back yet,
+  /** K5: Layer-1 (native-script) lookups that have not reported back yet,
    *  keyed by Spotify track id → expiry time (ms). Unlike interceptorActive this
    *  outlives SLY_INTERCEPT_END: on a hold-budget expiry the lookup keeps running and
    *  ends later with SKL_NATIVE_LYRICS or SLY_FORCE_FALLBACK. See markNativeLookupPending. */
   nativeLookupPendingUntil: Map<string, number>;
+  /** Spotify track ids for which a color-lyrics request (or any interceptor message
+   *  about one) was seen this page load → last seen time (ms). Keyed by the message's
+   *  own track id, never the current track's. LRU-capped (COLOR_LYRICS_SEEN_CAP). */
+  colorLyricsSeenAt: Map<string, number>;
+  /** Why slyPrepareContainer last returned null for fetched lyrics (e.g. 'lyrics-style-unknown'). */
+  lastPrepareRefusal?: string | null;
+  /** Track id whose SLY_FETCH_START set isSpotifyFetching (cleared by its SLY_FETCH_END). */
+  spotifyFetchingTrackId?: string;
   interceptorFailed?: boolean;
   nativeUpgradedLines?: string[];
   /** Set by setupSlyBridge when Pipeline B's syncedLyricsRenderer is running.
@@ -62,6 +75,13 @@ export interface SlyInternalState {
   nativeRecoveryPending?: boolean;
   userScrollTimeout?: number;
   isTransitioning?: boolean;
+  /**
+   * The next song's lyrics are ours and cached (set at the song change by Pipeline B's
+   * onSongChange): the poll injects them as soon as the bridge names that song, without
+   * waiting for Spotify's panel to load. Not cleared by slyResetPlayerState (the bridge
+   * may still name the previous song when a reset runs).
+   */
+  stagedTakeover?: { uri: string; prevUri?: string; data: Record<string, unknown> } | null;
   /** L0 Session Cache: Synchronous in-memory store for lyrics objects.
    *  Eliminates async fetch delays for repeated tracks in the same session. */
   l0Cache: Map<string, any>;
@@ -76,18 +96,13 @@ declare global {
     spotifyState: any;
     slyInternalState: any;
     antigravityInterval?: any;
+    /** Runs the slyCore check now (content.ts); the lyrics view reopened. */
+    slyKickPoll?: () => void;
     antigravitySyncAnimFrame?: number;
     slyStartThrottledPoll?: () => void;
     slyCheckNowPlaying?: () => Promise<void>;
-    slyResetPlayerState?: (title: string, uri?: string) => void;
-    slyDetectNativeState?: () => Promise<any>;
-    slyTriggerLyricsFetch?: (...args: any[]) => void;
     slyPreFetchRegistry?: any;
     slyPreFetchInterval?: any;
-    slyInjectCoreStyles?: () => void;
-    slyDeepScavengeStyles?: () => void;
-    SPOTIFY_CLASSES?: any;
-    slyUpdateButtonState?: (m: string) => void;
     slyGetCoreStyles?: () => string;
     /** Pipeline B's runtime lyrics cache (lib/core/lyricsCache.ts), exposed on window. */
     slyRuntimeCache?: Map<string, any>;
@@ -110,6 +125,7 @@ export const spotifyState: SpotifyBridgeState = {
   detectionMethod: 'Initializing...',
   lastBridgeChangeTime: 0,
   language: null,
+  lyricsTrackUri: null,
 };
 
 // SLY FIX (BUG-41): Assigning to window by reference ensures module imports and
@@ -134,17 +150,18 @@ export const slyInternalState: SlyInternalState = {
   fetchingForTitle: '',
   fetchingForUri: new Set<string>(),
   failedFetchUris: new Set<string>(),
+  lastAdSeenAt: 0,
   pendingLyricsData: null,
   songChangeTime: Date.now(),
   songSettlingUntil: 0,
   panelOpenTime: 0,
   statusHUDActive: false,
   isFetchingHUD: false,
-  isAdHUDActive: false,
   l0Cache: new Map(),
   interceptorActive: false,
   interceptorReady: false,
   nativeLookupPendingUntil: new Map(),
+  colorLyricsSeenAt: new Map(),
   interceptorFailed: false,
   panelIntentCooldown: 0,
   lastResolvedStateString: '',
@@ -187,6 +204,19 @@ export function clearNativeLookupPending(trackId: string | null | undefined, now
   return until !== undefined && until > now;
 }
 
+/** How long after the last ad check a song change still counts as leaving an ad (checks run every 500 ms). */
+export const AD_RECENT_MS = 2000;
+
+/**
+ * An ad is playing or has just ended: a song change now leaves the ad, which has nothing on
+ * a lyrics slide (songTransition). Neither lastTitle (trySetup rewrites it during the ad)
+ * nor the track ids (none during an ad) tell this reliably.
+ */
+export function isLeavingAnAd(now = Date.now()): boolean {
+  const at = window.slyInternalState?.lastAdSeenAt ?? 0;
+  return at > 0 && now - at < AD_RECENT_MS;
+}
+
 /** True while the track's Layer-1 lookup is still running (including a late finish after SLY_INTERCEPT_END). */
 export function isNativeLookupPending(trackId: string | null | undefined, now = Date.now()): boolean {
   if (!trackId) return false;
@@ -198,6 +228,38 @@ export function isNativeLookupPending(trackId: string | null | undefined, now = 
     return false;
   }
   return true;
+}
+
+/** Upper bound of the color-lyrics "seen" map (oldest entries are evicted first). */
+export const COLOR_LYRICS_SEEN_CAP = 500;
+
+function colorLyricsSeenMap(): Map<string, number> {
+  const s = (window.slyInternalState ?? slyInternalState) as SlyInternalState;
+  if (!(s.colorLyricsSeenAt instanceof Map)) s.colorLyricsSeenAt = new Map();
+  return s.colorLyricsSeenAt;
+}
+
+/**
+ * Records that Spotify requested color-lyrics for this track id (or the interceptor
+ * reported on it). Call with the message's own id: a next-track prefetch counts for
+ * that track once it becomes current.
+ */
+export function recordColorLyricsSeen(trackId: unknown, now = Date.now()): void {
+  if (typeof trackId !== 'string' || !trackId) return;
+  const seen = colorLyricsSeenMap();
+  seen.delete(trackId); // re-insert so the Map's order stays least-recently-seen first
+  seen.set(trackId, now);
+  while (seen.size > COLOR_LYRICS_SEEN_CAP) {
+    const oldest = seen.keys().next().value;
+    if (oldest === undefined) break;
+    seen.delete(oldest);
+  }
+}
+
+/** True if a color-lyrics request (or interceptor report) for this track id was seen this page load. */
+export function wasColorLyricsSeen(trackId: string | null | undefined): boolean {
+  if (!trackId) return false;
+  return colorLyricsSeenMap().has(trackId);
 }
 
 /**
@@ -215,7 +277,7 @@ export function initSlyState(): void {
 
     const msg = event.data as Record<string, unknown> | undefined;
     if (msg?.source !== 'SLY_ACTION_GATEWAY') return;
-    const action = msg.action;
+    const action = msg.action as { type?: string; payload?: any } | undefined;
     if (action?.type !== 'SLY_TRACK_UPDATE') return;
 
     const data = action.payload;
@@ -242,6 +304,7 @@ export function initSlyState(): void {
     const language = normalizeLanguageTag(data.language);
     const currentUri = (state.track as Record<string, unknown> | null)?.uri;
     if (language !== null || currentUri !== previousUri) state.language = language;
+    state.lyricsTrackUri = typeof data.lyricsTrackUri === 'string' ? data.lyricsTrackUri : null;
 
     if (data.accessToken) state.accessToken = data.accessToken as string;
     if (data.queue) state.queue = data.queue as unknown[];

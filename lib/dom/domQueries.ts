@@ -20,9 +20,57 @@ const PREVIEW_ANCESTORS =
 export const isPreviewLine = (el: Element): boolean =>
   !!el.closest(PREVIEW_ANCESTORS);
 
-const getAllNativeLineWrappers = (): Element[] =>
-  Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-    .filter(el => !el.closest('#lyrics-root-sync') && !isPreviewLine(el));
+/**
+ * The previous song's slide while Spotify slides it out (songTransition.ts): "ours" when
+ * a still copy of our lyrics leaves on it (Spotify's panel under it stays hidden).
+ * Nothing in a leaving slide is the current song's: the queries below skip it.
+ */
+export const LEAVING_SLIDE_ATTR = 'data-sly-leaving';
+/** The still copy of our lyrics on a leaving slide. */
+export const LEAVING_ROOT_ATTR = 'data-sly-root-leaving';
+export const isInLeavingSlide = (el: Element): boolean => !!el.closest(`[${LEAVING_SLIDE_ATTR}]`);
+
+/**
+ * Which song each lyrics panel belongs to. Spotify can keep earlier songs' panels mounted
+ * next to the current one (live 2026-11-08: five panels, three off-screen to the left, one
+ * transparent), and none of them is marked as old. The page bridge (slyBridge.ts) reads each
+ * panel's track from Spotify's React props (the list's `trackUri`, the themed container's
+ * `item.uri`) and writes it on the element; it writes the playing track, from the
+ * now-playing widget, on <html>. Attributes are shared with the content script's world.
+ */
+export const PANEL_TRACK_ATTR = 'data-sly-track-uri';
+export const PLAYING_TRACK_ATTR = 'data-sly-playing-uri';
+
+/** The playing track's uri: the bridge's attribute, else the bridge's last state message. */
+export const playingTrackUri = (): string =>
+  document.documentElement.getAttribute(PLAYING_TRACK_ATTR) ||
+  String((window as unknown as { spotifyState?: { track?: { uri?: unknown } } }).spotifyState?.track?.uri ?? '');
+
+/**
+ * A filter that drops elements inside another song's lyrics panel. It only filters when
+ * panels of two or more songs are mounted (one panel is never ambiguous, and dropping it
+ * while the playing uri catches up would empty the view at every song change), and never
+ * when the panels carry no tags (no bridge yet, or Spotify renamed the prop): then every
+ * element passes, as before tags existed.
+ */
+export function currentSongOnly(): (el: Element) => boolean {
+  const playing = playingTrackUri();
+  if (!playing) return () => true;
+  const songs = new Set(Array.from(document.querySelectorAll(`[${PANEL_TRACK_ATTR}]`))
+    .filter(el => !el.closest(NPV_PREVIEW))
+    .map(el => el.getAttribute(PANEL_TRACK_ATTR)));
+  if (songs.size < 2) return () => true;
+  return (el: Element) => {
+    const tagged = el.closest(`[${PANEL_TRACK_ATTR}]`);
+    return !tagged || tagged.getAttribute(PANEL_TRACK_ATTR) === playing;
+  };
+}
+
+const getAllNativeLineWrappers = (): Element[] => {
+  const currentSong = currentSongOnly();
+  return Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
+    .filter(el => !el.closest('#lyrics-root-sync') && !isPreviewLine(el) && !isInLeavingSlide(el) && currentSong(el));
+};
 
 /** Group line wrappers by their parent container; pick the largest group. */
 const pickPanelLines = (): Element[] => {
@@ -41,6 +89,19 @@ const pickPanelLines = (): Element[] => {
   }
   return best;
 };
+
+/**
+ * True when a row's inner div still shows Spotify's own text: none of our
+ * processed spans and non-empty text. data-sly-original is NOT a marker:
+ * snapshotOriginals puts it on native rows, and applyLinesToDOM treats an
+ * attribute without spans as a recycled native row.
+ */
+export const innerNeedsProcessing = (inner: Element): boolean =>
+  !inner.querySelector('.sly-main-line, .sly-dual-line') && (inner.textContent ?? '').trim() !== '';
+
+/** innerNeedsProcessing on a [data-testid="lyrics-line"] row (its inner div, or the row itself). */
+export const rowNeedsProcessing = (row: Element): boolean =>
+  innerNeedsProcessing(row.querySelector(':scope > div') ?? row);
 
 export const getLyricsLines = (): Element[] => {
   const panelWrappers = pickPanelLines();
@@ -63,9 +124,10 @@ export const getLyricsContainer = (): Element | null => {
 /** Themed panel container carrying --lyrics-color-* variables.
  * Excludes NPV preview: preview lives in aside, full panel never does. */
 export const getThemedPanelContainer = (): Element | null => {
+  const currentSong = currentSongOnly();
   const candidates = Array.from(
     document.querySelectorAll('div[style*="--lyrics-color-active"]:not(#lyrics-root-sync)')
-  ).filter(el => !el.closest(NPV_PREVIEW));
+  ).filter(el => !el.closest(NPV_PREVIEW) && !isInLeavingSlide(el) && currentSong(el));
   return candidates[0] ?? null;
 };
 
@@ -89,6 +151,39 @@ export const getViewportRoot = (): Element | null =>
 export const getSlyLayoutHost = (): HTMLElement | null => {
   const themed = getThemedPanelContainer();
   if (themed?.parentElement) return themed.parentElement;
+  return getFallbackLayoutHost();
+};
+
+/** Spotify's media switch option for lyrics (its value attribute is not localized). */
+const lyricsOption = (): HTMLButtonElement | null =>
+  document.querySelector<HTMLButtonElement>('button[role="radio"][value="lyrics"]');
+
+/**
+ * 2026 UI: Spotify's Now Playing overlay, the layer that fills the area above the
+ * player bar while the lyrics button is on. Found through its media switch.
+ */
+export const getNowPlayingOverlay = (): HTMLElement | null => {
+  const overlay = lyricsOption()?.closest('[data-testid="root"] > div > div') as HTMLElement | null;
+  // Never mistake the app grid for the overlay (one more wrapper level in a future build
+  // would make it match): the overlay holds neither the player bar nor the page or sidebar.
+  if (!overlay || overlay.querySelector('[data-testid="now-playing-bar"], #main-view, #Desktop_PanelContainer_Id')) return null;
+  return overlay;
+};
+
+/** True when Spotify's own media switch marks lyrics as unavailable for the current track. */
+export const isLyricsOptionDisabled = (): boolean => {
+  const option = lyricsOption();
+  return !!option && (option.disabled || option.getAttribute('aria-disabled') === 'true');
+};
+
+/**
+ * Where our root and layout classes go when Spotify shows no themed lyrics panel
+ * (e.g. a track without lyrics: the overlay shows artwork). 2026 UI: the overlay,
+ * never the app root or the playlist <main> (that put the HUD over the whole page,
+ * player bar included). Legacy UI: main.<mainContainer>.
+ */
+export const getFallbackLayoutHost = (): HTMLElement | null => {
+  if (getAppRoot()) return getNowPlayingOverlay();
   const mainCls = window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS';
   return document.querySelector<HTMLElement>(`main.${mainCls}`);
 };
@@ -99,9 +194,33 @@ export const getLyricsPanelRoot = (): Element | null =>
   document.querySelector('div#main') ??
   null;
 
+let lyricsIntentUri: string | null = null;
+
+/**
+ * The extension opened Spotify's expanded Now Playing view because the user pressed
+ * the lyrics button on a track Spotify has no lyrics for (Spotify then leaves its
+ * lyrics button inactive). Until that overlay closes it stands in for the lyrics view.
+ */
+export const setLyricsIntentOverlay = (on: boolean, uri: string | null = null): void => {
+  lyricsIntentUri = on ? (uri ?? String((window as any).spotifyState?.track?.uri ?? '')) : null;
+};
+
+/**
+ * Only while Spotify marks its lyrics option unavailable for the track playing: when a
+ * track with Spotify lyrics plays in that overlay, Spotify's own state (its lyrics button
+ * and media switch) decides; later tracks without lyrics in the same overlay count again.
+ */
+export const isLyricsIntentOverlayOpen = (): boolean =>
+  !!lyricsIntentUri && !!lyricsOption() && isLyricsOptionDisabled();
+
+/** The overlay the extension opened (or adopted) for lyrics is still up, whatever the track. */
+export const isLyricsIntentSessionActive = (): boolean => !!lyricsIntentUri && !!lyricsOption();
+
+/** The lyrics view is open: Spotify's lyrics button is on, or the lyrics-intent overlay is up. */
 export const isLyricsButtonActive = (): boolean => {
   const btn = document.querySelector('[data-testid="lyrics-button"]');
-  return btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true';
+  return btn?.getAttribute('data-active') === 'true' || btn?.getAttribute('aria-pressed') === 'true' ||
+    isLyricsIntentOverlayOpen();
 };
 
 export const getLyricsViewRoot = (): Element | null => {

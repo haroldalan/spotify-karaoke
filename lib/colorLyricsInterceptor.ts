@@ -1,6 +1,5 @@
 import { base62ToHex } from './utils/spotifyUtils';
 import { hasLyricWords, countWordLines } from './lyrics/lineUtils';
-import type { MxmClient } from './mxmClient';
 import { hashString } from './utils/hashUtils';
 import { isLikelyRomanizedFallback } from './lyrics/romanizedDetector';
 
@@ -20,7 +19,23 @@ function slyPost(type: string, trackId?: string, extra?: Record<string, unknown>
 }
 
 /**
- * Maximum time Spotify's color-lyrics response is held while the Musixmatch
+ * The page's link to the native-script lookup in the background
+ * (lib/lyricsProviders/nativeLyrics.ts), relayed by the content script.
+ */
+export interface NativeLyricsClient {
+    notifyMetadata(id: string, name: string, artist: string): void;
+    newInterception(spotifyTrackId: string): number | Promise<number>;
+    fetchNativeLines(
+        spotifyTrackId: string,
+        hexGid: string,
+        interceptId: number,
+        /** Lines with words in Spotify's (romanized) answer: a native copy must have about as many. */
+        spotifyWordLines?: number,
+    ): Promise<any[] | null>;
+}
+
+/**
+ * Maximum time Spotify's color-lyrics response is held while the
  * native-script lookup (newInterception + fetchNativeLines) runs (contract K5).
  * When it expires, Spotify's response is released and the lookup finishes "late".
  */
@@ -97,24 +112,57 @@ function hasNativeScriptLetters(lines: readonly string[]): boolean {
     return lines.some((l) => NATIVE_SCRIPT_LETTER.test(l));
 }
 
+/** A line starting this much before a native line's start still belongs to it. */
+const PAIR_TOLERANCE_MS = 750;
+/** Share of native lines that must find Spotify lines before any pair is used. */
+const MIN_PAIRED_SHARE = 0.8;
+
+/**
+ * Spotify's romanized line(s) for each native line with words, by time, for synced native
+ * lines that do not line up 1:1 with Spotify's (another line split, same release): the
+ * Spotify word lines starting within a native line's span, joined. '' where none start
+ * there. Null when too few native lines find one (the copies are not timed alike).
+ */
+export function romanizedByTime(spotifyLines: any[], nativeLines: any[]): string[] | null {
+    const ms = (l: any) => Number(l?.startTimeMs);
+    const native = nativeLines.filter((l: any) => hasLyricWords(l?.words) && Number.isFinite(ms(l)));
+    const spotify = spotifyLines.filter((l: any) => hasLyricWords(l?.words) && Number.isFinite(ms(l)));
+    if (!native.length || !spotify.length || native.every((l: any) => ms(l) === 0)) return null;
+    const used = new Set<number>();
+    const out = native.map((line: any, i: number) => {
+        const from = ms(line) - PAIR_TOLERANCE_MS;
+        const to = i + 1 < native.length ? ms(native[i + 1]) - PAIR_TOLERANCE_MS : Infinity;
+        const words: string[] = [];
+        spotify.forEach((s: any, k: number) => {
+            if (!used.has(k) && ms(s) >= from && ms(s) < to) { used.add(k); words.push(String(s.words).trim()); }
+        });
+        return words.join(' ');
+    });
+    const paired = out.filter(Boolean).length;
+    return paired / native.length >= MIN_PAIRED_SHARE ? out : null;
+}
+
 /**
  * Builds the lyrics lines/syncType that replace Spotify's romanized ones.
- * - Musixmatch unsynced lines (every startTimeMs '0') over a synced Spotify response (K6):
- *   same number of lines WITH WORDS → keep Spotify's timings and write the native words onto
- *   Spotify's word lines in order ('♪' / empty lines keep Spotify's text);
- *   otherwise → mark the response UNSYNCED.
+ * - Over a synced Spotify response, native lines with the same number of lines WITH WORDS
+ *   (synced or not) → keep Spotify's timings (licensed, timed to the release) and write the
+ *   native words onto Spotify's word lines in order ('♪' / empty lines keep Spotify's text).
+ *   Each native line then has Spotify's romanized line: `romanizedWordLines` (in order).
+ * - Otherwise synced native lines keep their own timings; unsynced native lines (every
+ *   startTimeMs '0') over a synced response (K6) mark the response UNSYNCED.
  * - SYLLABLE_SYNCED with native lines that carry no syllables → LINE_SYNCED.
  */
 function buildUpgradedLyrics(
     spotifyLines: any[],
     nativeLines: any[],
     syncType: string | undefined,
-): { lines: any[]; syncType: string | undefined } {
+): { lines: any[]; syncType: string | undefined; romanizedWordLines?: string[] } {
     let outLines: any[] = nativeLines;
     let outSyncType = syncType;
+    let romanizedWordLines: string[] | undefined;
 
     const nativeUnsynced = nativeLines.every((l: any) => String(l?.startTimeMs) === '0');
-    if (nativeUnsynced && syncType !== 'UNSYNCED') {
+    if (syncType !== 'UNSYNCED') {
         const nativeWordLines = nativeLines.filter((l: any) => hasLyricWords(l?.words));
         const spotifyWordCount = countWordLines(spotifyLines.map((l: any) => l?.words));
         if (nativeWordLines.length > 0 && nativeWordLines.length === spotifyWordCount) {
@@ -124,8 +172,12 @@ function buildUpgradedLyrics(
                     ? { ...l, words: nativeWordLines[k++]?.words ?? '', syllables: [] }
                     : { ...l, syllables: [] }
             ));
-        } else {
+            romanizedWordLines = spotifyLines.map((l: any) => l?.words).filter(hasLyricWords);
+        } else if (nativeUnsynced) {
             outSyncType = 'UNSYNCED';
+        } else {
+            // Synced native lines split differently from Spotify's: pair them by time.
+            romanizedWordLines = romanizedByTime(spotifyLines, nativeLines) ?? undefined;
         }
     }
 
@@ -134,14 +186,14 @@ function buildUpgradedLyrics(
         if (!hasSyllables) outSyncType = 'LINE_SYNCED';
     }
 
-    return { lines: outLines, syncType: outSyncType };
+    return { lines: outLines, syncType: outSyncType, romanizedWordLines };
 }
 
 export async function handleColorLyrics(
     originalResponse: Response,
     fallbackResponse: Response,
     url: string,
-    mxm: MxmClient,
+    native: NativeLyricsClient,
 ): Promise<Response> {
     let data: any = null;
 
@@ -175,11 +227,10 @@ export async function handleColorLyrics(
 
         const language      = data.lyrics?.language as string | undefined;
         const isDenseTypeface = data.lyrics?.isDenseTypeface as boolean | undefined;
-        const providerLyricsId = data.lyrics?.providerLyricsId as string | undefined;
         const syncType      = data.lyrics?.syncType as string | undefined;
         const lines         = data.lyrics?.lines as unknown[] | undefined;
-        // Only the metadata-search strategy needs the hex GID; a failed conversion
-        // must not block the other strategies.
+        // The lookup finds metadata by the base62 id or the hex GID; a failed conversion
+        // must not block the lookup.
         const hexGid        = spotifyTrackId ? base62ToHex(spotifyTrackId) : null;
 
         // Classify by the text itself (K3): Spotify's language tag is unreliable for
@@ -238,7 +289,7 @@ export async function handleColorLyrics(
         const lookupGen = nextLookupGeneration(spotifyTrackId);
 
         // ── Signal 4: SLY_INTERCEPT_START ─────────────────────────────────────
-        // Tells the DOM engine to suspend decisions while the MXM upgrade is in
+        // Tells the DOM engine to suspend decisions while the native-script upgrade is in
         // progress. The DOM engine will not make any injection decisions until
         // SLY_INTERCEPT_END is received.
         // Port of: lyric-test/modules/bridge/interceptor.js line 91
@@ -248,8 +299,9 @@ export async function handleColorLyrics(
         // newInterception + fetchNativeLines share one hold budget (K5).
         const lookup: Promise<any[] | null> = (async () => {
             // Increment generation only for real intercepts.
-            const interceptId = await mxm.newInterception(spotifyTrackId);
-            return await mxm.fetchNativeLines(providerLyricsId ?? null, spotifyTrackId, hexGid ?? '', interceptId);
+            const interceptId = await native.newInterception(spotifyTrackId);
+            return await native.fetchNativeLines(spotifyTrackId, hexGid ?? '', interceptId,
+                countWordLines(spotifyLines.map((l: any) => l?.words)));
         })().catch((e) => {
             console.warn('[SKaraoke:Interceptor] Native lookup failed:', e);
             return null;
@@ -284,6 +336,9 @@ export async function handleColorLyrics(
                     return;
                 }
                 const lateWords = lateLines.map((l: any) => l?.words || '');
+                const spotifyWordLines = spotifyLines.map((l: any) => l?.words).filter(hasLyricWords);
+                const romanizedForLate = countWordLines(lateWords) === spotifyWordLines.length
+                    ? spotifyWordLines : romanizedByTime(spotifyLines, lateLines);
                 slyPost('SKL_NATIVE_LYRICS', spotifyTrackId, {
                     nativeLines: lateWords,
                     isRomanizedUpgrade: true,
@@ -292,6 +347,8 @@ export async function handleColorLyrics(
                     spotifyLineCount: spotifyLines.length,
                     // K5: receivers compare lines WITH WORDS ('♪' / '' differ between sources).
                     spotifyWordLineCount: countWordLines(spotifyLines.map((l: any) => l?.words)),
+                    // Spotify's romanized lines, for Romanized mode, when they pair up line for line.
+                    ...(romanizedForLate ? { romanizedWordLines: romanizedForLate } : {}),
                 });
             });
 
@@ -326,7 +383,9 @@ export async function handleColorLyrics(
         slyPost('SKL_NATIVE_LYRICS', spotifyTrackId, {
             nativeLines: wordsArray,
             isRomanizedUpgrade: true,
-            canonHash: canonHash
+            canonHash: canonHash,
+            // Spotify's romanized lines, for Romanized mode (only when written line for line).
+            ...(upgraded.romanizedWordLines ? { romanizedWordLines: upgraded.romanizedWordLines } : {}),
         });
 
         // ── Signals 5 + 7 (success path) ─────────────────────────────────────

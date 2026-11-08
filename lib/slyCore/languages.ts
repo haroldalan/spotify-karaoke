@@ -9,7 +9,7 @@ declare global {
 /**
  * Set of language codes that require native-script verification.
  * Used by the fetch interceptor and detector to identify tracks where
- * Spotify/Musixmatch may return romanized lyrics instead of native script.
+ * Spotify may return romanized lyrics instead of native script.
  */
 export const SLY_NATIVE_LANGUAGES = new Set([
   // Indic scripts

@@ -12,7 +12,6 @@ describe('p1-C stale-HUD bypass guard (isPipelineALive)', () => {
     slyInternalState.fetchingForUri.clear();
     slyInternalState.fetchingForTitle = '';
     slyInternalState.statusHUDActive = false;
-    slyInternalState.isAdHUDActive = false;
     slyInternalState.isFetchingHUD = false;
     spotifyState.track = { uri: 'spotify:track:CurrentTrack0000000001' };
   });

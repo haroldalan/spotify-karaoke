@@ -6,6 +6,11 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+/** Spotify's panel in a state with no lyrics on screen (its loading or error state): the
+ *  only kind of panel a status screen may be drawn in (statusEngine spotifyLyricsOnScreen). */
+const noSpotifyWords = () => document.querySelectorAll('div.bm5I7yGVN8NXt6vH9eiC [data-testid="lyrics-line"]').forEach((l) => { l.textContent = ''; });
+
+
 const FIXTURE_HTML = readFileSync(resolve(__dirname, '../fixtures/spotify-2026-lyrics-panel.html'), 'utf8');
 const w = window as any;
 
@@ -46,7 +51,6 @@ beforeAll(async () => {
   sessionStorage.clear();
   await import('../../lib/slyCore/state');
   await import('../../lib/slyCore/preFetch');
-  await import('../../lib/slyCore/adManager');
   await import('../../lib/slyCore/styles');
   await import('../../lib/slyCore/detector');
   await import('../../lib/slyCore/domEngine');
@@ -126,6 +130,7 @@ describe('injection gate: HUD → takeover handoff (review C4)', () => {
 
   beforeEach(() => {
     realDetect = w.slyDetectNativeState;
+    noSpotifyWords();
   });
 
   afterEach(() => {
@@ -245,5 +250,129 @@ describe('injection gate: HUD → takeover handoff (review C4)', () => {
 
     s.forceFallback = false;
     w.slyPreFetchRegistry.states.delete(URI);
+  });
+});
+
+// Live 2026-11-08: skipping back to a song whose lyrics are ours and cached showed
+// Spotify's romanized lyrics for ~1 s first: the poll waited for Spotify's panel to load
+// and be classified before taking the cached lyrics. Staged at the song change, they go
+// in on the first check that names the song, while Spotify's panel is still loading.
+describe('cached next song (stagedTakeover)', () => {
+  const URI = 'spotify:track:0000000000000000000Stg';
+  let realDetect: any;
+
+  beforeEach(() => {
+    realDetect = w.slyDetectNativeState;
+    loadFixture();
+    setLyricsButtonActive(true);
+  });
+  afterEach(() => {
+    w.slyDetectNativeState = realDetect;
+    const s = w.slyInternalState;
+    s.currentLyrics = null;
+    s.pendingLyricsData = null;
+    s.stagedTakeover = null;
+    document.getElementById('lyrics-root-sync')?.remove();
+  });
+
+  it('injected on the first check that names the song, with Spotify\'s panel still loading', async () => {
+    await import('../../lib/slyCore/scavenger');
+    const s = w.slyInternalState;
+    w.spotifyState.track = { uri: URI, name: 'Staged Song', artists: [{ name: 'Test Artist' }] };
+    Object.assign(s, {
+      lastUri: URI, isTransitioning: false, interceptorActive: false, isSpotifyFetching: false,
+      forceFallback: false, currentLyrics: null, pendingLyricsData: null, fetchingForTitle: '', panelIntentCooldown: 0,
+    });
+    s.fetchingForUri.clear();
+    s.failedFetchUris.clear();
+    w.slyDetectNativeState = async () => ({
+      title: 'Staged Song', artist: 'Test Artist', albumArtUrl: '', lyricsState: 'LOADING',
+      isOnLyricsPage: true, isAd: false, hasNativeLines: false, hasUnavailableMessage: false,
+      preFetch: null, currentTrackId: '0000000000000000000Stg',
+    });
+    s.stagedTakeover = { uri: URI, data: { plainLyrics: 'Invented staged line one\nInvented staged line two', isSynced: false, _slyUri: URI, isInstant: true } };
+    const injected: any[] = [];
+    const onInject = (e: Event) => injected.push((e as CustomEvent).detail?.lyricsObj);
+    document.addEventListener('sly:inject', onInject);
+    await w.slyCheckNowPlaying();
+    document.removeEventListener('sly:inject', onInject);
+    expect(injected).toHaveLength(1);
+    expect(injected[0]._slyUri).toBe(URI);
+    expect(s.stagedTakeover).toBeNull();
+  });
+
+  it('not before the bridge names that song (it may still name the previous one)', async () => {
+    const s = w.slyInternalState;
+    w.spotifyState.track = { uri: 'spotify:track:0000000000000000000Prv', name: 'Previous Song', artists: [{ name: 'Test Artist' }] };
+    Object.assign(s, { lastUri: 'spotify:track:0000000000000000000Prv', currentLyrics: null, pendingLyricsData: null });
+    w.slyDetectNativeState = async () => ({
+      title: 'Previous Song', artist: 'Test Artist', albumArtUrl: '', lyricsState: 'LOADING',
+      isOnLyricsPage: true, isAd: false, hasNativeLines: false, hasUnavailableMessage: false,
+      preFetch: null, currentTrackId: '0000000000000000000Prv',
+    });
+    s.stagedTakeover = { uri: URI, data: { plainLyrics: 'Invented staged line', isSynced: false, _slyUri: URI, isInstant: true } };
+    const injected: any[] = [];
+    const onInject = () => injected.push(1);
+    document.addEventListener('sly:inject', onInject);
+    await w.slyCheckNowPlaying();
+    document.removeEventListener('sly:inject', onInject);
+    expect(injected).toHaveLength(0);
+    expect(s.stagedTakeover?.uri).toBe(URI);
+  });
+
+  it('put in early (before the bridge names the song): the bridge still naming the previous one is no track change', async () => {
+    const s = w.slyInternalState;
+    const PREV = 'spotify:track:0000000000000000000Prv';
+    w.spotifyState.track = { uri: PREV, name: 'Previous Song', artists: [{ name: 'Test Artist' }] };
+    const early = { plainLyrics: 'Invented staged line', isSynced: false, _slyUri: URI, _slyEarly: true, _slyPrevUri: PREV, lines: [{ time: 0, text: 'x' }] };
+    Object.assign(s, { lastUri: URI, currentLyrics: early, pendingLyricsData: null });
+    w.slyDetectNativeState = async () => ({
+      title: 'Previous Song', artist: 'Test Artist', albumArtUrl: '', lyricsState: 'LOADING',
+      isOnLyricsPage: true, isAd: false, hasNativeLines: false, hasUnavailableMessage: false,
+      preFetch: null, currentTrackId: '0000000000000000000Prv',
+    });
+    const realReset = w.slyResetPlayerState;
+    const reset = vi.fn();
+    w.slyResetPlayerState = reset;
+    await w.slyCheckNowPlaying();
+    w.slyResetPlayerState = realReset;
+    expect(reset).not.toHaveBeenCalled();
+    expect(s.currentLyrics).toBe(early);
+    expect(s.lastUri).toBe(URI);
+  });
+});
+
+describe('audio ads (2026 UI: Spotify shows its own ad page)', () => {
+  let realDetect: any;
+  beforeEach(() => { realDetect = w.slyDetectNativeState; noSpotifyWords(); });
+  afterEach(() => {
+    w.slyDetectNativeState = realDetect;
+    document.getElementById('lyrics-root-sync')?.remove();
+  });
+
+  it('shows nothing of ours during an ad: a status screen already up is removed, and no Intermission screen appears', async () => {
+    await import('../../lib/slyCore/scavenger');
+    await import('../../lib/slyCore/ui'); // slyResetPlayerState
+    const { StatusEngine } = await import('../../lib/slyCore/statusEngine');
+    const s = w.slyInternalState;
+    w.spotifyState.track = { uri: 'spotify:track:0000000000000000000Ads', name: 'Test Song', artists: [{ name: 'Test Artist' }] };
+    Object.assign(s, { isTransitioning: false, panelIntentCooldown: 0, lastTitle: 'Test Song' });
+    StatusEngine.show('Fetching [Title]', 'Searching...', false, { title: 'Test Song', artist: 'Test Artist' });
+    expect(document.getElementById('sly-status-hud')).not.toBeNull();
+
+    // The ad starts while the lyrics view is still on screen (the first poll of the break).
+    w.slyDetectNativeState = async () => ({
+      title: 'Advertisement', artist: '', albumArtUrl: '', lyricsState: 'NONE',
+      isOnLyricsPage: true, isAd: true, hasNativeLines: false, hasUnavailableMessage: false,
+      preFetch: null, currentTrackId: null,
+    });
+    await w.slyCheckNowPlaying();
+    await w.slyCheckNowPlaying();
+
+    expect(document.getElementById('sly-status-hud')).toBeNull();
+    expect(document.body.textContent).not.toContain('Intermission');
+    expect(s.statusHUDActive).toBe(false);
+    expect(s.isFetchingHUD).toBe(false);
+    expect(s.lastTitle).toBe('AD_SILENCED');
   });
 });

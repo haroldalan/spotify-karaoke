@@ -2,8 +2,9 @@ import { safeBrowserCall } from '../utils/browserUtils';
 import { saveSongCache } from './lyricsCache';
 import { showToast } from '../dom/toast';
 import { hashString } from '../utils/hashUtils';
-import { getStoredEntryDefect, validateFreshResult } from './processedCache';
-import type { ProcessedCache, SongCache, LyricsCacheEntry } from './lyricsTypes';
+import { getStoredEntryDefect, validateFreshResult, ROMANIZER_VERSION } from './processedCache';
+import type { ProcessedCache, SongCache, LyricsCacheEntry, UnifiedSongCacheEntry } from './lyricsTypes';
+import { applySpotifyRomanization } from './spotifyRomanization';
 
 /**
  * How a fetchProcessed call ended, for callers that must tell a real failure
@@ -19,7 +20,7 @@ export async function fetchProcessed(
   lang: string,
   cache: SongCache,
   songKey: string,
-  runtimeCache: Map<string, LyricsCacheEntry>,
+  runtimeCache: Map<string, LyricsCacheEntry | UnifiedSongCacheEntry>,
   processGenRef: { value: number },
   report: FetchProcessedReport = {},
 ): Promise<ProcessedCache | null> {
@@ -38,6 +39,8 @@ export async function fetchProcessed(
         : getStoredEntryDefect(lines, lang, cached);
     if (!defect) {
       report.status = 'cached';
+      // Restored native lines: Spotify's own romanized lines (spotifyRomanization.ts).
+      if (applySpotifyRomanization(lines, cached) && !cached.transient) saveSongCache(songKey, cache, runtimeCache);
       return cached;
     }
     console.warn(`[sly-audit] 🧹 Rejecting processed cache for ${lang}: ${defect}.`);
@@ -76,6 +79,8 @@ export async function fetchProcessed(
   }
 
   result.sourceHash = sourceHash;
+  result.romanizerVersion = ROMANIZER_VERSION;
+  applySpotifyRomanization(lines, result);
   // Keep the result in memory either way (romanization stays usable after a
   // failed translation), but only persist a complete, validated result.
   cache.processed.set(lang, result);

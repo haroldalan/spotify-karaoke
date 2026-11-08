@@ -15,6 +15,8 @@ export interface FetchedLyricsResult {
     isSynced: boolean;
     source?: string;
     extractedColor?: string | null;
+    /** A native-script copy was looked for when these synced lyrics read romanized (lyricsEngine). */
+    nativeChecked?: boolean;
   };
   persistedAt?: number;
   lastCheckedAt?: number;

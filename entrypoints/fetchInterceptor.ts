@@ -1,13 +1,13 @@
-import { handleColorLyrics, isColorLyricsUrl } from '../lib/colorLyricsInterceptor';
+import { extractColorLyricsTrackId, handleColorLyrics, isColorLyricsUrl, type NativeLyricsClient } from '../lib/colorLyricsInterceptor';
 
 export default defineUnlistedScript(() => {
     /**
-     * Headless Musixmatch Client (Remote Bridge)
-     * Forwards all requests to the background script to ensure robust headers and caching.
+     * Native-script lookup client: forwards to the background (lib/lyricsProviders/nativeLyrics.ts)
+     * through the content script.
      */
-    const mxm = {
+    const nativeClient: NativeLyricsClient = {
         notifyMetadata(trackId: string, name: string, artist: string) {
-            window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_MXM_NOTIFY_METADATA', payload: { trackId, name, artist } } }, '*');
+            window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_NATIVE_NOTIFY_METADATA', payload: { trackId, name, artist } } }, '*');
         },
         async newInterception(trackId: string): Promise<number> {
             return new Promise((resolve) => {
@@ -18,17 +18,17 @@ export default defineUnlistedScript(() => {
                     resolve(0);
                 }, 15000);
                 const handler = (event: MessageEvent) => {
-                    if (event.data?.source === 'SLY_ACTION_GATEWAY' && event.data.action?.type === 'SLY_MXM_NEW_INTERCEPTION_RESPONSE' && event.data.action.requestId === requestId) {
+                    if (event.data?.source === 'SLY_ACTION_GATEWAY' && event.data.action?.type === 'SLY_NATIVE_NEW_INTERCEPTION_RESPONSE' && event.data.action.requestId === requestId) {
                         clearTimeout(timeoutId);
                         window.removeEventListener('message', handler);
                         resolve(event.data.action.generation);
                     }
                 };
                 window.addEventListener('message', handler);
-                window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_MXM_NEW_INTERCEPTION', payload: { trackId }, requestId } }, '*');
+                window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_NATIVE_NEW_INTERCEPTION', payload: { trackId }, requestId } }, '*');
             });
         },
-        async fetchNativeLines(providerLyricsId: string | null, trackId: string, hexGid: string, interceptId: number): Promise<any[] | null> {
+        async fetchNativeLines(trackId: string, hexGid: string, interceptId: number, spotifyWordLines?: number): Promise<any[] | null> {
             // Safety: Ensure the ID is a number
             const id = interceptId;
             return new Promise((resolve) => {
@@ -39,22 +39,17 @@ export default defineUnlistedScript(() => {
                     resolve(null);
                 }, 30000);
                 const handler = (event: MessageEvent) => {
-                    if (event.data?.source === 'SLY_ACTION_GATEWAY' && event.data.action?.type === 'SLY_MXM_FETCH_NATIVE_RESPONSE' && event.data.action.requestId === requestId) {
+                    if (event.data?.source === 'SLY_ACTION_GATEWAY' && event.data.action?.type === 'SLY_NATIVE_FETCH_RESPONSE' && event.data.action.requestId === requestId) {
                         clearTimeout(timeoutId);
                         window.removeEventListener('message', handler);
                         resolve(event.data.action.ok ? event.data.action.lines : null);
                     }
                 };
                 window.addEventListener('message', handler);
-                window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_MXM_FETCH_NATIVE', payload: { providerLyricsId, trackId, hexGid, interceptId: id }, requestId } }, '*');
+                window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_NATIVE_FETCH', payload: { trackId, hexGid, interceptId: id, spotifyWordLines }, requestId } }, '*');
             });
         },
-        warmup() {
-            window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_MXM_WARMUP' } }, '*');
-        }
     };
-
-    mxm.warmup();
 
     // Listen for handshake pings from the isolated content script (BUG-B11 race condition)
     window.addEventListener('message', (event) => {
@@ -87,17 +82,24 @@ export default defineUnlistedScript(() => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
         try {
             // Track metadata reaches the background via the bridge's
-            // SLY_MXM_NOTIFY_METADATA (slyBridge.ts); no metadata endpoint is sniffed here.
+            // SLY_NATIVE_NOTIFY_METADATA (slyBridge.ts); no metadata endpoint is sniffed here.
             // Any *.spotify.com host (spclient.wg, gae2-spclient, …) with a
             // /color-lyrics/v2/track/ path is intercepted.
             if (!isColorLyricsUrl(url)) {
                 return _fetch(input, init);
             }
 
+            // Before awaiting the network: tells slyCore that Spotify asked for this
+            // track's lyrics at all (no request at all is the no-lyrics signal).
+            const requestedTrackId = extractColorLyricsTrackId(url);
+            if (requestedTrackId) {
+                window.postMessage({ source: 'SLY_ACTION_GATEWAY', action: { type: 'SLY_COLOR_LYRICS_REQUEST', trackId: requestedTrackId } }, '*');
+            }
+
             const originalResponse = await _fetch(input, init);
             const fallbackResponse = originalResponse.clone();
             
-            return await handleColorLyrics(originalResponse, fallbackResponse, url, mxm as any);
+            return await handleColorLyrics(originalResponse, fallbackResponse, url, nativeClient);
         } catch (e) {
             console.error('[SKaraoke:Interceptor] Critical Fetch Intercept Failure:', e);
             return _fetch(input, init);

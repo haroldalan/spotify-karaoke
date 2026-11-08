@@ -1,3 +1,4 @@
+import { rememberSpotifyRomanization } from './spotifyRomanization';
 import { handleNativeLyrics } from './nativeLyricsHandler';
 import type { NativeLyricsState } from './nativeLyricsHandler';
 import type { LyricsMode } from './lyricsTypes';
@@ -52,6 +53,7 @@ export function setupMessageListener(
           console.warn(`[sly-listener] ⚠️ Canonical hash mismatch detected for active track! Discarding stale cache.`);
           deleteSongCache(store.songKey, store.runtimeCache);
           store.cache = { original: [], processed: new Map() };
+          store.cacheFromTakeover = false;
           switchMode(store.preferredMode, store.currentActiveLang).catch(() => {});
         }
       }
@@ -76,6 +78,11 @@ export function setupMessageListener(
       // is that of the applied lines, not the interceptor's hash of its own array.
       const isLate = action.late === true;
       if (!isLate) adoptCanonicalHash(action.canonHash);
+      // Before the lines are applied (that may switch to Romanized mode at once).
+      if (Array.isArray(action.romanizedWordLines) && Array.isArray(action.nativeLines)) {
+        const pairs = rememberSpotifyRomanization(action.nativeLines, action.romanizedWordLines);
+        if (pairs) console.log(`[sly-native] Romanized mode will use Spotify's own romanized lines for ${pairs} restored lines.`);
+      }
       const nativeState: NativeLyricsState = {
         cache: store.cache,
         pendingNativeLines: store.pendingNativeLines,
@@ -100,38 +107,6 @@ export function setupMessageListener(
       }).catch((err) => {
         console.warn('[sly-listener] Native lyrics handling failed:', err);
       });
-    }
-  });
-}
-
-/**
- * Lightweight bridge for Musixmatch tokens. 
- * Must be initialized as early as possible (document_start) to avoid race conditions on refresh.
- */
-export function setupTokenBridge(): void {
-  if ((window as any).slyTokenBridgeReady) return;
-  (window as any).slyTokenBridgeReady = true;
-
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return;
-    const msg = event.data;
-    if (msg?.source !== 'SLY_ACTION_GATEWAY') return;
-    const action = msg.action;
-    if (!action) return;
-
-    if (action.type === 'SLY_GET_MXM_TOKEN') {
-      browser.runtime.sendMessage({ type: 'SLY_GET_MXM_TOKEN' }).then(res => {
-        window.postMessage({ 
-          source: 'SLY_ACTION_GATEWAY', 
-          action: { type: 'SLY_MXM_TOKEN_RESPONSE', token: res.token, expiry: res.expiry } 
-        }, '*');
-      }).catch(() => {
-        // Background might not be ready yet, or context invalidated
-      });
-    }
-
-    if (action.type === 'SLY_SET_MXM_TOKEN') {
-      browser.runtime.sendMessage({ type: 'SLY_SET_MXM_TOKEN', payload: action.payload }).catch(() => {});
     }
   });
 }

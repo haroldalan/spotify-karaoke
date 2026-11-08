@@ -1,20 +1,20 @@
 import './style.css';
 import { isContextValid } from '../../lib/utils/browserUtils';
 import { createDomObserver } from '../../lib/dom/domObserver';
+import { watchPanelSongChanges } from '../../lib/dom/lyricsDOM';
 import { startStorageListener } from '../../lib/core/storageListener';
 import { createModeController } from '../../lib/core/modeController';
 import { createLifecycleController, setupSlyBridge } from '../../lib/core/lifecycleController';
 import { prewarmRuntimeCache } from '../../lib/core/lyricsCache';
 import { StateStore } from '../../lib/core/store';
 import { setupKeyboardShortcuts } from '../../lib/core/keyboardListener';
-import { setupMessageListener, setupTokenBridge } from '../../lib/core/messageListener';
+import { setupMessageListener } from '../../lib/core/messageListener';
 // --- slyCore initialization layer (lyric-test integration) ---
 import { SLY_NATIVE_LANGUAGES } from '../../lib/slyCore/languages';
 import '../../lib/slyCore/forensics';
 import { initSlyState } from '../../lib/slyCore/state';
 import '../../lib/slyCore/preFetch';
 import '../../lib/slyCore/scavenger';
-import '../../lib/slyCore/adManager';
 import '../../lib/slyCore/styles';
 import '../../lib/slyCore/playback';
 import '../../lib/slyCore/detector';
@@ -34,10 +34,6 @@ export default defineContentScript({
 
 
 async function main(): Promise<void> {
-  // 1. IMMEDIATE BRIDGE INITIALIZATION (Synchronous)
-  // This must run at document_start to catch the first Musixmatch token hydration request.
-  setupTokenBridge();
-
   // Register SLY_BRIDGE listener — populates window.spotifyState from scanner postMessages
   initSlyState();
 
@@ -88,6 +84,7 @@ async function main(): Promise<void> {
     setupMessageListener(store, switchMode);
     const cleanupKeyboard = setupKeyboardShortcuts(switchMode);
     setupSlyBridge(store, switchMode, autoSwitchIfNeeded, syncPill);
+    watchPanelSongChanges();
 
     if (!store.domObserver) {
       store.domObserver = createDomObserver({

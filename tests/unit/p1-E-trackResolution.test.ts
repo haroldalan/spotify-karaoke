@@ -217,8 +217,8 @@ describe('2026-11 DOM: track change bookkeeping', () => {
     scan();
     scan();
     scan();
-    expect(sent('SLY_MXM_NOTIFY_METADATA')).toEqual([
-      { trackId: '0000000000000000000N01', name: 'Fiber Song', artist: 'Test Artist' },
+    expect(sent('SLY_NATIVE_NOTIFY_METADATA')).toEqual([
+      { trackId: '0000000000000000000N01', name: 'Fiber Song', artist: 'Test Artist', durationMs: 354105 },
     ]);
   });
 
@@ -226,11 +226,11 @@ describe('2026-11 DOM: track change bookkeeping', () => {
     document.body.innerHTML = HOME_BODY;
     barEntity('spotify:track:0000000000000000000N02');
     scan();
-    expect(sent('SLY_MXM_NOTIFY_METADATA')).toEqual([]);
+    expect(sent('SLY_NATIVE_NOTIFY_METADATA')).toEqual([]);
     scan();
     scan();
-    expect(sent('SLY_MXM_NOTIFY_METADATA')).toEqual([
-      { trackId: '0000000000000000000N02', name: 'Test Song', artist: 'Test Artist' },
+    expect(sent('SLY_NATIVE_NOTIFY_METADATA')).toEqual([
+      { trackId: '0000000000000000000N02', name: 'Test Song', artist: 'Test Artist', durationMs: 354105 },
     ]);
   });
 
@@ -241,10 +241,10 @@ describe('2026-11 DOM: track change bookkeeping', () => {
     const titleLink = document.querySelector('[data-testid="now-playing-widget-v2"] a[href^="/album/"]')!;
     titleLink.textContent = 'Next Song';
     scan(); // title changed since the last tick: not yet trusted
-    expect(sent('SLY_MXM_NOTIFY_METADATA')).toEqual([]);
+    expect(sent('SLY_NATIVE_NOTIFY_METADATA')).toEqual([]);
     scan();
-    expect(sent('SLY_MXM_NOTIFY_METADATA')).toEqual([
-      { trackId: '0000000000000000000N03', name: 'Next Song', artist: 'Test Artist' },
+    expect(sent('SLY_NATIVE_NOTIFY_METADATA')).toEqual([
+      { trackId: '0000000000000000000N03', name: 'Next Song', artist: 'Test Artist', durationMs: 354105 },
     ]);
   });
 });

@@ -1,6 +1,9 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/dom-engine.js
-import { getThemedPanelContainer, isLyricsButtonActive, isPreviewLine } from '../dom/domQueries';
+import { getAppRoot, getFallbackLayoutHost, getLyricsLines, getNowPlayingOverlay, getThemedPanelContainer, isLyricsButtonActive, isLyricsOptionDisabled, isPreviewLine } from '../dom/domQueries';
+import { isLyricsKitWorking } from './scavenger';
+import { isLyricsSteppedAside } from './lyricsChip';
+import { traceEvent } from '../testHooks';
 /* modules/dom-engine.js: sly DOM Construction & Theme Engine */
 
 /* Note: SPOTIFY_CLASSES and slyScavengeClasses have been moved to scavenger.ts */
@@ -9,7 +12,7 @@ declare global {
   interface Window {
     slyCreateDOMLine: (text: string, index: number, isSynced: boolean, onClick?: (() => void) | null) => HTMLDivElement;
     slyInjectCoreStyles: () => void;
-    slyPrepareContainer: () => HTMLElement | null;
+    slyPrepareContainer: (opts?: { forLyrics?: boolean }) => HTMLElement | null;
     slyMirrorNativeTheme: (root: HTMLElement, lyricsObj: Record<string, unknown>, nativeReference: HTMLElement | null) => void;
     slyBuildLyricsList: (root: HTMLElement, lyricsObj: Record<string, unknown>) => void;
     slySetupSyncButton: (lyricsObj: Record<string, unknown>) => void;
@@ -38,7 +41,7 @@ let slyTaggedLayoutHost: HTMLElement | null = null;
 export function slyGetLayoutHost(): HTMLElement | null {
   const themed = getThemedPanelContainer() as HTMLElement | null;
   if (themed?.parentElement) return themed.parentElement;
-  return document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || 'J6wP3V0xzh0Hj_MS'}`) as HTMLElement | null;
+  return getFallbackLayoutHost();
 }
 
 /** Adds layout classes to the K11 element and remembers it for cleanup. */
@@ -138,22 +141,165 @@ window.slyInjectCoreStyles = function (): void {
 /**
  * Prepares the main #lyrics-root-sync container.
  */
-window.slyPrepareContainer = function (): HTMLElement | null {
+/**
+ * Spotify's lyrics slot inside its expanded Now Playing view: the element that holds
+ * the lyrics panel, and the artwork when the track has no lyrics. Found by the class
+ * learned from a live panel, or by Spotify's stylesheet (scavenger: slotCandidates),
+ * whichever is unique inside the overlay.
+ */
+export function slyFindOverlayLyricsSlot(): HTMLElement | null {
+  lastSlotSearchBusy = false;
+  const overlay = getNowPlayingOverlay();
+  if (!overlay) return null;
+  const names = [window.SPOTIFY_CLASSES?.slotClass, ...(window.SPOTIFY_CLASSES?.slotCandidates || [])]
+    .filter((n): n is string => typeof n === 'string' && n.length > 0);
+  const seen: string[] = [];
+  for (const name of names) {
+    const found = Array.from(overlay.getElementsByClassName(name)) as HTMLElement[];
+    seen.push(`${name.slice(0, 6)}=${found.length}`);
+    if (found.length === 1) {
+      if (looksLikeMediaSlot(found[0])) return found[0];
+      continue;
+    }
+    if (found.length < 2) continue;
+    // Spotify is sliding from one song's view to the next: each slide has its own slot
+    // (live 2026-11-08: two slots for ~0.8 s after a skip; refusing then left the lyrics
+    // out for good). The song now playing is the one whose artwork the player bar shows.
+    const media = found.filter(el => !el.closest('[data-sly-leaving]') && looksLikeMediaSlot(el));
+    if (media.length === 1) return media[0];
+    const cover = imageIdOf(document.querySelector<HTMLImageElement>('[data-testid="now-playing-bar"] [data-testid="cover-art-image"], footer [data-testid="cover-art-image"]')?.src);
+    const showing = cover ? media.filter(el => Array.from(el.querySelectorAll('img')).some(img => imageIdOf(img.src) === cover)) : [];
+    if (showing.length === 1) return showing[0];
+    // Still two (no artwork told them apart, e.g. two songs of one album): wait for the
+    // slide to end; the caller tries again then.
+    if (media.length > 1) lastSlotSearchBusy = true;
+  }
+  traceEvent(`slotUnknown:${seen.join(',') || 'no names'}${lastSlotSearchBusy ? ':busy' : ''}`);
+  return null;
+}
+
+/** The last slot search found the view mid-slide between two songs (see slyFindOverlayLyricsSlot). */
+let lastSlotSearchBusy = false;
+
+/** Spotify image id (the size code differs between the player bar and the view): the last 24 hex digits. */
+function imageIdOf(src: string | null | undefined): string | null {
+  const m = String(src ?? '').match(/([0-9a-f]{24})(?:[?#].*)?$/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * The slot as Spotify renders it for a track without lyrics, in any media mode: no media
+ * switch inside, and a child holding the media, an image or a video (live 2026-11:
+ * Artwork [background, artwork container with the image]; Artist image [background,
+ * spacer, positioned image]; Canvas: a positioned video). Anything else is not filled.
+ */
+function looksLikeMediaSlot(slot: HTMLElement): boolean {
+  if (slot.querySelector('button[role="radio"]')) return false;
+  return slotMedia(slot).length > 0;
+}
+
+/** The slot's children that hold Spotify's media (not our root). */
+function slotMedia(slot: HTMLElement): HTMLElement[] {
+  return Array.from(slot.children).filter((c): c is HTMLElement =>
+    c.id !== 'lyrics-root-sync' && !!c.querySelector('img, video'));
+}
+
+const HIDE_ATTR = 'data-sly-hide';
+
+/** Gives Spotify's own Now Playing content back (undoes placeInOverlaySlot). */
+export function slyRestoreOverlayContent(): void {
+  // The previous song's slide keeps its look while Spotify slides it out (songTransition.ts).
+  const leaving = (el: Element) => !!el.closest('[data-sly-leaving="ours"]');
+  document.querySelectorAll(`[${HIDE_ATTR}]`).forEach(el => { if (!leaving(el)) el.removeAttribute(HIDE_ATTR); });
+  document.querySelectorAll('.sly-lyrics-on').forEach(el => { if (!leaving(el)) el.classList.remove('sly-lyrics-on'); });
+}
+
+/**
+ * Lyrics for a track Spotify has none for, shown the way Spotify shows its own: our
+ * root takes the lyrics panel's place in Spotify's slot, before the artwork container
+ * (which stays as the panel's spacer, its content hidden), and the cards below the
+ * panel are collapsed, as in Spotify's lyrics view. Only attributes and one class are
+ * added (CSS does the hiding while .sly-lyrics-on is set), so stepping aside or any
+ * cleanup gives Spotify's content back as it was.
+ */
+export function slyPlaceInOverlaySlot(root: HTMLElement, slot: HTMLElement): void {
+  // Re-marking from scratch: Spotify may have swapped the slot's media (Canvas, artist image).
+  slyRestoreOverlayContent();
+  const overlay = getNowPlayingOverlay();
+  const others = Array.from(slot.children).filter(c => c !== root) as HTMLElement[];
+  // Our root takes the panel's place: before the first child in the flow (the artwork
+  // container, which then stays as the panel's spacer, or the artist image's spacer).
+  const anchor = others.find(c => getComputedStyle(c).position !== 'absolute');
+  if (anchor) {
+    if (root.parentElement !== slot || root.nextElementSibling !== anchor) slot.insertBefore(root, anchor);
+  } else if (root.parentElement !== slot) {
+    slot.appendChild(root);
+  }
+  // Spotify's media (artwork, artist image, Canvas) is hidden while our lyrics show.
+  slotMedia(slot).forEach(el => el.setAttribute(HIDE_ATTR, 'content'));
+  // The cards below the panel (artist, credits): the next sibling of the first
+  // ancestor above the slot that has one, inside the overlay's content.
+  let branch: Element | null = slot.parentElement;
+  while (branch && branch !== overlay && !branch.nextElementSibling) branch = branch.parentElement;
+  const below = branch && branch !== overlay ? branch.nextElementSibling : null;
+  if (below && !below.classList.contains('os-scrollbar') && !below.querySelector('button[role="radio"]')) {
+    below.setAttribute(HIDE_ATTR, 'collapse');
+  }
+  if (!isLyricsSteppedAside()) overlay?.classList.add('sly-lyrics-on');
+}
+
+/**
+ * Where a status (fetching / not found) belongs, decided like slyPrepareContainer but
+ * without building anything: 'panel' when there is a lyrics panel to draw in (Spotify's
+ * themed panel, or the legacy layout), 'overlay' when Spotify's expanded Now Playing view
+ * shows its own content (artwork and cards: nothing may cover them), null when no lyrics
+ * view is open.
+ */
+export function slyStatusPlacement(): 'panel' | 'overlay' | null {
+  const themed = getThemedPanelContainer();
+  if (themed) return 'panel';
+  if (!isLyricsButtonActive()) return null;
+  const host = getFallbackLayoutHost();
+  if (!host) return null;
+  return getAppRoot() && host === getNowPlayingOverlay() ? 'overlay' : 'panel';
+}
+
+window.slyPrepareContainer = function (opts: { forLyrics?: boolean } = {}): HTMLElement | null {
   // 2026 UI (clean-DOM verified): panel lives under DIV#main > [data-testid="root"], themed
   // container carries --lyrics-color-*. Never use <main> tag or NPV aside.
   // Return null unless the lyrics panel is actually open (button active or
   // panel lines present) — otherwise HUD/takeover fires in NPV on startup.
   const btnActive = isLyricsButtonActive();
   const themed = getThemedPanelContainer() as HTMLElement | null;
-  const hasPanelLines = !!Array.from(document.querySelectorAll('[data-testid="lyrics-line"]'))
-    .find(el => !el.closest('#lyrics-root-sync') && !isPreviewLine(el));
+  const hasPanelLines = getLyricsLines().length > 0;
   if (!btnActive && !themed && !hasPanelLines) return null;
   if (!btnActive && !themed) return null;
-  const rootParent = (themed?.parentElement ??
-    document.querySelector('[data-testid="root"]') ??
-    document.querySelector('div#main') ??
-    document.querySelector(`main.${window.SPOTIFY_CLASSES.mainContainer}`)) as HTMLElement | null;
+  // No themed panel (Spotify has no lyrics: the overlay shows artwork): our root goes
+  // inside the Now Playing overlay, never the app root, which put the HUD over the
+  // whole page and the player bar.
+  const rootParent = (themed?.parentElement ?? getFallbackLayoutHost()) as HTMLElement | null;
   if (!rootParent) return null;
+  const inOverlay = !themed && !!getAppRoot() && rootParent === getNowPlayingOverlay();
+  // Fetched lyrics where Spotify has none are only shown with Spotify's own lyrics
+  // classes (measured), and in Spotify's own slot when it can be found.
+  let slot: HTMLElement | null = null;
+  if (inOverlay && opts.forLyrics) {
+    // Spotify has lyrics for this track (its option is enabled) and is only mounting its
+    // panel: wait for it, as with any track with lyrics.
+    if (!isLyricsOptionDisabled()) {
+      if (window.slyInternalState) window.slyInternalState.lastPrepareRefusal = 'spotify-panel-pending';
+      return null;
+    }
+    const kitWorks = isLyricsKitWorking();
+    slot = kitWorks ? slyFindOverlayLyricsSlot() : null;
+    if (!slot) {
+      // Without Spotify's lyrics classes and slot, never show lyrics in another look.
+      if (window.slyInternalState) {
+        window.slyInternalState.lastPrepareRefusal = !kitWorks ? 'lyrics-style-unknown' : lastSlotSearchBusy ? 'lyrics-slot-busy' : 'lyrics-slot-unknown';
+      }
+      return null;
+    }
+  }
 
   let root = document.getElementById('lyrics-root-sync') as HTMLElement | null;
   if (!root) {
@@ -164,13 +310,23 @@ window.slyPrepareContainer = function (): HTMLElement | null {
     root.style.flexDirection = 'column';
   }
   root.className = window.SPOTIFY_CLASSES.containerClasses || window.SPOTIFY_CLASSES.container;
-  // Replace the native lyrics panel in its actual slot. Appending to the
-  // parent puts the custom root after Spotify's ~704px `oos...` layout spacer,
-  // leaving that spacer above the injected panel even when native lyrics are hidden.
-  if (themed?.parentElement === rootParent) {
-    rootParent.insertBefore(root, themed);
-  } else if (root.parentElement !== rootParent) {
-    rootParent.appendChild(root);
+  // In the overlay without Spotify's slot the root is a positioned layer over its
+  // content (below its header, inside its own stacking context, so the player bar stays
+  // usable): status notices, and lyrics when the slot cannot be found.
+  root.classList.toggle('sly-root-overlay', inOverlay && !slot);
+  if (window.slyInternalState) window.slyInternalState.lastPrepareRefusal = null;
+  if (slot) {
+    slyPlaceInOverlaySlot(root, slot);
+  } else {
+    slyRestoreOverlayContent();
+    // Replace the native lyrics panel in its actual slot. Appending to the
+    // parent puts the custom root after Spotify's ~704px `oos...` layout spacer,
+    // leaving that spacer above the injected panel even when native lyrics are hidden.
+    if (themed?.parentElement === rootParent) {
+      rootParent.insertBefore(root, themed);
+    } else if (root.parentElement !== rootParent) {
+      rootParent.appendChild(root);
+    }
   }
   // K11: layout state lives on the themed container's parent (legacy: main.<mainContainer>).
   slyTagLayoutHost('sly-active');
@@ -226,11 +382,13 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
     // Only mirror CSS Variables (colors). NEVER mirror layout styles like
     // 'display' or 'position' as they will reset the scrollbar if the native
     // container is hidden.
-    const vars = (nativeReference as HTMLElement).style.cssText
-      .split(';')
-      .filter(s => s.trim().startsWith('--'))
-      .join(';');
-    root.style.cssText = vars;
+    // Written one by one and only when they differ: the poll calls this every tick, and a
+    // whole-cssText rewrite also dropped the root's own layout styles every time.
+    const style = (nativeReference as HTMLElement).style;
+    for (let i = 0; i < style.length; i++) {
+      const name = style[i];
+      if (name.startsWith('--')) setStyleIfChanged(root, name, style.getPropertyValue(name));
+    }
     didSteal = true;
     
     // Save the "Official" colors to the registry for the next time we skip back to this song
@@ -246,18 +404,18 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
   // 2. RECALL: If native is missing but we've played this song before, use the learned theme.
   else if (registryEntry?.savedTheme) {
     const t = registryEntry.savedTheme as any;
-    root.style.setProperty('--lyrics-color-background', t.background);
-    root.style.setProperty('--lyrics-color-inactive', t.inactive);
-    root.style.setProperty('--lyrics-color-active', t.active);
-    root.style.setProperty('--lyrics-color-passed', t.passed);
+    setStyleIfChanged(root, '--lyrics-color-background', t.background);
+    setStyleIfChanged(root, '--lyrics-color-inactive', t.inactive);
+    setStyleIfChanged(root, '--lyrics-color-active', t.active);
+    setStyleIfChanged(root, '--lyrics-color-passed', t.passed);
   }
 
   // 3. FALLBACK: Standard upgrade logic for missing or invalid colors
   const inactive = root.style.getPropertyValue('--lyrics-color-inactive')?.trim();
   if (!inactive || inactive === '#000000' || inactive.includes('rgba(0,0,0,1)') || inactive === 'rgb(0, 0, 0)') {
-    root.style.setProperty('--lyrics-color-inactive', 'rgba(255, 255, 255, 0.7)');
-    root.style.setProperty('--lyrics-color-passed', 'rgba(255, 255, 255, 1)');
-    root.style.setProperty('--lyrics-color-active', '#ffffff');
+    setStyleIfChanged(root, '--lyrics-color-inactive', 'rgba(255, 255, 255, 0.7)');
+    setStyleIfChanged(root, '--lyrics-color-passed', 'rgba(255, 255, 255, 1)');
+    setStyleIfChanged(root, '--lyrics-color-active', '#ffffff');
   }
 
   const bg = root.style.getPropertyValue('--lyrics-color-background')?.trim();
@@ -274,13 +432,20 @@ window.slyMirrorNativeTheme = function (root: HTMLElement, lyricsObj: Record<str
     if (!bg || isBgTooBright || isBgTooDark) {
       const rawExtracted = (lyricsObj?.extractedColor as string) || '#121212';
       const safeBg = window.slyPerceivedLuminance(rawExtracted) > 0.25 ? '#121212' : rawExtracted;
-      root.style.setProperty('--lyrics-color-background', safeBg);
+      setStyleIfChanged(root, '--lyrics-color-background', safeBg);
     }
   }
 
-  if (nativeReference) (nativeReference as HTMLElement).style.display = 'none';
-  root.style.display = '';
+  if (nativeReference && (nativeReference as HTMLElement).style.display !== 'none') (nativeReference as HTMLElement).style.display = 'none';
+  if (root.style.display) root.style.display = '';
 };
+
+/** Sets an inline style property only when its value changes (no style rewrite, no mutation). */
+function setStyleIfChanged(el: HTMLElement, name: string, value: string | null | undefined): void {
+  const next = String(value ?? '').trim();
+  if (!next) return;
+  if (el.style.getPropertyValue(name).trim() !== next) el.style.setProperty(name, next);
+}
 
 /**
  * Constructs the internal lyrics list structure (spacers, padding, lines, and attribution).
@@ -334,7 +499,7 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
 
   if (!isSynced) {
     const header = document.createElement('p');
-    header.className = `encore-text-body-small ${window.SPOTIFY_CLASSES.unsyncedMessage}`;
+    header.className = `${slyGetEncorePrefix()}text encore-text-body-small ${window.SPOTIFY_CLASSES.unsyncedMessage}`;
     header.setAttribute('data-encore-id', 'text');
     header.dir = 'auto';
     header.textContent = "These lyrics aren't synced to the song yet.";
@@ -373,7 +538,7 @@ window.slyBuildLyricsList = function (root: HTMLElement, lyricsObj: Record<strin
   // Attribution
   const attr = document.createElement('div');
   attr.className = window.SPOTIFY_CLASSES.attribution;
-  attr.innerHTML = `<p class="encore-text-body-small" data-encore-id="text" dir="auto">Lyrics provided by Spotify Karaoke</p>`;
+  attr.innerHTML = `<p class="${slyGetEncorePrefix()}text encore-text-body-small" data-encore-id="text" dir="auto">Lyrics provided by Spotify Karaoke</p>`;
   targetWrapper.appendChild(attr);
 
   wrapper.appendChild(list);

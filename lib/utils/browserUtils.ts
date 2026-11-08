@@ -8,7 +8,7 @@ export const isContextValid = () => {
   }
 };
 
-export async function safeBrowserCall<T>(fn: () => Promise<T>): Promise<T | null> {
+export async function safeBrowserCall<T = any>(fn: () => Promise<T>): Promise<T | null> {
   if (!isContextValid()) return null;
   try {
     return await fn();

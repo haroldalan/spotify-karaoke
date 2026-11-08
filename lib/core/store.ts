@@ -7,7 +7,11 @@ export class StateStore {
   currentActiveLang = 'en';
   dualLyricsEnabled = true;
   songKey = '';
+  /** Spotify track id of songKey's track (null until known; set at the song change, resolved later when needed). */
+  trackId: string | null = null;
   cache: SongCache = { original: [], processed: new Map() };
+  /** cache.original holds a Pipeline A takeover's lines (sly:takeover), not the native rows. */
+  cacheFromTakeover = false;
   romanizedGenRef = { value: 0 };
   translatedGenRef = { value: 0 };
   globalProcessGenRef = { value: 0 };

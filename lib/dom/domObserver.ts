@@ -1,6 +1,60 @@
-import { getNowPlayingKey, getThemedPanelContainer, getAppRoot, getViewportRoot, getLyricsLines, isPreviewLine, NOW_PLAYING_WIDGET } from './domQueries';
+import { getNowPlayingKey, getThemedPanelContainer, getAppRoot, getViewportRoot, getLyricsLines, isPreviewLine, rowNeedsProcessing, NOW_PLAYING_WIDGET } from './domQueries';
 import { isContextValid } from '../utils/browserUtils';
 import { CONTROLS_ID } from './lyricsControls';
+
+const LYRICS_LINE = '[data-testid="lyrics-line"]';
+const ROW_DIAG_INTERVAL_MS = 1000;
+
+/** "tag[data-testid].firstClass" of a node: structure only, never its text. */
+function describeNode(node: Node, withClass: boolean): string {
+  if (!(node instanceof Element)) return node.nodeName.toLowerCase();
+  const testId = node.getAttribute('data-testid');
+  const firstClass = withClass ? node.classList[0] : undefined;
+  return `${node.tagName.toLowerCase()}${testId ? `[${testId}]` : ''}${firstClass ? `.${firstClass}` : ''}`;
+}
+
+/**
+ * Debug diagnostic: what Spotify adds to the lyrics panel and how often.
+ * Aggregated, at most one console.log line per second (stripped in production).
+ */
+function createRowMountDiagnostic() {
+  let batches = 0, fired = 0, nodes = 0, rows = 0, processed = 0, empty = 0;
+  const shapes = new Map<string, number>();
+  let lastLogAt = -Infinity;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const flush = (): void => {
+    timer = null;
+    if (batches === 0) return;
+    lastLogAt = performance.now();
+    const shapeList = Array.from(shapes, ([s, n]) => `${s} x${n}`).join('; ');
+    console.log(`[sly-perf] Panel row mounts at t=${lastLogAt.toFixed(1)}ms: batches=${batches} fired=${fired} nodes=${nodes} rows=${rows} processed=${processed} empty=${empty} | ${shapeList}`);
+    batches = fired = nodes = rows = processed = empty = 0;
+    shapes.clear();
+  };
+
+  return {
+    note(target: Node, node: Element, rowCount: number, processedCount: number, emptyCount: number): void {
+      nodes++;
+      rows += rowCount;
+      processed += processedCount;
+      empty += emptyCount;
+      const shape = `${describeNode(target, true)} <- ${describeNode(node, false)}`;
+      if (shapes.has(shape) || shapes.size < 5) shapes.set(shape, (shapes.get(shape) ?? 0) + 1);
+    },
+    batch(didFire: boolean): void {
+      batches++;
+      if (didFire) fired++;
+      const wait = lastLogAt + ROW_DIAG_INTERVAL_MS - performance.now();
+      if (wait <= 0) flush();
+      else if (!timer) timer = setTimeout(flush, wait);
+    },
+    stop(): void {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}
 
 export interface DomObserverOpts {
   onSongChange: (key: string) => void;
@@ -25,8 +79,10 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
   let barObserver: MutationObserver | null = null;
   let mainObserver: MutationObserver | null = null;
   let bootstrapObserver: MutationObserver | null = null;
+  const rowDiag = createRowMountDiagnostic();
 
   function safeDisconnectAll() {
+    rowDiag.stop();
     if (barObserver) { barObserver.disconnect(); barObserver = null; }
     if (mainObserver) { mainObserver.disconnect(); mainObserver = null; }
     if (bootstrapObserver) { bootstrapObserver.disconnect(); bootstrapObserver = null; }
@@ -130,22 +186,36 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
 
       let lyricsFoundInBatch = false;
       let controlsRemovedInBatch = false;
+      let rowNodesInBatch = 0;
 
       for (const mut of mutations) {
         if (mut.type !== 'childList') continue;
 
-        // 1. Check if new lyrics lines are added
+        // 1. Check if new lyrics lines are added. Only a row that still shows
+        // Spotify's own text counts: moved or re-attached rows that already carry
+        // our spans, and empty spacer rows, need no setup (the lyricsObserver
+        // still checks their content). Checked per row: an added ancestor of the
+        // Now Playing view or of #lyrics-root-sync must not count either.
         for (const node of mut.addedNodes) {
           if (!(node instanceof Element)) continue;
-          if (
-            node.matches('[data-testid="lyrics-line"]') ||
-            node.querySelector('[data-testid="lyrics-line"]')
-          ) {
-            if (node.closest('#lyrics-root-sync')) continue;
+          const rows = node.matches(LYRICS_LINE) ? [node] : Array.from(node.querySelectorAll(LYRICS_LINE));
+          if (rows.length === 0) continue;
+          let panelRows = 0;
+          let processedRows = 0;
+          let emptyRows = 0;
+          for (const row of rows) {
+            if (row.closest('#lyrics-root-sync')) continue;
             // div#main also contains the Now Playing view preview card; its line
             // mounts are not the lyrics panel.
-            if (isPreviewLine(node)) continue;
-            lyricsFoundInBatch = true;
+            if (isPreviewLine(row)) continue;
+            panelRows++;
+            if (rowNeedsProcessing(row)) lyricsFoundInBatch = true;
+            else if ((row.querySelector(':scope > div') ?? row).querySelector('.sly-main-line, .sly-dual-line')) processedRows++;
+            else emptyRows++;
+          }
+          if (panelRows > 0) {
+            rowNodesInBatch++;
+            rowDiag.note(mut.target, node, panelRows, processedRows, emptyRows);
           }
         }
 
@@ -165,6 +235,7 @@ export function createDomObserver(opts: DomObserverOpts): SlyDomObserver {
       if (lyricsFoundInBatch) {
         opts.onLyricsInjected();
       }
+      if (rowNodesInBatch > 0) rowDiag.batch(lyricsFoundInBatch);
     });
 
     mainObserver.observe(mainEl, {

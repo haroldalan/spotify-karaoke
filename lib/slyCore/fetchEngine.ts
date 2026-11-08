@@ -145,7 +145,10 @@ export const FetchEngine = {
     }
 
     // 5. Send Message to Service Worker
-    const nativeStatus = slyPreFetchRegistry.getState(uri)?.nativeStatus;
+    // A heuristic nativeStatus (e.g. the detector's "no color-lyrics request" MISSING)
+    // is a local guess: never let the background persist it with the fetched entry.
+    const registryEntry = slyPreFetchRegistry.getState(uri);
+    const nativeStatus = registryEntry?.heuristic ? undefined : registryEntry?.nativeStatus;
     
     safeSendMessage({ 
       type: 'FETCH_LYRICS', 

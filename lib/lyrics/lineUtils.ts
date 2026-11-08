@@ -1,9 +1,9 @@
 /**
  * Helpers for comparing lyric line lists from different sources.
  *
- * Spotify, Musixmatch and the on-screen rows disagree about non-lyric lines:
- * Spotify sends '♪' instrumental markers and a trailing '' line, Musixmatch turns
- * empty lines into '♪', and spacer rows may render empty. Only lines that carry
+ * Spotify, the native-script sources and the on-screen rows disagree about non-lyric
+ * lines: Spotify sends '♪' instrumental markers and a trailing '' line, other sources
+ * mark or drop empty lines their own way, and spacer rows may render empty. Only lines that carry
  * words (a letter or digit) are comparable between sources.
  */
 

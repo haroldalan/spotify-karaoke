@@ -1,10 +1,13 @@
 // @ts-nocheck
 // Port of: lyric-test/modules/core/ui.js
+import { traceEvent } from '../testHooks';
 import { MetadataEngine } from './metadataEngine';
 import { StatusEngine } from './statusEngine';
 import { purgeSlyDOM } from '../dom/lyricsDOM';
-import { isLyricsButtonActive } from '../dom/domQueries';
-import { slyGetLayoutHost, slyGetNativePanel, slyUntagLayoutHost } from './domEngine';
+import { getLyricsLines, isLyricsButtonActive } from '../dom/domQueries';
+import { beginSongTransition } from '../dom/songTransition';
+import { isLeavingAnAd } from './state';
+import { slyGetLayoutHost, slyGetNativePanel, slyRestoreOverlayContent, slyUntagLayoutHost } from './domEngine';
 export {};
 /* modules/core/ui.js: Synchronized Lyrics UI Controller */
 /* Note: findMediaRecursively, slySeekTo, and slyGetPlaybackSeconds have been moved to modules/playback-engine.js */
@@ -13,7 +16,9 @@ declare global {
   interface Window {
     slyParseLRC: (lrc: string) => { time: number; text: string }[];
     slyResetPlayerState: (newTitle: string, uri?: string) => void;
-    slyUpdateButtonState: () => void;
+    /** Pipeline B (lifecycleController) has painted this song already (see slyResetPlayerState). */
+    slyPaintedCurrentSong?: (uri: string, title: string) => boolean;
+    slyUpdateButtonState: (mode?: string) => void;
     slyUpdateSync: () => void;
     slyUpdateSyncButton: () => void;
     antigravitySyncButtonAnimFrame?: number;
@@ -55,16 +60,45 @@ window.slyParseLRC = function (lrc: string): { time: number; text: string }[] {
 let lastScavengeTime = 0;
 
 /**
+ * The player's time jumping back to the start of a track: the next song has most likely
+ * begun (the bar resets ~0.1 s before the song change is known, live 2026-11-08), and
+ * scrolling the previous song's lyrics to their first line then threw the view and the
+ * pill around just before the song change. Held this long: a restart of the same song
+ * (Previous pressed past 0:03) scrolls up after it.
+ */
+export const RESTART_HOLD_MS = 500;
+let lastSyncSeconds = -1;
+let restartHoldUntil = 0;
+
+/**
  * Resets the entire extension UI and internal state.
  * Usually called when a track change or an ad is detected.
  */
 window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
+  traceEvent(`reset:${String(newTitle).slice(0, 12)}`);
   console.log(`[sly-ui] 🔄 TRACK SWITCH: ${newTitle} [ID: ${uri}]`);
+  // Before anything is taken down: the previous song's view leaves with Spotify's slide
+  // (idempotent: onSongChange usually started it already).
+  // (Not after an ad: nothing of it is on a slide, see onSongChange.)
+  // An ad starting does leave the song before it (no ad seen yet, or the last one is long past).
+  if (!isLeavingAnAd() || newTitle === 'AD_SILENCED' && window.slyInternalState.lastTitle !== 'AD_SILENCED') {
+    beginSongTransition([], window.slyInternalState.lastUri, uri);
+  }
+  // Another track: Spotify's panel is no longer held for the previous track's takeover
+  // (kept for a next song whose cached lyrics are staged: the bridge may lag behind it).
+  const marker = document.documentElement.getAttribute('data-sly-takeover-uri');
+  if (marker !== uri && marker !== window.slyInternalState.stagedTakeover?.uri) {
+    document.documentElement.removeAttribute('data-sly-takeover-uri');
+  }
+  slyRestoreOverlayContent();
 
   // 1. Internal State Cleanup
   window.slyInternalState.lastTitle = newTitle;
   window.slyInternalState.lastUri = uri;
   window.slyInternalState.lastActiveIndex = -1;
+  // The song change is known: the previous song's lyrics are gone, nothing to hold.
+  lastSyncSeconds = -1;
+  restartHoldUntil = 0;
   window.slyInternalState.currentLyrics = null;
   window.slyInternalState.fetchingForTitle = '';
   window.slyInternalState.fetchingForUri.clear();
@@ -88,7 +122,6 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   window.slyInternalState.pendingLyricsData = null;
   window.slyInternalState.isFetchingHUD = false;
   window.slyInternalState.statusHUDActive = false;
-  window.slyInternalState.isAdHUDActive = false;
 
   // Reset playback extrapolator so the first slyGetPlaybackSeconds() call after
   // a skip reads the live progress bar DOM instead of extrapolating from the
@@ -108,18 +141,21 @@ window.slyResetPlayerState = function (newTitle: string, uri = 'N/A'): void {
   const isNativeSynced = registryState?.nativeStatus === 'SYNCED';
   const isTakeoverHit = !!(l0Hit && !l0Hit.failed && !isNativeSynced && (l0Hit.lines || l0Hit.syncedLyrics || l0Hit.plainLyrics));
 
+  // Pipeline B usually notices the song change first (the widget's label) and has already
+  // painted the new song from memory by the time this reset runs (the bridge lags by up to
+  // 0.5 s). Its rows stay, and its painted mode stands: stripping them left the song
+  // unprocessed until the next 500 ms tick (live 2026-11-08, both skip directions).
+  const keepPainted = !isTakeoverHit && !!window.slyPaintedCurrentSong?.(uri, newTitle);
   if (!isTakeoverHit) {
-    // SLY FIX: Rescue the mode pill before nuking the container
-    const pill = document.getElementById('sly-mode-pill');
-    if (pill) document.body.appendChild(pill);
-
-    document.dispatchEvent(new CustomEvent('sly:release'));
+    document.dispatchEvent(new CustomEvent('sly:release', { detail: { reason: 'trackSwitch', keepPainted } }));
     document.querySelectorAll('#lyrics-root-sync').forEach(el => el.remove());
     window.slyInternalState.customRoot = null;
     
     // NUCLEAR CLEANUP: Physically remove all injected spans and attributes from the native DOM.
     // This is critical to prevent "Dangling Spans" from poisoning the next song's cache.
-    purgeSlyDOM();
+    // Except the rows Pipeline B painted for the song now playing, and other songs' panels:
+    // the song being left (also into an ad) is still sliding out, and its paint is its own.
+    purgeSlyDOM({ keep: keepPainted ? getLyricsLines() : [], keepSongsOtherThan: uri || 'N/A' });
   }
 
   if (!isTakeoverHit) {
@@ -213,6 +249,12 @@ window.slyUpdateSyncButton = function (): void {
 
   const syncBtn = document.getElementById('sly-sync-button');
   if (!syncBtn) return; // button removed (song change / reset) — loop terminates
+  // Our lyrics stepped aside for Spotify's artwork/canvas: no Sync button over it.
+  if (document.getElementById('lyrics-root-sync')?.classList.contains('sly-stepped-aside')) {
+    syncBtn.classList.remove('visible');
+    window.antigravitySyncButtonAnimFrame = requestAnimationFrame(window.slyUpdateSyncButton);
+    return;
+  }
 
   // Self-Destruct Guard: If the lyrics panel was closed (either by our cleanup or
   // by React unmounting the full-page route), this button is an orphan. Remove it.
@@ -265,6 +307,7 @@ window.slyUpdateSyncButton = function (): void {
 
   window.antigravitySyncButtonAnimFrame = requestAnimationFrame(window.slyUpdateSyncButton);
 };
+
 
 window.slyUpdateSync = function (): void {
   const localRef = window.slyUpdateSync;
@@ -320,6 +363,13 @@ window.slyUpdateSync = function (): void {
   }
 
   const t = window.slyGetPlaybackSeconds();
+  const previousSeconds = lastSyncSeconds;
+  lastSyncSeconds = t;
+  if (previousSeconds - t > 5 && t < 2) restartHoldUntil = performance.now() + RESTART_HOLD_MS;
+  if (performance.now() < restartHoldUntil) {
+    window.slyInternalState.syncAnimFrame = requestAnimationFrame(window.slyUpdateSync);
+    return;
+  }
   let activeIndex = 0;
   for (let i = 0; i < lines.length; i++) {
     if (t >= lines[i].time) activeIndex = i;

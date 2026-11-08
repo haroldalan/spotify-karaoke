@@ -15,6 +15,11 @@ import '../../lib/slyCore/styles';
 import { slyUntagLayoutHost } from '../../lib/slyCore/domEngine';
 import { StatusEngine } from '../../lib/slyCore/statusEngine';
 
+/** Spotify's panel in a state with no lyrics on screen (its loading or error state): the
+ *  only kind of panel a status screen may be drawn in (statusEngine spotifyLyricsOnScreen). */
+const noSpotifyWords = () => document.querySelectorAll('div.bm5I7yGVN8NXt6vH9eiC [data-testid="lyrics-line"]').forEach((l) => { l.textContent = ''; });
+
+
 const FIXTURE_HTML = readFileSync(resolve(__dirname, '../fixtures/spotify-2026-lyrics-panel.html'), 'utf8');
 const w = window as any;
 
@@ -24,6 +29,7 @@ function loadFixture(): void {
   const doc = new DOMParser().parseFromString(FIXTURE_HTML, 'text/html');
   document.body.innerHTML = doc.body.innerHTML;
   document.getElementById('sly-core-styles')?.remove();
+  noSpotifyWords();
 }
 
 function showFetchingHud(): HTMLElement {

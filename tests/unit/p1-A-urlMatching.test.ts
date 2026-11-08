@@ -69,6 +69,6 @@ describe('fetchInterceptor entrypoint: host matching', () => {
         await window.fetch('https://spclient.wg.spotify.com/metadata/4/track/0123456789abcdef0123456789abcdef');
         const types = posted.map((m) => m?.action?.type);
         expect(types).not.toContain('SLY_FETCH_START');
-        expect(types).not.toContain('SLY_MXM_NOTIFY_METADATA');
+        expect(types).not.toContain('SLY_NATIVE_NOTIFY_METADATA');
     });
 });

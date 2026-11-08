@@ -1,30 +1,39 @@
 declare const browser: any;
 import { isContextValid, safeClone } from '../utils/browserUtils';
-import { slyAdManager } from './adManager';
-import { getLyricsLines, getThemedPanelContainer, isLyricsButtonActive } from '../dom/domQueries';
+import { getFallbackLayoutHost, getLyricsLines, getThemedPanelContainer, isLyricsButtonActive, playingTrackUri } from '../dom/domQueries';
 import { purgeSlyDOM } from '../dom/lyricsDOM';
+import { slyRestoreOverlayContent } from './domEngine';
+import { isPillDocked } from '../dom/lyricsControls';
+import { loadLyricsKitSnapshot } from './scavenger';
 import { WarmingEngine } from './warmingEngine';
 import { StatusEngine } from './statusEngine';
 import { resolveTrackState } from './detector';
+import { traceEvent } from '../testHooks';
 
 console.log('[sly] DOM Engine starting...');
 if (window.slyInjectCoreStyles) window.slyInjectCoreStyles();
 
-const LEGACY_MAIN_CLASS = 'J6wP3V0xzh0Hj_MS';
+// Learn Spotify's lyrics class names right away (last live panel on this build, then
+// Spotify's stylesheet), so lyrics shown where Spotify has none use Spotify's own look
+// even before any native lyrics panel has been on screen.
+const startLyricsKit = () => {
+  void loadLyricsKitSnapshot().finally(() => window.slyDeepScavengeStyles?.());
+};
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startLyricsKit, { once: true });
+else startLyricsKit();
 
-function getLegacyMainContainer(): HTMLElement | null {
-  return document.querySelector(`main.${window.SPOTIFY_CLASSES?.mainContainer || LEGACY_MAIN_CLASS}`) as HTMLElement | null;
-}
+const LEGACY_MAIN_CLASS = 'J6wP3V0xzh0Hj_MS';
 
 /**
  * K11: the element that carries the "sly-active" / "sly-hud-active" layout classes.
  * 2026 UI: the parent of the full-panel themed container (the slot slyPrepareContainer
- * inserts #lyrics-root-sync into). Legacy <main> container only when no themed panel exists.
+ * inserts #lyrics-root-sync into). Without a themed panel: the Now Playing overlay
+ * (legacy UI: the <main> container), see getFallbackLayoutHost.
  */
 function getSlyLayoutHost(): HTMLElement | null {
   const themed = getThemedPanelContainer();
   if (themed?.parentElement) return themed.parentElement as HTMLElement;
-  return getLegacyMainContainer();
+  return getFallbackLayoutHost();
 }
 
 /** Native lyrics container to hide behind / restore after a takeover (themed panel first, legacy fallback). */
@@ -123,7 +132,7 @@ document.addEventListener('sly:lyrics_injected', async () => {
   //   • Persistence: currentLyrics active, panel re-opened, #lyrics-root-sync missing
   // Cost for normal songs: one extra cheap call per panel open — negligible since
   // slyCheckNowPlaying() already runs every 500ms.
-  await window.slyCheckNowPlaying();
+  await window.slyCheckNowPlaying!();
 });
 
 // Pipeline B's domObserver dispatches this when [data-testid="lyrics-button"] loses
@@ -182,10 +191,15 @@ document.addEventListener('sly:panel_close', () => {
     // AFTER the DOM has settled, avoiding stale layout reads in Pipeline B.
     // BUG-2 Fix: Was using wrong ID 'sly-mode-pill' — actual ID is 'sly-lyrics-controls'.
     const pill = document.getElementById('sly-lyrics-controls');
-    if (pill) document.body.appendChild(pill);
+    // A pill in its home on the view stays while the view is open (a release, not a close).
+    if (pill && !(isPillDocked(pill) && isLyricsButtonActive())) document.body.appendChild(pill);
 
+    slyRestoreOverlayContent();
     root.remove();
   }
+
+  // Spotify's own Now Playing content comes back even when the root was already gone.
+  slyRestoreOverlayContent();
 
   // SLY FIX (BUG-35): Dispatch release AFTER removing root so listeners see the final DOM state.
   document.dispatchEvent(new CustomEvent('sly:release'));
@@ -217,7 +231,9 @@ document.addEventListener('sly:panel_close', () => {
   // SLY FIX: Physically remove all injected spans and attributes from the native DOM
   // when the panel is closed. This prevents stale state from interfering with 
   // future track detections or React reconciliations.
-  purgeSlyDOM();
+  // Other songs' panels keep their paint: closing on a skip to a song without lyrics showed
+  // the song being left in its original lines as it slid out (live 2026-11-08).
+  purgeSlyDOM({ keepSongsOtherThan: playingTrackUri() || null });
 });
 
 // slyCore records the incoming lyrics object when Pipeline B signals injection.
@@ -226,7 +242,10 @@ document.addEventListener('sly:inject', (e: Event) => {
   const { lyricsObj } = (e as CustomEvent<{ lyricsObj: Record<string, unknown> }>).detail;
   // Stamp the URI at injection time so Step 1.5 can check if the skip target
   // is already the track we have lyrics for.
-  const currentUri = (window.spotifyState?.track as Record<string, unknown>)?.uri as string | undefined || (lyricsObj as any)._slyUri;
+  // Cached lyrics put in before the bridge names the track carry their own (right) URI.
+  const currentUri = (lyricsObj as any)._slyEarly
+    ? (lyricsObj as any)._slyUri as string
+    : (window.spotifyState?.track as Record<string, unknown>)?.uri as string | undefined || (lyricsObj as any)._slyUri;
   if (currentUri) lyricsObj._slyUri = currentUri;
   window.slyInternalState.currentLyrics = lyricsObj;
   window.slyInternalState.isTransitioning = false; // Transition complete
@@ -247,12 +266,11 @@ document.addEventListener('sly:song_change', async (e) => {
   // it won't see a "zombie" fetching state from the previous song.
   window.slyInternalState.isFetchingHUD = false;
   window.slyInternalState.statusHUDActive = false;
-  window.slyInternalState.isAdHUDActive = false;
   window.slyInternalState.fetchingForTitle = '';
   window.slyInternalState.fetchingForUri.clear();
   
-  // Reset the poll loop to start fresh for the new song
-  if (window.slyStartThrottledPoll) window.slyStartThrottledPoll();
+  // Check the new song now (a kick never starts a second poll next to a running one).
+  window.slyKickPoll?.();
 });
 
 // sly:takeover only fires when injection fully succeeded (all four DOM steps complete).
@@ -304,22 +322,17 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       return;
     }
 
-    // 1. AD SILENCER
+    // 1. ADS: Spotify replaces the lyrics view with its own full-screen ad page and removes
+    // the lyrics button (2026 UI, live 2026-11-08). Nothing of ours is shown over it: the
+    // extension resets, removes any status screen of its own, and picks up the lyrics view
+    // Spotify reopens after the break. (An "Intermission" screen used to be shown here; on
+    // this UI it only flashed for a moment as the ad started and again as it ended.)
     if (detection.isAd) {
+      window.slyInternalState.lastAdSeenAt = Date.now();
       if (window.slyInternalState.lastTitle !== 'AD_SILENCED') {
         window.slyResetPlayerState('AD_SILENCED', fullUri || 'ad');
       }
-
-      // If on lyrics page, ensure the "Ad Break" HUD is active
-      if (detection.isOnLyricsPage) {
-        const hud = document.getElementById('sly-status-hud');
-
-        // If it's missing or we haven't marked it active yet, show it.
-        if (!hud || !window.slyInternalState.isAdHUDActive) {
-          console.log('[sly] Ad HUD: Injecting/Restoring...');
-          StatusEngine.show('Ad Break', slyAdManager.getAdMessage(), false, { isAd: true });
-        }
-      }
+      if (StatusEngine.isShowing()) StatusEngine.clear();
       return;
     }
 
@@ -339,6 +352,11 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
     // Port of: lyric-test/content.js lines 44-46 (TRACK CHANGE RESET block).
     {
       const scannerTitle = (window.spotifyState?.track as Record<string, unknown>)?.name as string | undefined;
+      // Cached lyrics put in at the song change, before the bridge names the track: the
+      // bridge still naming the previous track is not a track change (it reset to the
+      // previous song and took them down, live 2026-11-08).
+      const early = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
+      if (early?._slyEarly && fullUri && fullUri === early._slyPrevUri) return;
       if (
         fullUri &&
         fullUri !== window.slyInternalState.lastUri &&
@@ -362,6 +380,8 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
           // Zeroing panelOpenTime here ensures the NEXT poll tick starts a fresh grace period.
           window.slyInternalState.panelOpenTime = 0;
           window.slyResetPlayerState(scannerTitle, fullUri);
+          // The bridge has caught up with a song whose cached lyrics are staged: check again now.
+          if (window.slyInternalState.stagedTakeover?.uri === fullUri) window.slyKickPoll?.();
           return;
         }
       }
@@ -376,15 +396,26 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
     }
 
 
-    // RE-INJECTION CHECK: If we are searching, failed, or in an ad, but the panel was re-rendered, restore the HUD.
+    // CACHED NEXT SONG: lyrics staged at the song change (Pipeline B's onSongChange) go in
+    // now that the bridge names that song, without waiting for Spotify's panel to load.
+    const staged = window.slyInternalState.stagedTakeover;
+    if (staged && staged.uri === fullUri) {
+      window.slyInternalState.stagedTakeover = null;
+      const cl = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
+      const alreadyOurs = !!document.getElementById('lyrics-root-sync') && cl?._slyUri === fullUri;
+      if (!alreadyOurs && !window.slyInternalState.pendingLyricsData) {
+        window.slyInternalState.pendingLyricsData = staged.data;
+      }
+    }
+
+    // RE-INJECTION CHECK: If we are searching or failed, but the panel was re-rendered, restore the HUD.
     // SLY FIX: Added !isTransitioning guard to prevent "HUD recovery" during track skips.
     if (!window.slyInternalState.isTransitioning && (
         (window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.failed || 
         window.slyInternalState.isFetchingHUD || 
-        window.slyInternalState.isAdHUDActive ||
         window.slyInternalState.fetchingForTitle ||
         window.slyInternalState.fetchingForUri.size > 0)) {
-      if (!document.getElementById('sly-status-hud')) {
+      if (!StatusEngine.isShowing()) {
         // Safety Exit: If we actually have valid lyrics in the state, do not restore a loading HUD.
         if ((window.slyInternalState.currentLyrics as Record<string, unknown> | null)?.lines) {
           window.slyInternalState.isFetchingHUD = false;
@@ -395,10 +426,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
           console.log('[sly] Re-injection suppressed: Spotify native lyrics recovered.');
           // Fall through to Decision Engine
         } else {
-          if (window.slyInternalState.isAdHUDActive) {
-            console.log('[sly] Restore: Re-injecting Ad HUD...');
-            StatusEngine.show('Ad Break', window.slyAdManager.getAdMessage(), false, { isAd: true });
-          } else if (isFailedForCurrent(window.slyInternalState.currentLyrics, fullUri)) {
+          if (isFailedForCurrent(window.slyInternalState.currentLyrics, fullUri)) {
             // A recorded failure for this track is final; test it before the "fetching"
             // flags so a stale flag cannot turn the error HUD (with Retry) into a spinner.
             console.log('[sly] Restore: Re-injecting failure HUD...');
@@ -445,6 +473,11 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       window.slyInternalState.lastResolvedStateString = stateString;
     }
 
+    // A stand-down decision no longer holds: drop it so the poll returns from 5 s to 500 ms.
+    if (resolution.action !== 'NATIVE_ORIGINAL' && window.slyInternalState.lastDecision?.startsWith('synced_or_ok:')) {
+      window.slyInternalState.lastDecision = '';
+    }
+
     // If resolution action is NATIVE_ORIGINAL (Perfect native Spotify synced lyrics), stand down!
     if (resolution.action === 'NATIVE_ORIGINAL') {
       const decision = `synced_or_ok:${title}`;
@@ -469,7 +502,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         const mutableData = {
           lines: cachedEntry.lyrics?.syncedLyrics 
             ? (window as any).slyParseLRC?.(cachedEntry.lyrics.syncedLyrics) || []
-            : (cachedEntry.lyrics?.plainLyrics || '').split('\n').map(text => ({ text, time: 0 })),
+            : (cachedEntry.lyrics?.plainLyrics || '').split('\n').map((text: string) => ({ text, time: 0 })),
           isSynced: !!cachedEntry.lyrics?.syncedLyrics,
           plainLyrics: cachedEntry.lyrics?.plainLyrics || '',
           syncedLyrics: cachedEntry.lyrics?.syncedLyrics || '',
@@ -480,6 +513,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         };
         window.slyInternalState.pendingLyricsData = mutableData;
         console.log(`[sly-coherence] ⚡ God List takeover triggered synchronously from cache for track ${fullUri}`);
+        traceEvent(`takeover:fromCache(${resolution.sourceState})`);
       }
     } 
     // If NATIVE_UPGRADED, trigger Pipeline B upgraded lines override
@@ -508,6 +542,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         const decision = `${lyricsState.toLowerCase()}:${title}`;
         if (window.slyInternalState.lastDecision !== decision) {
           console.log(`[sly-dom] 🚨 DECISION: Fallback needed (${lyricsState}). Attempting fetch...`);
+          traceEvent(`fetch:${lyricsState}`);
           window.slyInternalState.lastDecision = decision;
         }
         window.slyTriggerLyricsFetch(title, artist, albumArtUrl || '', fullUri || '', false, detection.album, detection.duration);
@@ -518,8 +553,9 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
     if (window.slyInternalState.pendingLyricsData && detection.isOnLyricsPage) {
       const data = window.slyInternalState.pendingLyricsData as Record<string, unknown>;
 
-      // Stand down if native lyrics are still being discovered by the bridge
-      if (lyricsState === 'LOADING' && !window.slyInternalState.forceFallback) {
+      // Stand down if native lyrics are still being discovered by the bridge, unless these
+      // are cached lyrics of a song already known to need ours (isInstant: L0 cache).
+      if (lyricsState === 'LOADING' && !window.slyInternalState.forceFallback && !data.isInstant) {
         return;
       }
 
@@ -552,6 +588,7 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
       }
 
       console.log(`[sly] Taking over! | Takeover Reason: ${detection.lyricsState}`);
+      traceEvent(`takeover:${detection.lyricsState}`);
       // Safety: Only inject if the data actually has content.
       const hasContent = !!(data.plainLyrics || data.syncedLyrics) && (data.ok !== false);
 
@@ -613,18 +650,18 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
         if (fullUri) window.slyInternalState.fetchingForUri.delete(fullUri);
         window.slyInternalState.statusHUDActive = false;
         window.slyInternalState.isFetchingHUD = false;
-        window.slyInternalState.isAdHUDActive = false;
         
         document.dispatchEvent(new CustomEvent('sly:panel_close'));
         return;
       }
 
-      // If the panel was re-opened and our DOM was wiped by React, re-inject
+      // If the panel was re-opened and our DOM was wiped by React, re-inject (not while a
+      // status for this song is on show: the takeover already said why it cannot show them).
       if (!root || !root.isConnected || root.innerHTML === '') {
         const cl = window.slyInternalState.currentLyrics as Record<string, unknown> | null;
         const currentUri = (window.spotifyState?.track as Record<string, unknown> | null)?.uri as string | undefined;
         const hasValidLyrics = cl && Array.isArray((cl as any).lines) && (cl as any).lines.length > 0;
-        if ((detection.lyricsState !== 'LOADING' || hasValidLyrics) && cl && currentUri && cl._slyUri === currentUri) {
+        if (!StatusEngine.isShowing() && (detection.lyricsState !== 'LOADING' || hasValidLyrics) && cl && currentUri && cl._slyUri === currentUri) {
           console.log('[sly] Restore: Panel re-opened. Re-injecting lyrics DOM...');
           // Route through Pipeline B's unified injection path (sly:inject → setupSlyBridge).
           // slyInjectLyrics is no longer the executor — sly:inject is the contract.
@@ -632,17 +669,20 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
             detail: { lyricsObj: safeClone(cl) },
           }));
         }
-      } else {
-        // Ensure visibility and hijack classes are active
-        root.style.display = '';
-        getSlyLayoutHost()?.classList.add('sly-active');
+      } else if (!root.classList.contains('sly-root-notice') && root.querySelector('[data-testid="lyrics-line"]')) {
+        // Our lyrics are on screen: keep them visible and Spotify's panel hidden. Only what
+        // changed is written (this runs every tick; rewriting unchanged state re-ran styles
+        // and raced the cleanup code that removes the same class: visible flicker).
+        if (root.style.display) root.style.display = '';
+        const host = getSlyLayoutHost();
+        if (host && !host.classList.contains('sly-active')) host.classList.add('sly-active');
 
-        document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`).forEach(n => ((n as HTMLElement).style.display = 'none'));
+        document.querySelectorAll(`.${window.SPOTIFY_CLASSES?.errorContainer || 'hfTlyhd7WCIk9xmP'}, .${window.SPOTIFY_CLASSES?.errorContainerAlt || 'bRNotDNzO2suN6vM'}`)
+          .forEach(n => { if ((n as HTMLElement).style.display !== 'none') (n as HTMLElement).style.display = 'none'; });
         // Themed full panel only (never the Now Playing view preview), legacy fallback.
         const nativeContainer = getNativeLyricsContainer();
         if (nativeContainer) {
-          nativeContainer.style.display = 'none';
-          // Re-mirror theme to handle transitions (e.g. MISSING -> UNSYNCED)
+          // Re-mirror theme to handle transitions (e.g. MISSING -> UNSYNCED); writes only changes.
           const sly = (window as any);
           sly.slyMirrorNativeTheme?.(root, window.slyInternalState.currentLyrics as Record<string, unknown>, nativeContainer);
         }
@@ -655,15 +695,33 @@ async function slyCheckNowPlayingInternal(): Promise<void> {
 };
 
 let consecutivePollErrors = 0;
+/** A poll is running (the chain must never fork: only one setTimeout chain at a time). */
+let pollInFlight = false;
+/** Something asked for a check while one was running: the next one runs at once. */
+let kickPending = false;
+
+/**
+ * Runs the check now instead of at the next tick (up to 5 s away when standing down):
+ * when the lyrics view reopens, our lyrics take Spotify's panel's place without waiting.
+ */
+window.slyKickPoll = (): void => {
+  if (pollInFlight) { kickPending = true; return; }
+  if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
+  void startThrottledPoll();
+};
+
 async function startThrottledPoll() {
   if (window.antigravityInterval) clearTimeout(window.antigravityInterval as number);
   
+  pollInFlight = true;
   try {
-    await window.slyCheckNowPlaying();
+    await window.slyCheckNowPlaying!();
     consecutivePollErrors = 0; // Reset on success
   } catch (e) {
     consecutivePollErrors++;
     console.error(`[sly] Poll error #${consecutivePollErrors}:`, e);
+  } finally {
+    pollInFlight = false;
   }
   
   // Back off if we're failing repeatedly
@@ -684,7 +742,8 @@ async function startThrottledPoll() {
                          !window.slyInternalState.fetchingForTitle &&
                          !window.slyInternalState.nativeRecoveryPending;
                          
-  const interval = isStandingDown ? 5000 : 500;
+  const interval = kickPending ? 0 : (isStandingDown ? 5000 : 500);
+  kickPending = false;
   window.antigravityInterval = setTimeout(startThrottledPoll, interval) as unknown as number;
 }
 window.slyStartThrottledPoll = startThrottledPoll;

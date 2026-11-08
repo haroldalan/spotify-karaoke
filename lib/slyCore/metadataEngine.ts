@@ -23,12 +23,18 @@ export const MetadataEngine = {
    * Priority: DOM for URI (more reactive), State for text/images.
    */
   getNowPlaying(): TrackMetadata {
-    const track = spotifyState.track as Record<string, any> | null;
-    
+    const stateTrack = spotifyState.track as Record<string, any> | null;
+
     // 1. Resolve URI (Priority: DOM -> State)
     const domId = getNowPlayingTrackId();
-    const stateUri = track?.uri as string | undefined;
+    const stateUri = stateTrack?.uri as string | undefined;
     const uri = domId ? `spotify:track:${domId}` : stateUri;
+    // The widget names the new track before the bridge does: until they agree, the state's
+    // title and artist belong to the previous track. Pairing them with the widget's id sent
+    // the previous song's title under the new id (live 2026-11-08: the native-script lookup
+    // for one song searched for another, 12 s lost). Unknown is returned instead.
+    const sameTrack = !domId || stateUri?.split(':').pop() === domId;
+    const track = sameTrack ? stateTrack : null;
 
     // 2. Resolve Title
     const title = track?.name || '';

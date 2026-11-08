@@ -1,5 +1,6 @@
+import { traceEvent } from '../testHooks';
 import { safeBrowserCall, getTargetLang } from '../utils/browserUtils';
-import { snapshotOriginals, applyLinesToDOM, purgeSlyDOM } from '../dom/lyricsDOM';
+import { snapshotOriginals, applyLinesToDOM, purgeSlyDOM, cacheFitsNativeRows, noteCacheSkip, reconcileTakeoverCache } from '../dom/lyricsDOM';
 import { getLyricsLines } from '../dom/domQueries';
 import { syncButtonStates, setLoadingState } from '../dom/lyricsControls';
 import { fetchProcessed, type FetchProcessedReport } from './fetchProcessed';
@@ -138,20 +139,42 @@ export function createModeController(opts: ModeControllerOpts) {
    *   (store.pendingUserSwitch); the settle handler re-runs preferredMode for them.
    */
   async function switchMode(next: LyricsMode, forceLang?: string, suppressLoading = false, forceRefresh = false, cacheOverride?: SongCache, internal = false): Promise<void> {
+    traceEvent(`switchMode:${next}`);
     const mode = opts.store.mode;
     const preferredMode = opts.store.preferredMode;
     const cache = cacheOverride || opts.store.cache;
     const dualLyricsEnabled = opts.store.dualLyricsEnabled;
 
+    const isNoop = next === mode && forceLang === undefined && !forceRefresh;
+    // The rows on screen belong to another track (e.g. the previous song's rows
+    // are still mounted): nothing to switch. Return before touching mode, pill,
+    // loading state, switchGen or a deferred request, so the NATIVE_OK ticks that
+    // re-run this do not churn. Switching to Original always proceeds.
+    const snapshot = !isNoop && cache.original.length === 0 ? snapshotOriginals(cache) : null;
+    if (snapshot === 'refused' && next !== 'original') {
+      console.log(`[sly-mode] ⏭️ switchMode("${next}") skipped: the rows on screen belong to another track.`);
+      return;
+    }
+    // The same early return when cache.original does not belong to the native rows
+    // on screen (a takeover's lines after sly:release, another song's cache): both
+    // the Latin fallback and the processed apply would paint it on them, and the
+    // NATIVE_OK ticks re-run this. mode, preferredMode and lyricsAppliedForKey stay.
+    // After a takeover ended on the same song the cache is the takeover's: re-read
+    // the native rows instead (reconcileTakeoverCache replaces it in place).
+    if (!isNoop && next !== 'original' && !getTargets() && !cacheFitsNativeRows(cache.original) &&
+        !(cache === opts.store.cache && reconcileTakeoverCache(opts.store, `switchMode("${next}")`))) {
+      noteCacheSkip(`switchMode("${next}")`, cache.original.length, getLyricsLines().length);
+      return;
+    }
+
     // A newer request replaces a deferred one. Re-applying the painted mode with a
     // language or a forced refresh (native upgrade, popup language change) is not one.
     if (!internal && (next !== mode || (forceLang === undefined && !forceRefresh))) opts.store.pendingUserSwitch = null;
-    if (next === mode && forceLang === undefined && !forceRefresh) return;
+    if (isNoop) return;
 
     const currentSwitchGen = ++opts.store.switchGenRef.value;
     const previousMode = mode;
     console.log(`[sly-audit] 🔄 Mode Change Requested: "${previousMode}" ➡️ "${next}"`);
-    if (cache.original.length === 0) snapshotOriginals(cache);
     discardStaleProcessedCache(cache);
 
     const isNativeLanguage = (window as any).SLY_NATIVE_LANGUAGES?.has((window as any).spotifyState?.language);
@@ -195,6 +218,7 @@ export function createModeController(opts: ModeControllerOpts) {
     // Latin originals are already "romanized": show them as they are. This holds
     // for romanized fallbacks of non-Latin songs too (no native upgrade arrived).
     if (next === 'romanized' && forceLang === undefined && isLatinScript(cache.original)) {
+      // (A cache.original that does not belong to the native rows returned above.)
       opts.store.mode = next;
       if (preferredMode !== next) {
         opts.store.preferredMode = next;
@@ -312,6 +336,7 @@ export function createModeController(opts: ModeControllerOpts) {
   }
 
   async function reapplyMode(): Promise<void> {
+    traceEvent('reapplyMode');
     const mode = opts.store.mode;
     const currentActiveLang = opts.store.currentActiveLang;
     const cache = opts.store.cache;
@@ -331,6 +356,10 @@ export function createModeController(opts: ModeControllerOpts) {
     if (!processed) {
       if (mode === 'romanized' && isLatinScript(cache.original)) {
         const targets = getTargets();
+        if (!targets && !cacheFitsNativeRows(cache.original)) {
+          noteCacheSkip('reapplyMode Latin path', cache.original.length, getLyricsLines().length);
+          return;
+        }
         console.log(`[SKaraoke:Mode] reapplyMode: Latin script detected for romanized mode. Using originals.`);
         logEntireLyrics('romanized', cache, currentActiveLang);
         applyLinesToDOM(cache.original, undefined, dualLyricsEnabled, (v) => { opts.store.isApplying = v; }, targets);
@@ -339,7 +368,7 @@ export function createModeController(opts: ModeControllerOpts) {
         return;
       }
 
-      if (mode !== 'original') {
+      if ((mode as LyricsMode) !== 'original') {
         console.warn(`[SKaraoke:Mode] reapplyMode: Data missing for ${mode}. Triggering recovery fetch.`);
         await switchMode(mode, undefined, false, true, undefined, true);
       }
