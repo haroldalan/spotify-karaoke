@@ -1,6 +1,6 @@
 {
   "name": "spotify-karaoke",
-  "version": "3.1.5",
+  "version": "3.1.6",
   "description": "WXT browser extension for Chrome/Firefox — fetches missing lyrics, restores native scripts, and romanizes & translates Spotify lyrics in real time",
   "private": true,
   "type": "module",
@@ -18,6 +18,7 @@
     "zip:edge": "wxt zip -b edge",
     "prepare": "wxt prepare",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
     "test:watch": "vitest"
   },
   "dependencies": {

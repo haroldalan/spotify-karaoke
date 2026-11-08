@@ -5,11 +5,18 @@ import removeConsole from 'vite-plugin-remove-console';
 const keepDebugLogs = process.env.SLY_DEBUG === '1';
 
 export default defineConfig({
+  zip: {
+    // The Firefox sources zip is built from the project folder: never ship local test
+    // material (live-logs holds a signed-in test browser profile) or page captures.
+    excludeSources: ['live-logs/**', 'fiber*.json', 'home.html', 'lyrics.html', '.env*'],
+  },
   vite: (configEnv) => ({
     plugins: [
       preact(),
       ...(configEnv.mode === 'production' && !keepDebugLogs ? [removeConsole({ includes: ['debug', 'info', 'log', 'table', 'group', 'groupCollapsed', 'groupEnd'] })] : []),
     ],
+    // Test hooks (lib/testHooks.ts) exist only in debug builds.
+    define: { __SLY_TEST_HOOKS__: JSON.stringify(keepDebugLogs) },
     optimizeDeps: {
       include: ['@indic-transliteration/sanscript'],
     },
@@ -35,11 +42,9 @@ export default defineConfig({
       '*://open.spotify.com/*',
       '*://spclient.wg.spotify.com/*',
       '*://open.spotifycdn.com/*',
-      '*://apic-desktop.musixmatch.com/*',
       '*://translate.googleapis.com/*',
       '*://translate.google.com/*',
-      '*://www.google.com/*',
-      '*://api.mymemory.translated.net/*',
+      // Japanese dictionary for the local romanizer (kuromoji, lib/lyrics/japaneseRomanizer.ts).
       '*://cdn.jsdelivr.net/*',
       // Layer 2 lyrics fallback providers (lyric-test integration)
       'https://lrclib.net/*',

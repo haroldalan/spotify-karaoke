@@ -1,6 +1,6 @@
 # Privacy Policy — Spotify Karaoke
 
-**Last updated:** July 10, 2026
+**Last updated:** November 8, 2026
 
 Spotify Karaoke is an open-source browser extension that fetches missing lyrics, romanizes non-Latin scripts, and translates song lyrics inside Spotify's web player. This policy explains what data the extension accesses, how it is used, and what is shared.
 
@@ -25,11 +25,11 @@ The extension makes network requests **only** to provide its core functionality.
 
 | Service | When | What is sent | Why |
 |:---|:---|:---|:---|
-| **YouTube Music** (`music.youtube.com`) | When Spotify cannot find lyrics for a song | Song title and artist name | To search for synced lyrics |
-| **LRCLIB** (`lrclib.net`) | When Spotify cannot find lyrics for a song | Song title, artist, album, duration | To search for synced lyrics |
-| **Musixmatch** (`apic-desktop.musixmatch.com`) | When Spotify serves romanized fallback lyrics | Musixmatch track ID (from Spotify's own API response) | To fetch the original native-script lyrics |
+| **YouTube Music** (`music.youtube.com`) | When Spotify cannot find lyrics for a song, or shows them romanized | Song title and artist name | To search for synced lyrics |
+| **LRCLIB** (`lrclib.net`) | When Spotify cannot find lyrics for a song, or shows them romanized | Song title, artist, album, duration | To search for synced lyrics |
 | **Google Translate** (`translate.googleapis.com`) | When you use Translated or certain Romanized modes | Lyric text lines | To translate or romanize lyrics |
-| **MyMemory** (`api.mymemory.translated.net`) | When Google Translate is unavailable | Lyric text lines | Fallback translation service |
+| **jsDelivr** (`cdn.jsdelivr.net`) | The first time a Japanese song is romanized | Nothing about you or the song: a public dictionary file is downloaded | Japanese readings for romanization |
+| **Spotify's CDNs** (`i.scdn.co`, `open.spotifycdn.com`) | When lyrics are shown for a song Spotify has none for | Nothing new: the artwork and stylesheet addresses already on Spotify's page | To match Spotify's colours and lyrics style |
 
 **No personal identifiers** (IP address, browser fingerprint, Spotify account info, cookies, or authentication tokens) are ever sent to these services by the extension. Only the minimal lyric or song metadata required to fulfill the request is transmitted.
 
@@ -45,9 +45,9 @@ The extension makes network requests **only** to provide its core functionality.
 
 The extension does not control the privacy practices of the third-party services listed above. Please refer to their respective privacy policies:
 
-- [Google Privacy Policy](https://policies.google.com/privacy)
-- [MyMemory Terms of Service](https://mymemory.translated.net/doc/tos.php)
+- [Google Privacy Policy](https://policies.google.com/privacy) (Google Translate, YouTube Music)
 - [LRCLIB](https://lrclib.net)
+- [jsDelivr Privacy Policy](https://www.jsdelivr.com/terms/privacy-policy-jsdelivr-net)
 
 ## Open Source
 

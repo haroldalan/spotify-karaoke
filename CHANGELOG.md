@@ -3,6 +3,50 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.6] — 2026-11-08
+
+Spotify rebuilt its web player in late 2026 (an expanded Now Playing view with a media switch for Artwork, Canvas, Artist image and Lyrics). This release adapts the whole extension to it and sharpens romanization and translation, its core features.
+
+### Added
+- **Lyrics where Spotify has none, the way Spotify shows them**: fetched lyrics take the lyrics panel's place in Spotify's expanded view, with Spotify's own lyric styles (measured from a live panel, kept per Spotify build, or read from its stylesheet). They are never drawn in a look that is not Spotify's.
+- **Lyrics button in Spotify's media switch**: for songs Spotify has no lyrics for, the disabled Lyrics option is replaced by the extension's own button with the same look. Picking Artwork, Canvas or Artist image steps the lyrics aside; the button brings them back.
+- **Status without covering Spotify's content**: "Finding lyrics…", "No lyrics found" (with **Add lyrics** to LRCLIB and **Retry**) and "Lyrics found" now sit on that Lyrics button and in a small popover, or in Spotify's lyrics panel when it is open, with a short toast as the last resort. The old cards over the artwork are gone.
+- **Opening the view for songs without Spotify lyrics**: the lyrics button opens Spotify's expanded view when Spotify itself would not.
+- **Thai romanization close to RTGS**: Thai is split into words and read syllable by syllable (initial and final consonants, silent leading letters, implicit vowels), with the previous library only for words it cannot parse.
+- **Japanese romanization by word**: readings come per word, particles are read as pronounced (は "wa", へ "e", を "o"), and kanji the dictionary does not know go to Google's romanization instead of staying unread.
+- **Hindi romanization in the usual spelling** ("hum baatein"), and for restored native-script songs, Romanized mode uses Spotify's own romanized lines where they line up.
+- **LRCLIB as a native-script source**: when YouTube Music has no native-script copy, LRCLIB is searched; a crowd-sourced copy is used only when its duration and line count match the track.
+- **Romanized fallbacks detected from the text**: Spotify's language tag is no longer reliable (romanized Hindi arrives tagged "id"), so the extension decides from the lines themselves.
+
+### Changed
+- **Native script restoration**: YouTube Music first, then LRCLIB. Musixmatch was removed: since November 2026 it no longer serves anonymous clients.
+- **Translation**: Google Translate only. When it fails, the original lyrics stay on screen (never presented as a translation) and Romanized mode keeps working.
+- **Ad breaks**: no "Intermission" screen. The extension steps aside for Spotify's ad page and brings your lyrics back, in your mode, after the break.
+- **Cached romanizations** of Thai and Japanese kana songs are refreshed once, so the new romanizers apply to songs you played before.
+- **Permissions**: removed the unused `www.google.com` host and the MyMemory and Musixmatch hosts. No new permissions.
+
+### Removed
+- Musixmatch and MyMemory clients, and the ad "Intermission" screen.
+
+### Fixed
+- **Song changes**:
+  - Skipping back showed the song's original lines for about half a second before its cached romanization or translation.
+  - The song being left flashed back to its original lines as it slid out.
+  - After a song without lyrics, or after an ad, the next song stayed unprocessed for 1.3–2.5 s.
+  - Lyrics fetched for a song Spotify has none for could be refused while Spotify slid between two songs, and then never appeared until the view was reopened.
+- **Panels of other songs**: Spotify keeps earlier songs' lyrics panels mounted (off screen or transparent). The extension now tells each panel's song apart, so modes, paint and detection apply to the song that is playing. This fixes Translated not taking effect on some songs.
+- **Track, playback and position on the 2026 UI**: track identity from Spotify's app state and the new Now Playing widget; exact position and duration, play state from position changes, and click-to-seek to the exact line.
+- **Translation and caches**: a failed translation is never cached or shown as one; romanization survives a translation failure; source-language hints are only used when they fit the script; caches return only usable entries, a failed re-fetch keeps good lyrics, and **Reset Data** clears every cache layer.
+- **Native script restoration**: decided from the text instead of the language tag, so native and mixed lyrics are never "upgraded"; Spotify's response is held for at most 4 seconds.
+- **Dual lyrics**: no duplicate second line when the processed text only differs in Unicode form.
+- **Spotify's lyrics button** keeps its own (localized) label; the extension no longer overwrites it.
+- **Firefox**: Escape in the lyrics popover closes the popover only, not Spotify's view.
+
+### Developer
+- Debug builds (`npm run build:chrome:debug`, `build:firefox:debug`) keep the logs and add test hooks and trace markers; store builds contain neither.
+- New `npm run typecheck`: the project type-checks clean (the popup's Preact JSX is now configured).
+- 885 unit tests.
+
 ## [3.1.5] — 2026-07-10
 
 ### Added

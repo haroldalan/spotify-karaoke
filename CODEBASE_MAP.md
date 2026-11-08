@@ -32,7 +32,7 @@ The boot sequence. This covers the extension manifest, build dependencies, and t
 
 ### `wxt.config.ts` & `package.json`
 The Framework configuration.
-- `wxt.config.ts`: Dynamically generates the `manifest.json`. Configures the `MAIN` world content script injections (`slyBridge.ts`), declares host permissions for external APIs (Google Translate, LRCLIB, Musixmatch), and sets up `declarativeNetRequest` rules for YTM fetch spoofing.
+- `wxt.config.ts`: Dynamically generates the `manifest.json`. Configures the `MAIN` world content script injections (`slyBridge.ts`), declares host permissions for external APIs (Google Translate, LRCLIB, YouTube Music), and sets up `declarativeNetRequest` rules for YTM fetch spoofing.
 - `package.json`: Manages the 10+ local transliteration dependencies (Kuroshiro, Sanscript, Pinyin-Pro, etc.) and exposes the Vite/WXT build commands (`wxt build`, `wxt zip -b edge`, etc.).
 
 ### `entrypoints/background.ts`
@@ -44,7 +44,7 @@ The Background Service Worker. This is the brain of the extension. It runs in an
 ### `entrypoints/fetchInterceptor.ts`
 An unlisted script compiled and injected into the `MAIN` world.
 - **Purpose:** Native Script Restoration.
-- **How it works:** It monkey-patches the browser's native `window.fetch` method. When Spotify tries to download lyrics (`spclient.wg.spotify.com/color-lyrics/v2/track/`), the interceptor pauses the request, reaches out to Musixmatch in the background, grabs the high-fidelity native script (e.g. Kanji, Hangul, Tamil), and swaps out the low-quality romanized fallback that Spotify was trying to serve. Spotify's React app is entirely unaware it received injected data.
+- **How it works:** It monkey-patches the browser's native `window.fetch` method. When Spotify tries to download lyrics (`spclient.wg.spotify.com/color-lyrics/v2/track/`), the interceptor holds the response, asks the background for the native script (`lib/lyricsProviders/nativeLyrics.ts`: YouTube Music, then LRCLIB), and swaps out the romanized fallback that Spotify was trying to serve. Spotify's React app is entirely unaware it received injected data.
 
 ### `entrypoints/slyBridge.ts`
 An unlisted script injected into the `MAIN` world, serving as the ultimate "hack" into Spotify's React state. 
@@ -102,12 +102,19 @@ The Inner Loop Guardian.
 ### `lib/dom/domQueries.ts` & `toast.ts`
 The DOM Helpers.
 - `domQueries.ts`: Centrally manages all `data-testid` queries used to navigate Spotify's React DOM.
+  - **Panel identity:** Spotify can keep earlier songs' lyrics panels mounted beside the current one. `slyBridge.ts` tags each panel with its track (`data-sly-track-uri`, from the list's `trackUri` / the themed container's `item.uri` React props) and `<html>` with the playing track (`data-sly-playing-uri`). `currentSongOnly()` drops other songs' panels; every panel query goes through it. With one song's panels, or no tags, nothing is filtered.
 - `toast.ts`: Manages the sleek animated popups at the bottom of the screen.
+
+### `lib/dom/songTransition.ts`
+Song changes in the expanded view, the way Spotify slides them.
+- `beginSongTransition` marks the song being left's slide as leaving (`data-sly-leaving`): queries skip it, and a still copy of the extension's lyrics slides out on it. The slide is chosen by the panel's track tag (previous track), never the playing track's slide, nor a just-mounted untagged panel, and nothing is marked when an ad is being left (`isLeavingAnAd` in `state.ts`).
+- `kickWhenPanelMounts` runs slyCore's check the moment a new panel mounts.
+- `purgeSlyDOM({ keep, keepSongsOtherThan })` (`lyricsDOM.ts`) keeps the playing song's painted rows and other songs' panels at a track switch; `watchPanelSongChanges` cleans a panel whose track tag changes.
 
 ### `lib/core/fetchProcessed.ts` & `nativeLyricsHandler.ts`
 The Pipeline B Glues.
 - `fetchProcessed.ts`: Fires the `PROCESS` request to the background worker to translate a string array, catching any truncation errors to display a toast.
-- `nativeLyricsHandler.ts`: Handles the complex logic of "Layer 1 Upgrades" (when `mxmClient` successfully retrieves native lyrics and replaces Spotify's romanized native lyrics dynamically).
+- `nativeLyricsHandler.ts`: Handles the complex logic of "Layer 1 Upgrades" (when the native-script lookup retrieves native lyrics and replaces Spotify's romanized native lyrics dynamically).
 
 ---
 
@@ -125,7 +132,7 @@ The heart of the DOM Engine loop (`window.slyCheckNowPlaying`).
 - **The Poller:** Runs a relentless `setInterval` every 500ms to monitor state.
 - **The Decision Engine:** If Spotify reports "Lyrics not available," this engine decides to trigger the fallback fetch pipeline.
 - **Injection Gate:** When lyrics are fetched or processed, it catches the `sly:inject` event and prepares the data for the renderer. 
-- **Ad Silencer:** Detects audio ads and automatically replaces the lyrics panel with an "Ad Break" HUD.
+- **Ad Silencer:** Detects audio ads and stands down: Spotify shows its own full-screen ad page during the break, so the extension resets and removes any status screen of its own, then resumes when Spotify reopens the lyrics view.
 
 ### `lib/slyCore/domEngine.ts`
 The DOM Surgeon. 
@@ -147,9 +154,10 @@ The Custom UI Engine.
 - Contains `slyResetPlayerState` which acts as the "nuclear cleanup" function during track skips (destroying the custom DOM and restoring native Spotify elements).
 - Runs `slyUpdateSyncButton` (viewport math to gracefully float the sync button) and `slyUpdateSync` (the fallback sync loop used exclusively by Pipeline A).
 
-### `lib/slyCore/adManager.ts`
-The Ad Silencer.
-- Automatically handles Spotify's audio/video ads by maintaining a registry of humorous messages ("⏸️ Ad break. Lyrics on pause.") that are passed to the `statusHud`.
+### `lib/slyCore/lyricsStatus.ts` & `lyricsChip.ts`
+Lyrics status, kept apart from where it is drawn.
+- `lyricsStatus.ts`: one status record for the current song (searching / not found / found-but-not-shown, with its label, message and actions).
+- `StatusEngine` picks the surface (`slyStatusPlacement` in `domEngine.ts`): Spotify's lyrics panel → its full status screen; Spotify's expanded Now Playing view for a song without Spotify lyrics → the extension's Lyrics button in Spotify's media switch (`lyricsChip.ts`: spinner, a short label beside the switch, a popover with Add lyrics / Retry); no media switch → the toast. Nothing is drawn over Spotify's artwork or cards.
 
 ### `lib/slyCore/events.ts`
 The Interaction Observers.
@@ -160,7 +168,7 @@ The Interaction Observers.
 ### `lib/slyCore/messaging.ts`
 The Communication Bridge.
 - Acts as the main pipeline between the `MAIN` world UI and the isolated background worker.
-- Executes `slyTriggerLyricsFetch` which dispatches `FETCH_LYRICS` payloads and elegantly handles race conditions (e.g., if a user skips a track while a Musixmatch fetch is mid-flight, the stale response is safely discarded).
+- Executes `slyTriggerLyricsFetch` which dispatches `FETCH_LYRICS` payloads and elegantly handles race conditions (e.g., if a user skips a track while a native-script lookup is mid-flight, the stale response is safely discarded).
 
 ### `lib/slyCore/styles.ts`
 The Custom CSS Payload.
@@ -178,10 +186,18 @@ The State Evaluator.
 - Determines if the current track is an Ad, if the user is on the lyrics page, and the status of Spotify's native lyrics (`SYNCED`, `UNSYNCED`, `MISSING`).
 - Evaluates the "Pre-Fetch Registry" from the background worker and executes a "Forensic Scan" of the native lyrics to determine if a `slyCore` hijack is necessary.
 
-### `lib/slyCore/statusHud.ts`
-The Custom UI Loader.
-- Mimics Spotify's native loading screen.
-- Extracts the dominant color and album art from the current track, applies a CSS blur, and injects a "Spotify Karaoke is fetching lyrics..." (or "Intermission" for ads) overlay while `slyCore` processes translations.
+### `lib/slyCore/statusEngine.ts`
+The status orchestrator.
+- `StatusEngine.show/clear/isShowing`: records the lyrics status (`lyricsStatus.ts`) and draws it on the surface `slyStatusPlacement()` picks: Spotify's lyrics panel (full status screen), the extension's Lyrics button in the expanded Now Playing view (`lyricsChip.ts`), or a short toast.
+- Gives back whatever it hid (Spotify's panel, artwork) when the status goes away.
+
+### `lib/slyCore/takeoverEngine.ts`
+The takeover ("0ms swap") for songs Spotify has no lyrics for.
+- Builds the extension's lyrics in Spotify's own slot and style (`slyPrepareContainer` in `domEngine.ts`), mirrors the theme, hands the pill over.
+- Refusals: Spotify's lyric style unknown or its slot not recognised → a "Lyrics found" status; mid-slide between two songs (`lyrics-slot-busy`) → no status, `_retryWhenSlotSettles` tries again once one slot is left.
+
+### `lib/slyCore/nowPlayingOpener.ts`
+Opens Spotify's expanded Now Playing view for songs Spotify has no lyrics for (its own lyrics button does nothing then), only when Spotify's click did not open a lyrics view.
 
 ---
 
@@ -241,18 +257,19 @@ The Offline Language Identifier.
 The Zero-Latency Transliteration Hub.
 - To prevent rate-limiting and minimize network latency, Spotify Karaoke bundles **10 local transliteration libraries**. 
 - It dynamically loads massive dictionaries (like Kuroshiro/Kuromoji for Japanese Kanji parsing) and handles Pinyin, Korean, Cyrillic, Thai, Tamil, and several Indic scripts (via Sanscript) entirely inside the user's browser memory.
+- Built-in engines: `thaiRomanizer.ts` (word segmentation + RTGS-style syllable reader, library fallback per word), `japaneseRomanizer.ts` (kuromoji tokens grouped into words, particles read as pronounced; the dictionary comes from jsDelivr on first use; unread kanji go to Google in `lyricsProcessor.ts`), `hindiRomanizer.ts` (Devanagari with schwa deletion: "hum baatein").
+- `lib/core/spotifyRomanization.ts`: for native lines the extension restored, Romanized mode uses Spotify's own romanized line paired with each.
+- `lib/core/processedCache.ts` `ROMANIZER_VERSION` retires cached romanizations of scripts whose romanizer changed.
 
-### `lib/translate/googleApi.ts` & `myMemoryApi.ts`
+### `lib/translate/googleApi.ts`
 The Translation Fetchers.
 - `googleApi.ts`: Uses the free `client=gtx` endpoint. Contains highly specific logic to parse Google's nested array response structure. It correctly identifies the hidden `dt=rm` romanization block that Google appends to the end of the payload.
-- `myMemoryApi.ts`: A secondary translation fallback API (`mymemory.translated.net`) in case the user's IP is temporarily blocked by Google Translate.
 
-### `lib/mxmClient.ts`
-The Musixmatch Rescue Client.
-- Runs exclusively in the `MAIN` world (called by `fetchInterceptor`).
-- Manages an anonymous Desktop App authentication token (`web-desktop-app-v1.0`).
-- **The Forensic Verifier:** When it fetches lyrics from Musixmatch, it passes them through `verifyNativeScript()`. It counts the Unicode characters to ensure the Musixmatch payload actually contains native script (> 10 non-latin characters). If Musixmatch returns romanized text too, the interceptor aborts the injection to prevent a loop.
-- Features a 4-step fallback search to guarantee finding the song: `commontrack_id` ➡️ `track_id` ➡️ fuzzy search ➡️ unsynced search.
+### `lib/lyricsProviders/nativeLyrics.ts`
+The native-script lookup (background).
+- Answers the interceptor's request for a song's lyrics in the original script: remembered lines first (30 days), then YouTube Music's synced lyrics when they are native script, then a synced LRCLIB copy that matches the track's duration and line count.
+- Musixmatch was the first source until 2026-11, when it stopped serving anonymous clients; it was removed.
+- `lrclibNative.ts`: picks a native-script LRCLIB copy only when its duration and line count match the track.
 
 ### `lib/slyCore/forensics.ts`
 The Character Investigator.
@@ -291,14 +308,14 @@ The administrative outer shell. Declarative net rules for bypassing CORS, testin
 
 ### `.github/workflows/release.yml`
 The Deployment Automation.
-- A highly optimized GitHub Action that runs every time a `v*` tag is pushed.
+- A highly optimized GitHub Action that runs every time a `v*` tag is pushed. **Pushing a tag publishes to all three stores.**
+- Store credentials come from the repository's GitHub secrets (`CHROME_*`, `FIREFOX_*`, `EDGE_*`).
 - It builds zip files for Chrome, Firefox, and Edge simultaneously.
 - Uses `softprops/action-gh-release` to create a public GitHub release.
 - Executes `npx wxt submit` to automatically upload the built extension to the Chrome Web Store, Mozilla Add-ons, and Microsoft Edge Add-ons directories.
 
-### `.env.submit.template`
-The Deployment Secrets.
-- A reference file documenting the exact environment variables (`CHROME_CLIENT_SECRET`, `FIREFOX_JWT_ISSUER`, `EDGE_API_KEY`) required by GitHub Actions to authenticate with the respective browser extension stores.
+### `lib/testHooks.ts` (debug builds only)
+- `SLY_DEBUG=1` builds (`npm run build:chrome:debug`, `build:firefox:debug`) keep the logs and define `__SLY_TEST_HOOKS__`: fault switches (`google`, `japaneseDictionary`), extension reload, and `traceEvent` markers on `<html data-sly-trace>` for frame-by-frame recorders. Store builds contain none of it.
 
 ### `tests/`, `vitest.config.ts` & `vitest.setup.ts`
 The Testing Environment.
