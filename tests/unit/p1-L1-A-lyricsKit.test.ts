@@ -392,6 +392,22 @@ describe('mid-slide between two songs (live 2026-11-08: two slots, refused once,
     expect(root?.parentElement).toBe(newSlot);
   });
 
+  it('mid-slide with the playing song\'s slide first: the cards are collapsed, never the other song\'s slide (live)', () => {
+    kitReady();
+    loadNoLyricsOverlay();
+    document.querySelector('.scroll')!.innerHTML = `<div class="branch"><div class="slides">
+      <div class="slide new" style="transform: translateX(0%)"><div class="j"><div class="InvSlotBbbbbbbbbbbb"><div class="art"><img src="${IMG(NEW_ART)}" alt=""></div></div></div></div>
+      <div class="slide old" style="transform: translateX(-100%)"><div class="j"><div class="InvSlotBbbbbbbbbbbb"><div class="art"><img src="${IMG(OLD_ART)}" alt=""></div></div></div></div>
+    </div></div><div class="cards">About the artist</div>`;
+    document.querySelector('[data-testid="now-playing-bar"]')!.insertAdjacentHTML('afterbegin',
+      `<img data-testid="cover-art-image" src="${IMG(NEW_ART, '0000e1a3')}" alt="">`);
+    const root = w.slyPrepareContainer({ forLyrics: true });
+    expect(root?.parentElement).toBe(document.querySelector('.new .InvSlotBbbbbbbbbbbb'));
+    expect(document.querySelector('.cards')!.getAttribute('data-sly-hide')).toBe('collapse');
+    expect(document.querySelector('.slide.old')!.hasAttribute('data-sly-hide')).toBe(false);
+    slyRestoreOverlayContent();
+  });
+
   it('a slot on the leaving slide is never the one', () => {
     kitReady();
     const { newSlot } = twoSlides(OLD_ART, OLD_ART, null);

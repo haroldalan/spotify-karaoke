@@ -238,9 +238,15 @@ export function slyPlaceInOverlaySlot(root: HTMLElement, slot: HTMLElement): voi
   // Spotify's media (artwork, artist image, Canvas) is hidden while our lyrics show.
   slotMedia(slot).forEach(el => el.setAttribute(HIDE_ATTR, 'content'));
   // The cards below the panel (artist, credits): the next sibling of the first
-  // ancestor above the slot that has one, inside the overlay's content.
+  // ancestor above the slot that has one, inside the overlay's content. Song slides
+  // (Spotify's carousel) are stepped over: mid-slide the slide's next sibling is the
+  // other song's slide, not the cards (live 2026-11-08: that slide was collapsed and
+  // the cards stayed over the lyrics).
+  const isSlide = (el: Element | null): boolean => !!(el as HTMLElement | null)?.style?.transform?.includes('translateX');
   let branch: Element | null = slot.parentElement;
-  while (branch && branch !== overlay && !branch.nextElementSibling) branch = branch.parentElement;
+  while (branch && branch !== overlay && (!branch.nextElementSibling || isSlide(branch) || isSlide(branch.nextElementSibling))) {
+    branch = branch.parentElement;
+  }
   const below = branch && branch !== overlay ? branch.nextElementSibling : null;
   if (below && !below.classList.contains('os-scrollbar') && !below.querySelector('button[role="radio"]')) {
     below.setAttribute(HIDE_ATTR, 'collapse');
