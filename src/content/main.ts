@@ -12,6 +12,8 @@ import { View, type ViewState } from './view';
 /** What the popup's status section asks the page for. */
 export interface PageStatus {
   build: string;
+  /** The song now playing, when its details went past, and whether no source has lyrics for it. */
+  current: { name: string; artists: string[]; noLyrics: boolean } | null;
   /** Last time the page script reported anything (ms), 0 when never. */
   pageSeenAt: number;
   /** Last time lyrics went past (ms), 0 when never. */
@@ -142,7 +144,13 @@ export async function startContent(): Promise<void> {
   const pill = new Pill((mode) => void saveSettings({ mode }));
   let lastView: ViewState = { lineCount: 0, anchor: null, song: null };
 
-  async function searchAgain(meta: TrackMeta) {
+  /** The song now playing (matched by title: the player bar carries no track id). */
+  function currentMeta(): TrackMeta | null {
+    const title = nowPlayingTitle();
+    return title ? [...metas.values()].reverse().find((m) => m.name === title) ?? null : null;
+  }
+
+  async function searchAgain(meta: TrackMeta): Promise<boolean> {
     notice = { id: meta.id, caption: 'Searching again…', actions: [] };
     render();
     const found = await call('retryLyrics', meta).catch(() => null);
@@ -166,6 +174,7 @@ export async function startContent(): Promise<void> {
       };
     }
     render();
+    return !!found;
   }
 
   /** The notice for the song on screen, when its lyrics view is open and empty. */
@@ -229,12 +238,41 @@ export async function startContent(): Promise<void> {
     void saveSettings({ mode });
   });
 
-  // The popup's status section.
+  // The popup: status, and "Search again" for a song whose Lyrics button Spotify disabled
+  // (no source had lyrics: the in-page actions can't be reached then).
   chrome.runtime.onMessage.addListener((msg: unknown, _sender, reply) => {
-    if ((msg as { sk?: string })?.sk !== 'page-status') return false;
-    reply({ build: BUILD, pageSeenAt, lyricsSeenAt, linesOnScreen: lastView.lineCount } satisfies PageStatus);
+    const kind = (msg as { sk?: string })?.sk;
+    if (kind === 'page-status') {
+      const m = currentMeta();
+      const current = m ? { name: m.name, artists: m.artists, noLyrics: noLyrics.has(m.id) || missing.has(m.id) } : null;
+      reply({ build: BUILD, current, pageSeenAt, lyricsSeenAt, linesOnScreen: lastView.lineCount } satisfies PageStatus);
+      return false;
+    }
+    if (kind === 'search-again') {
+      const m = currentMeta();
+      if (!m) { reply({ found: false }); return false; }
+      void searchAgain(m).then((found) => reply({ found }));
+      return true;
+    }
     return false;
   });
+
+  // Spotify's mini player (Document Picture-in-Picture) is a window of its own: decorate it too.
+  const pip = (window as unknown as { documentPictureInPicture?: EventTarget & { window: Window | null } }).documentPictureInPicture;
+  const pipViews = new Set<View>();
+  const attachPip = (w: Window) => {
+    const st = w.document.createElement('style');
+    st.textContent = STYLE;
+    (w.document.head ?? w.document.documentElement).append(st);
+    const v = new View(store, settings, w.document);
+    v.setWantRect(false);
+    v.start();
+    pipViews.add(v);
+    w.addEventListener('pagehide', () => { v.stop(); pipViews.delete(v); }, { once: true });
+  };
+  pip?.addEventListener('enter', (e) => attachPip((e as Event & { window: Window }).window));
+  if (pip?.window) attachPip(pip.window);
+  onSettingsChanged((s) => { for (const v of pipViews) v.setSettings(s); });
 
   const begin = () => view.start();
   if (document.body) begin();

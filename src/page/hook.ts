@@ -24,7 +24,9 @@ export interface HookTiming {
   configWaitMs: number;
 }
 
-export const DEFAULT_TIMING: HookTiming = { lookupMs: 12_000, upgradeMs: 4_000, nativeMs: 5_000, metaWaitMs: 1_500, configWaitMs: 800 };
+// Spotify's own lyrics wait at most 1.5 s for a better copy: a line-for-line restoration that
+// comes later still reaches the screen (content script), others are used next time.
+export const DEFAULT_TIMING: HookTiming = { lookupMs: 12_000, upgradeMs: 1_500, nativeMs: 1_500, metaWaitMs: 1_500, configWaitMs: 800 };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
