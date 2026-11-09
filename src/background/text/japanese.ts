@@ -127,7 +127,13 @@ export function romanizeJapaneseTokens(tokens: JapaneseToken[]): string {
   }
   flush();
   if (opener) push('');
-  return words.join(' ').replace(/\s+/g, ' ').trim();
+  return words
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    // ASCII punctuation in a mixed line comes through as words of its own: "you , I", "( uneasy".
+    .replace(/\s+([,.!?;:)\]}])/g, '$1')
+    .replace(/([(\[{])\s+/g, '$1')
+    .trim();
 }
 
 /** Romanizes Japanese lines. Rejects when the dictionary can't be loaded in time. */

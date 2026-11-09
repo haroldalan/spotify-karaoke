@@ -65,6 +65,13 @@ describe('Japanese: words, not morphemes', () => {
     ]))).toBe('"suki" Baby doko?');
   });
 
+  it('keeps English punctuation tight in a mixed line', () => {
+    expect(romanizeJapaneseTokens(tok([
+      ['涙', '名詞', '一般', '涙', 'ナミダ'], ['uneasy', '名詞', '一般', '*'], ['(', '名詞', 'サ変接続', '*'],
+      ['heart', '名詞', '一般', '*'], [')', '名詞', 'サ変接続', '*'], ['you', '名詞', '一般', '*'], [',', '名詞', 'サ変接続', '*'], ['I', '名詞', '一般', '*'],
+    ]))).toBe('namida uneasy (heart) you, I');
+  });
+
   it('leaves a kanji the dictionary has no reading for as written', () => {
     expect(romanizeJapaneseTokens(tok([['昏', '名詞', '一般', '*'], ['い', '形容詞', '自立', 'い', 'イ']]))).toContain('昏');
   });

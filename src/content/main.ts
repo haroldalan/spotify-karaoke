@@ -135,15 +135,15 @@ export async function startContent(): Promise<void> {
     if (found) {
       noLyrics.delete(meta.id);
       finding.delete(meta.id);
-      missing.delete(meta.id);
       bridge.setConfig(pageConfig());
-      notice = null;
-      // Spotify asks for the lyrics again when its lyrics view reopens.
-      const b = lyricsButton();
-      if (b && lyricsViewOpen(b)) {
-        b.click();
-        setTimeout(() => lyricsButton()?.click(), 400);
-      }
+      // Spotify keeps its earlier "no lyrics" for this song until the page loads again
+      // (reopening the lyrics view doesn't ask again: checked live 2026-11-09). A reload
+      // interrupts playback, so it's the listener's call.
+      notice = {
+        id: meta.id,
+        text: `Lyrics found for ${meta.name}. Reload Spotify to show them.`,
+        actions: [{ label: 'Reload', run: () => location.reload(), primary: true }],
+      };
     } else {
       notice = {
         id: meta.id,

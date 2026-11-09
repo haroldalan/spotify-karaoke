@@ -58,6 +58,18 @@ Verified live in Chrome 156:
   both songs' panels are mounted.
 - Unsynced Spotify lyrics upgraded to a synced LRCLIB copy (same script).
 - See PRIVACY_POLICY.md for every service contacted and what is sent.
+
+Live regression pass in the owner's Chrome (dev build, 2026-11-09):
+- Hindi romanized from Devanagari; T / R keys; translation.
+- Tum Hi Ho restored line for line from YouTube Music, shown with Spotify's own romanization.
+- TRILLIUM HARDTEKK (no lyrics anywhere): the notice, Search again, "Still no lyrics".
+  Spotify does not ask for lyrics again when its view is reopened, so newly found lyrics
+  show after a reload (the notice offers it).
+- Japanese (Midnight Pretenders): words grouped (nazoreba, oyogi tsukareta sakana no you ni).
+- Skip to the next song: no undecorated line in any 100 ms sample, mid-slide included.
+- GraphQL responses yield track details (50, 25, 11 ... tracks per response).
+- Popup: status, cache size, language search.
+Firefox (test profile, no playback): page hook, background lookups and romanized lines work.
 - Songs without lyrics: Spotify asks for them after we claim `has_lyrics`, and renders
   ours. When nothing is found, Spotify shows its own "still working on lyrics" message.
 - Native script: Spotify's romanized Tamil (Thangamey) and a Hindi song restored from

@@ -187,7 +187,9 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     if (!res.ok) return;
     // Off the main path: Spotify gets its response now; we read the copy when we can.
     res.clone().json().then((j) => {
-      for (const h of harvestTracks(j)) hints.set(h.id, h);
+      const found = harvestTracks(j);
+      for (const h of found) hints.set(h.id, h);
+      if (found.length) note(`graphql ${found.length} tracks`);
       while (hints.size > 2000) hints.delete(hints.keys().next().value!);
     }, () => {});
   }
