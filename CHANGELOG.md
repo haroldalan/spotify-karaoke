@@ -165,15 +165,6 @@ Spotify rebuilt its web player in late 2026 (an expanded Now Playing view with a
 - **Unlimited Lyrics Storage**: Integrated the `unlimitedStorage` permission and optimized the content script to bypass the default 10MB local layout quota.
 - **Auto-Scaling Storage UI**: Updated the extension popup to automatically scale storage usage labels between KB and MB for high-capacity lyric libraries.
 - **Romanization Fast-Path Prioritization**: Refined the mode-switching logic to prioritize high-quality romanization, preventing low-quality fallback data from entering the cache when better alternatives exist.
-
-### Fixed
-- **Cache Eviction Lifecycle**: Removed redundant LRU eviction logic and byte-size accounting from the content script to simplify the local database structure.
-- **Permission Compliance**: Refined the internal security audit test suite to handle the new `unlimitedStorage` requirement while maintaining strict host-permission guards.
-- **Background Synchronization Tests**: Fixed regression in background unit tests specifically relating to the internal line-truncation return types.
-
-## [3.0.5] — 2026-04-04
-
-### Added
 - **Technical Audit & Resiliency**: Conducted a comprehensive technical audit of the extension architecture for v3.0.5.
 - **Fetch Generation Isolation (isStale Fix)**: Implemented per-track generation maps in the fetch interceptor to prevent cross-song "poisoning" during rapid background pre-fetches.
 - **Race Condition Guard**: Implemented a three-layer "Poison Guard" in the content script to prevent empty DOM snapshots from corrupting the lyrics cache during Spotify's React rendering cycles.
@@ -185,6 +176,11 @@ Spotify rebuilt its web player in late 2026 (an expanded Now Playing view with a
 - **Test Suite Stabilization**: Resolved persistent Vitest environment invariant failures and module resolution errors for a 100% green CI pass.
 - **Expert-Audited Validation**: Conducted a final technical validation with external experts, confirming architectural decisions and resolving a long-standing documentation drift for the v3.0.5 release.
 - **Documentation & Privacy Polish**: Revamped the README with a technical "Under the Hood" summary and expanded the Privacy & Disclaimer section for full transparency on MyMemory fallback and cache eviction logic.
+
+### Fixed
+- **Cache Eviction Lifecycle**: Removed redundant LRU eviction logic and byte-size accounting from the content script to simplify the local database structure.
+- **Permission Compliance**: Refined the internal security audit test suite to handle the new `unlimitedStorage` requirement while maintaining strict host-permission guards.
+- **Background Synchronization Tests**: Fixed regression in background unit tests specifically relating to the internal line-truncation return types.
 
 ## [3.0.4] — 2026-04-01
 

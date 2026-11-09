@@ -21,7 +21,7 @@
 <tr>
 <td align="center">
 <br>
-<img src="https://api.iconify.design/lucide:search.svg?color=%231DB954" width="36" height="36">
+<img src="https://api.iconify.design/lucide/search.svg?color=%231DB954" width="36" height="36">
 <br>
 <b>Smart Lyrics Fetch</b><br>
 When Spotify can't find lyrics, the extension fetches them automatically.<br><br>
@@ -30,7 +30,7 @@ When Spotify can't find lyrics, the extension fetches them automatically.<br><br
 </td>
 <td align="center">
 <br>
-<img src="https://api.iconify.design/lucide:languages.svg?color=%231DB954" width="36" height="36">
+<img src="https://api.iconify.design/lucide/languages.svg?color=%231DB954" width="36" height="36">
 <br>
 <b>Phonetic Romanization</b><br>
 Universal support for any script, with optimized local engines for 16 major writing systems.<br><br>
@@ -41,7 +41,7 @@ Universal support for any script, with optimized local engines for 16 major writ
 <tr>
 <td align="center">
 <br>
-<img src="https://api.iconify.design/lucide:globe.svg?color=%231DB954" width="36" height="36">
+<img src="https://api.iconify.design/lucide/globe.svg?color=%231DB954" width="36" height="36">
 <br>
 <b>Real-time Translation</b><br>
 Read lyrics in 132 languages to understand the meaning behind every line.<br><br>
@@ -50,7 +50,7 @@ Read lyrics in 132 languages to understand the meaning behind every line.<br><br
 </td>
 <td align="center"> 
 <br>
-<img src="https://api.iconify.design/lucide:sparkles.svg?color=%231DB954" width="36" height="36">
+<img src="https://api.iconify.design/lucide/sparkles.svg?color=%231DB954" width="36" height="36">
 <br>
 <b>Native Restoration</b><br>
 Bypass low-quality fallbacks and restore original, high-fidelity native scripts automatically.<br><br>
@@ -68,7 +68,7 @@ Bypass low-quality fallbacks and restore original, high-fidelity native scripts 
 <tr>
 <td align="center">
 <br>
-<img src="https://api.iconify.design/lucide:layers.svg?color=%23888888" width="36" height="36">
+<img src="https://api.iconify.design/lucide/layers.svg?color=%23888888" width="36" height="36">
 <br>
 <b>Ultimate Triple View</b><br>
 Original, Romanized, and Translated text all in a single, perfectly synced frame.<br><br>
