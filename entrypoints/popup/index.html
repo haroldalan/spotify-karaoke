@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotify Karaoke</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Spotify Karaoke</h1>
+    </header>
+
+    <section aria-labelledby="mode-label">
+      <h2 id="mode-label">Main line</h2>
+      <div class="seg" role="radiogroup" aria-labelledby="mode-label">
+        <label><input type="radio" name="mode" value="original" /><span>Original</span></label>
+        <label><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
+        <label><input type="radio" name="mode" value="translated" /><span>Translated</span></label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Also show beneath</h2>
+      <label class="row"><input type="checkbox" name="showOriginal" /> Original lyrics</label>
+      <label class="row"><input type="checkbox" name="showRomanized" /> Romanization</label>
+      <label class="row"><input type="checkbox" name="showTranslation" /> Translation</label>
+    </section>
+
+    <section>
+      <h2><label for="lang">Translate into</label></h2>
+      <select id="lang" name="targetLang"></select>
+    </section>
+
+    <section>
+      <h2>More</h2>
+      <label class="row"><input type="checkbox" name="fillMissing" /> Find lyrics when Spotify has none</label>
+      <label class="row"><input type="checkbox" name="restoreNative" /> Restore the original script</label>
+      <label class="row"><input type="checkbox" name="showPill" /> Show the switcher on the lyrics</label>
+    </section>
+
+    <footer>
+      <span id="version"></span>
+      <a href="chrome://extensions/shortcuts" id="shortcuts">Keyboard shortcuts</a>
+    </footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,35 @@
+:root {
+  --bg: #121212;
+  --panel: #1f1f1f;
+  --text: #fff;
+  --muted: #b3b3b3;
+  --accent: #1ed760;
+  --line: #2a2a2a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  width: 320px;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+h1 { margin: 0 0 12px; font-size: 16px; }
+h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+section { padding: 12px 0; border-top: 1px solid var(--line); }
+.seg { display: flex; background: var(--panel); border-radius: 999px; padding: 3px; }
+.seg label { flex: 1; text-align: center; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; padding: 7px 0; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 600; }
+.seg input:checked + span { background: var(--text); color: #000; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); }
+.row { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+select {
+  width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--text); font: inherit;
+}
+footer { display: flex; justify-content: space-between; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+footer a { color: var(--muted); }

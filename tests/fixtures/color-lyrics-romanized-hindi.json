@@ -1,0 +1,31 @@
+{
+  "lyrics": {
+    "syncType": "LINE_SYNCED",
+    "lines": [
+      { "startTimeMs": "780", "words": "Mera dil tera hai, tu kahan hai yaar", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "6020", "words": "Main har pal teri yaad mein rehta hoon", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "12500", "words": "♪", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "22050", "words": "Kya hua jo tum saath nahin ho aaj", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "27460", "words": "Phir bhi mujhe tujhse pyaar hai", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "32710", "words": "Zindagi ke har safar mein tera naam", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "38050", "words": "Kabhi toh aaja, kuch toh bol de", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "44450", "words": "", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" }
+    ],
+    "provider": "MusixMatch",
+    "providerLyricsId": "12345678",
+    "providerDisplayName": "Musixmatch",
+    "syncLyricsUri": "",
+    "isDenseTypeface": false,
+    "alternatives": [],
+    "language": "id",
+    "isRtlLanguage": false,
+    "capStatus": "UNCAPPED",
+    "previewLines": [
+      { "startTimeMs": "780", "words": "Mera dil tera hai, tu kahan hai yaar", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" },
+      { "startTimeMs": "6020", "words": "Main har pal teri yaad mein rehta hoon", "syllables": [], "endTimeMs": "0", "transliteratedWords": "" }
+    ],
+    "translationLanguages": []
+  },
+  "colors": { "background": -2543255, "text": -16777216, "highlightText": -1 },
+  "hasVocalRemoval": false
+}
