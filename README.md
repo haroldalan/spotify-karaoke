@@ -13,6 +13,9 @@
   ![Chrome rating](https://img.shields.io/chrome-web-store/rating/bhhkohameknlmcgdfafkjplpjalfedie?style=flat-square&color=1DB954)
 </div>
 
+> [!NOTE]
+> **Updated for Spotify's late-2026 redesign.** Spotify rebuilt its web player (the expanded Now Playing view with Artwork, Canvas and Lyrics), which broke earlier versions. Version 3.1.6 works with the new design. If the extension stopped working for you, update to 3.1.6 or later. See the [changelog](CHANGELOG.md).
+
 ---
 
 ## Key Features
@@ -108,7 +111,7 @@ Switch between modes using the floating pill controls injected directly into the
 
 **Dual Lyrics mode** — in Romanized or Translated mode, the processed text becomes the primary karaoke highlight line, with the original script shown below in a smaller font for reference (suppressed when identical to the primary line).
 
-**Genetic Lock Shield** — keeps the lyrics panel permanently accessible, even for tracks where Spotify deliberately disables the lyrics button (e.g., instrumentals, podcasts).
+**Lyrics for every song** — for songs Spotify has no lyrics for, the Lyrics button still works: it opens Spotify's full-screen Now Playing view, where the fetched lyrics take the lyrics panel's place, and the greyed-out Lyrics option there is replaced by the extension's own.
 
 **Ad breaks** — during an audio ad Spotify shows its own ad page; the extension steps aside and brings your lyrics back, in the mode you chose, as soon as the break ends.
 
@@ -140,7 +143,7 @@ There are three ways to switch between Original, Romanized, and Translated:
 | **Keyboard shortcuts** | While the lyrics panel is open, press `O` (Original), `R` (Romanized), or `T` (Translated). Safe to use - shortcuts are ignored when focus is in a text input or search bar. |
 
 > [!NOTE]
-> Floating controls and keyboard shortcuts only function when Spotify's lyrics panel is open. Click the microphone icon in the player to open it.
+> Floating controls and keyboard shortcuts only function when Spotify's lyrics are open. Click the Lyrics (microphone) button in the player bar, or pick **Lyrics** in Spotify's full-screen Now Playing view.
 
 Power users can toggle off the floating pill entirely via **Show Floating Controls** in the popup, then use keyboard shortcuts or the popup pill for a completely unobstructed lyrics view.
 
@@ -211,11 +214,11 @@ Romanize and Translate modes then operate on the correct native source, producin
 | **Cyrillic** (Russian, Ukrainian, Bulgarian, Serbian, Belarusian) | `cyrillic-to-translit-js` | Local |
 | **Thai** | Built-in word-by-word reading close to RTGS ("chan rak khun"); `@dehoist/romanize-thai` for words it cannot parse | Local |
 | **Malayalam, Bengali, Arabic, Hebrew** | Google Translate (`dt=rm`) | API |
-
-When the extension restores a song's native script, Romanized mode uses Spotify's own romanized lines for it where they line up, the spelling listeners already know.
 | **Translation** (All 132 languages) | Google Translate | API |
 
 > ⚡ **Local** — zero latency, runs entirely in your browser. &nbsp; 🌐 **API** — requires a network call.
+
+When the extension restores a song's native script, Romanized mode uses Spotify's own romanized lines for it where they line up, the spelling listeners already know.
 
 ---
 
@@ -231,11 +234,11 @@ When the extension restores a song's native script, Romanized mode uses Spotify'
 | **Cache upgrades** | Background worker silently re-queries YTM weekly for previously unsynced songs; upgrades to synced automatically if found |
 | **Native-script check** | Counts non-Latin letters in a candidate copy (YouTube Music / LRCLIB) and uses it only when it is really in the original script |
 | **React Fiber bridge** | `slyBridge.ts` scans Spotify's Fiber tree at 500ms intervals. Utilizes a target-optimized **Crawler Cache Gate** to completely stand down heavy signature scans once resolved, maintaining a virtually 0% CPU footprint during active lyrics display |
-| **Genetic Lock** | `Object.defineProperty` override on Spotify's internal lyrics button `disabled` prop + extraction of `toggleLyrics()` directly from memoized Fiber props — keeps the panel permanently accessible and programmatically controllable |
+| **Lyrics opener** | When Spotify's Lyrics button does nothing (no Spotify lyrics), the extension opens the expanded Now Playing view itself and places its lyrics in Spotify's lyrics slot. Spotify's own click always runs first, so songs with lyrics are never touched |
 | **Playback sync** | Wall-clock extrapolation via `performance.now()` for 60fps sub-second accuracy between Spotify's ~500ms UI ticks |
 | **Stale-cancel guards** | Generation Map + `processGen` parity counter (2 independent mechanisms) |
 | **Translation failure** | Google Translate; if it is unavailable, the original lyrics stay and Romanized mode still works |
-| **Browser support** | Chrome MV3 · Firefox MV2 (≥ 142.0) |
+| **Browser support** | Chrome MV3 · Edge MV3 · Firefox MV2 (≥ 142.0) |
 
 ---
 
@@ -261,7 +264,10 @@ npm run zip:firefox    # Package for Firefox Add-ons submission
 npm run zip:edge       # Package for Edge Add-ons submission
 
 npm run test           # Run unit and component test suite
+npm run typecheck      # TypeScript check
 ```
+
+Releases: pushing a `v*` tag builds, tests, creates the GitHub release and submits to all three stores (`.github/workflows/release.yml`). The workflow can also be run by hand for an existing tag, for chosen stores, with a credentials-only dry run.
 
 ### Project Structure
 
@@ -313,8 +319,11 @@ When lyrics are detected, the engine reads the current mode (Original / Romanize
 
 ## Troubleshooting
 
+**It stopped working recently.**
+Spotify redesigned its web player in late 2026. Version 3.1.6 supports the new design; check the installed version on your browser's extensions page (`chrome://extensions`, `about:addons` or `edge://extensions`). Stores update extensions automatically within a few hours of a release; Chrome's **Update** button on that page (with Developer mode on) forces it. Then reload the Spotify tab.
+
 **Why aren't lyrics showing?**
-Ensure the native Spotify lyrics panel is open. The extension injects into the native UI — click the microphone icon in the player bar to open it.
+Make sure Spotify's lyrics are open: click the Lyrics (microphone) button in the player bar. For songs Spotify has no lyrics for, that button opens the full-screen Now Playing view with the extension's lyrics.
 
 **The lyrics panel is stuck or glitching.**
 If Spotify changes its internal class names or state becomes corrupt, open the extension popup and click **Reset Data**. This safely clears the local cache and resets your preferences.
@@ -343,7 +352,7 @@ Please keep PRs focused. One feature or fix per PR makes review much faster.
 ## Privacy & Disclaimer
 
 > [!NOTE]
-> **No personal data is collected.** Settings are stored in `browser.storage.sync`. Processed lyrics are cached locally in `browser.storage.local` and never leave your device. Lyric text is sent to Google Translate only when using Translated or API-based Romanized modes. See [Google's Privacy Policy](https://policies.google.com/privacy).
+> **No personal data is collected.** Settings are stored in `browser.storage.sync`. Processed lyrics are cached locally in `browser.storage.local` and never leave your device. Lyric text is sent to Google Translate only when using Translated or API-based Romanized modes. See the extension's full [privacy policy](https://haroldalan.github.io/spotify-karaoke/PRIVACY_POLICY.html) and [Google's Privacy Policy](https://policies.google.com/privacy).
 
 > [!WARNING]
 > Spotify Karaoke is not affiliated with or endorsed by Spotify AB. It is an independent open-source project that modifies the Spotify web player UI for personal and accessibility use.
