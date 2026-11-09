@@ -93,6 +93,8 @@ jobs:
           name: zips
           path: .output/*.zip
           if-no-files-found: error
+          # .output is a dot-folder, which upload-artifact skips unless told otherwise.
+          include-hidden-files: true
           retention-days: 30
 
   github-release:
