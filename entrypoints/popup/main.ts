@@ -1,20 +1,33 @@
 import { LANGUAGES } from '../../src/shared/languages';
 import { call } from '../../src/shared/messages';
-import { allLinesShown, loadSettings, onSettingsChanged, saveSettings } from '../../src/shared/settings';
+import { loadSettings, onSettingsChanged, resetSettings, saveSettings } from '../../src/shared/settings';
 import type { Mode, Settings } from '../../src/shared/types';
 import type { PageRequest, PageStatus } from '../../src/content/main';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
-const BOOLS = ['showOriginal', 'showRomanized', 'showTranslation', 'showPill'] as const;
-/** The "also show" switch that would repeat the main line. */
-const SAME_AS_MAIN: Record<Mode, (typeof BOOLS)[number]> = { original: 'showOriginal', romanized: 'showRomanized', translated: 'showTranslation' };
 
-// ── Language: a dropdown that opens a searchable list ──
+// ── "Saved" ──
+const saved = $('#saved');
+let savedTimer: ReturnType<typeof setTimeout> | undefined;
+async function save(patch: Partial<Settings>) {
+  await saveSettings(patch);
+  saved.classList.add('visible');
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => saved.classList.remove('visible'), 2000);
+}
+
+// ── Active mode ──
+const modeButtons = [...document.querySelectorAll<HTMLButtonElement>('.sly-lyrics-btn')];
+for (const b of modeButtons) b.addEventListener('click', () => void save({ mode: b.dataset.mode as Mode }));
+
+// ── Target language: common languages first, then all, searchable ──
+const QUICK = ['en', 'es', 'zh-CN', 'hi', 'fr', 'de', 'ja', 'ko', 'pt', 'ru'];
+const picker = $('#picker');
 const langButton = $<HTMLButtonElement>('#lang-button');
 const langName = $('#lang-name');
 const panel = $('#lang-panel');
 const search = $<HTMLInputElement>('#lang-search');
-const list = $<HTMLUListElement>('#lang-list');
+const list = $('#lang-list');
 let current = 'en';
 let active = -1;
 
@@ -22,25 +35,53 @@ const nameOf = (code: string) => LANGUAGES.find(([c]) => c === code)?.[1] ?? cod
 
 function fillLanguages() {
   const f = search.value.trim().toLowerCase();
-  const matches = LANGUAGES.filter(([code, name]) => !f || name.toLowerCase().includes(f) || code.toLowerCase() === f);
-  list.replaceChildren(...matches.map(([code, name], i) => {
-    const li = document.createElement('li');
-    li.id = `lang-${i}`;
-    li.role = 'option';
-    li.dataset.code = code;
-    li.textContent = name;
-    li.setAttribute('aria-selected', String(code === current));
-    return li;
-  }));
-  const selected = matches.findIndex(([c]) => c === current);
-  setActive(f ? 0 : selected);
+  const match = ([code, name]: [string, string]) => !f || name.toLowerCase().includes(f) || code.toLowerCase() === f;
+  const common = QUICK.map((c) => LANGUAGES.find(([code]) => code === c)!).filter(Boolean).filter(match);
+  const rest = LANGUAGES.filter(([c]) => !QUICK.includes(c)).filter(match);
+  const groups: [string, [string, string][]][] = [['Common', common], ['All Languages', rest]];
+  const nodes: HTMLElement[] = [];
+  let i = 0;
+  for (const [label, langs] of groups) {
+    if (!langs.length) continue;
+    const g = document.createElement('div');
+    g.className = 'sly-picker-group-label';
+    g.textContent = label;
+    nodes.push(g);
+    for (const [code, name] of langs) {
+      const item = document.createElement('div');
+      item.className = `sly-picker-item${code === current ? ' selected' : ''}`;
+      item.id = `lang-${i++}`;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', String(code === current));
+      item.dataset.code = code;
+      item.textContent = name;
+      if (code === current) {
+        const check = document.createElement('span');
+        check.className = 'sly-picker-check';
+        check.textContent = '✓';
+        item.append(check);
+      }
+      nodes.push(item);
+    }
+  }
+  if (!i) {
+    const none = document.createElement('div');
+    none.className = 'sly-picker-no-results';
+    none.textContent = 'No languages found';
+    nodes.push(none);
+  }
+  list.replaceChildren(...nodes);
+  const items = options();
+  setActive(f ? 0 : items.findIndex((el) => el.dataset.code === current));
 }
 
+const options = () => [...list.querySelectorAll<HTMLElement>('.sly-picker-item')];
+
 function setActive(i: number) {
-  const items = list.children;
+  const items = options();
   items[active]?.classList.remove('active');
   active = items.length ? Math.max(0, Math.min(i, items.length - 1)) : -1;
-  const el = items[active] as HTMLElement | undefined;
+  const el = items[active];
   el?.classList.add('active');
   el?.scrollIntoView({ block: 'nearest' });
   if (el) search.setAttribute('aria-activedescendant', el.id);
@@ -49,20 +90,22 @@ function setActive(i: number) {
 
 function openLanguages(open: boolean) {
   panel.hidden = !open;
+  langButton.classList.toggle('active', open);
   langButton.setAttribute('aria-expanded', String(open));
   if (open) {
     search.value = '';
     fillLanguages();
     search.focus();
-  } else langButton.focus();
+  }
 }
 
 function choose(code: string | undefined) {
   if (!code) return;
   current = code;
   langName.textContent = nameOf(code);
-  void saveSettings({ targetLang: code });
+  void save({ targetLang: code });
   openLanguages(false);
+  langButton.focus();
 }
 
 langButton.addEventListener('click', () => openLanguages(panel.hidden));
@@ -70,46 +113,47 @@ search.addEventListener('input', fillLanguages);
 search.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown') setActive(active + 1);
   else if (e.key === 'ArrowUp') setActive(active - 1);
-  else if (e.key === 'Enter') choose((list.children[active] as HTMLElement | undefined)?.dataset.code);
-  else if (e.key === 'Escape') openLanguages(false);
+  else if (e.key === 'Enter') choose(options()[active]?.dataset.code);
+  else if (e.key === 'Escape') { openLanguages(false); langButton.focus(); }
   else return;
   e.preventDefault();
 });
-list.addEventListener('click', (e) => choose((e.target as HTMLElement).closest<HTMLElement>('li')?.dataset.code));
+list.addEventListener('click', (e) => choose((e.target as HTMLElement).closest<HTMLElement>('.sly-picker-item')?.dataset.code));
+document.addEventListener('mousedown', (e) => { if (!panel.hidden && !picker.contains(e.target as Node)) openLanguages(false); });
 
-// ── Settings ──
+// ── Switches ──
+const allLines = $<HTMLInputElement>('#all-lines');
+const showPill = $<HTMLInputElement>('#show-pill');
+const pillGroup = $('#pill-group');
+const pillDescription = $('#pill-description');
+allLines.addEventListener('change', () => void save({ allLines: allLines.checked }));
+showPill.addEventListener('change', () => void save({ showPill: showPill.checked }));
+
 function render(s: Settings) {
-  for (const r of document.querySelectorAll<HTMLInputElement>('input[name="mode"]')) r.checked = r.value === s.mode;
-  for (const k of BOOLS) $<HTMLInputElement>(`input[name="${k}"]`).checked = s[k];
-  for (const row of document.querySelectorAll<HTMLElement>('.row[data-for]')) {
-    const input = row.querySelector('input')!;
-    const same = row.dataset.for === s.mode;
-    input.disabled = same;
-    // It is on screen (as the main line): shown on, the same way in every mode.
-    if (same) input.checked = true;
-    row.classList.toggle('disabled', same);
-    row.querySelector('.note')?.remove();
-    if (same) {
-      const note = document.createElement('span');
-      note.className = 'note';
-      note.textContent = 'main line';
-      row.firstElementChild!.append(note);
-    }
+  for (const b of modeButtons) {
+    const on = b.dataset.mode === s.mode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', String(on));
   }
-  // With every version on screen the switcher has nothing to switch: it hides itself.
-  $('#pill-note').hidden = !allLinesShown(s);
   current = s.targetLang;
   langName.textContent = nameOf(current);
+  allLines.checked = s.allLines;
+  // With all three lines on, every version is already on screen: the switcher is hidden and
+  // its switch keeps its setting, greyed out, until the three lines go off again.
+  showPill.checked = s.showPill;
+  showPill.disabled = s.allLines;
+  pillGroup.classList.toggle('disabled', s.allLines);
+  pillDescription.textContent = s.allLines
+    ? 'Hidden while all three lines show.'
+    : 'Display the Original / Romanized / Translated switch on Spotify\u2019s lyrics.';
 }
 
-void loadSettings().then(render);
-onSettingsChanged(render); // a shortcut or the in-page switcher changed something
-
-document.addEventListener('change', (e) => {
-  const el = e.target as HTMLInputElement;
-  if (el.name === 'mode') void saveSettings({ mode: el.value as Mode });
-  else if ((BOOLS as readonly string[]).includes(el.name)) void saveSettings({ [el.name]: el.checked });
+void loadSettings().then((s) => {
+  render(s);
+  // Settings arrive before the first paint settles: no sliding switches on open.
+  setTimeout(() => $('#container').classList.remove('no-transitions'), 50);
 });
+onSettingsChanged(render); // a shortcut or the in-page switcher changed something
 
 // ── Status: one line; the song playing beneath it ──
 /** The Spotify tab: this one if it is Spotify, else any open one. */
@@ -240,30 +284,38 @@ async function renderStatus() {
   if (page?.pageSeenAt) renderSong(page);
 }
 
-// ── Cache ──
-const clear = $<HTMLButtonElement>('#clear');
-const kb = (b: number) => (b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
-async function renderCache() {
-  const s = await call('storage', {}).catch(() => null);
-  clear.textContent = s ? `Clear cache (${kb(s.bytes)})` : 'Clear cache';
+// ── Storage usage, and Reset data ──
+const kb = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : `${(b / 1024).toFixed(1)} KB`);
+async function renderStorage() {
+  let sync = 0;
+  try {
+    const area = chrome.storage.sync as chrome.storage.StorageArea & { getBytesInUse?: (keys: null) => Promise<number> };
+    sync = typeof area.getBytesInUse === 'function'
+      ? await area.getBytesInUse(null)
+      : new TextEncoder().encode(JSON.stringify(await chrome.storage.sync.get(null))).length;
+  } catch { /* shown as 0 */ }
+  const local = await call('storage', {}).catch(() => null);
+  $('#sync-info').textContent = `Settings: ${kb(sync)}`;
+  $('#local-info').textContent = local ? `Cache: ${kb(local.bytes)}` : 'Cache: unknown';
 }
-let armed = false;
-clear.addEventListener('click', async () => {
-  if (!armed) {
-    armed = true;
-    clear.textContent = 'Click again to clear';
-    setTimeout(() => { if (armed) { armed = false; void renderCache(); } }, 4000);
-    return;
-  }
-  armed = false;
-  clear.disabled = true;
-  await call('clearCache', {}).catch(() => null);
-  clear.textContent = 'Cleared';
-  setTimeout(() => { clear.disabled = false; void renderCache(); }, 1500);
+
+const modal = $('#modal');
+const showModal = (on: boolean) => modal.classList.toggle('visible', on);
+$('#reset').addEventListener('click', () => { showModal(true); $<HTMLButtonElement>('#modal-cancel').focus(); });
+$('#modal-cancel').addEventListener('click', () => showModal(false));
+modal.addEventListener('click', (e) => { if (e.target === modal) showModal(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.classList.contains('visible')) showModal(false); });
+$('#modal-confirm').addEventListener('click', async () => {
+  showModal(false);
+  await Promise.all([resetSettings(), call('clearCache', {}).catch(() => null)]);
+  render(await loadSettings());
+  saved.classList.add('visible');
+  setTimeout(() => saved.classList.remove('visible'), 2000);
+  void renderStorage();
 });
 
 void renderStatus();
-void renderCache();
+void renderStorage();
 
 $('#version').textContent = `v${chrome.runtime.getManifest().version}`;
 $('#shortcuts').addEventListener('click', (e) => {

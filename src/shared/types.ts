@@ -6,21 +6,20 @@ export interface Settings {
   mode: Mode;
   /** BCP-47 primary tag Google Translate understands, e.g. 'en', 'hi', 'zh-CN'. */
   targetLang: string;
-  /** Lines shown beneath the main line (never the one already shown as main). */
-  showOriginal: boolean;
-  showRomanized: boolean;
-  showTranslation: boolean;
-  /** Show the on-page mode switcher. */
+  /**
+   * Off: the main line, with the original beneath it (Original mode: Spotify as it is).
+   * On: original, romanization and translation together, in every mode.
+   */
+  allLines: boolean;
+  /** Show the on-page mode switcher. Kept as set while all three lines are on (it is hidden then). */
   showPill: boolean;
 }
 
-/** Two lines: the romanization, with the original beneath. Finding missing lyrics and restoring the original script are always on. */
+/** Finding missing lyrics and restoring the original script are always on. */
 export const DEFAULT_SETTINGS: Settings = {
   mode: 'romanized',
   targetLang: 'en',
-  showOriginal: true,
-  showRomanized: false,
-  showTranslation: false,
+  allLines: false,
   showPill: true,
 };
 

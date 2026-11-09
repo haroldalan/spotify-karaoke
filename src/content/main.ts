@@ -311,7 +311,7 @@ export async function startContent(): Promise<void> {
   function render() {
     if (signal.aborted) return;
     const st = store.status(lastView.song);
-    const translating = settings.mode === 'translated' || settings.showTranslation;
+    const translating = settings.mode === 'translated' || settings.allLines;
     const caption = translating && st.translateError
       ? /rate-limit/i.test(st.translateError) ? 'Translations paused for a few minutes' : 'Translation isn’t available right now'
       : undefined;

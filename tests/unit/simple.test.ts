@@ -15,19 +15,14 @@ describe('the switcher offers what changes something', () => {
     expect(switchFor(song(['보고 싶다'], 'ko'), s())).toEqual({ modes: ['original', 'romanized', 'translated'], mode: 'romanized' });
   });
   it('Original and Translated for a Latin-script song in another language, Original in effect', () => {
-    expect(switchFor(song(['te quiero tanto'], 'es'), s({ showOriginal: false }))).toEqual({ modes: ['original', 'translated'], mode: 'original' });
-    expect(switchFor(song(['te quiero tanto'], 'es'), s({ mode: 'translated', showOriginal: false }))?.mode).toBe('translated');
+    expect(switchFor(song(['te quiero tanto'], 'es'), s())).toEqual({ modes: ['original', 'translated'], mode: 'original' });
+    expect(switchFor(song(['te quiero tanto'], 'es'), s({ mode: 'translated' }))?.mode).toBe('translated');
   });
   it('nothing for a song already in the language translations go into', () => {
     expect(switchFor(song(['I walk alone'], 'en'), s())).toBeNull();
   });
-  it('nothing when every version it would offer is already on screen', () => {
-    expect(switchFor(song(['보고 싶다'], 'ko'), s({ showOriginal: true, showTranslation: true }))).toBeNull();
-    expect(switchFor(song(['보고 싶다'], 'ko'), s({ mode: 'translated', showOriginal: true, showRomanized: true }))).toBeNull();
-    // A Spanish song with its translation beneath: original and translation both showing.
-    expect(switchFor(song(['te quiero tanto'], 'es'), s({ showTranslation: true }))).toBeNull();
-    // Two lines (the default) keep the switcher.
-    expect(switchFor(song(['보고 싶다'], 'ko'), s())).not.toBeNull();
+  it('nothing with all three lines on: every version is on screen already', () => {
+    expect(switchFor(song(['보고 싶다'], 'ko'), s({ allLines: true }))).toBeNull();
   });
 });
 
@@ -37,15 +32,29 @@ describe('settings', () => {
     installChromeStorage();
   });
 
-  it('default to two lines: the romanization, with the original beneath', async () => {
+  it('default to two lines (the romanization, the original beneath) and the switcher on', async () => {
     const { loadSettings } = await import('../../src/shared/settings');
-    expect(await loadSettings()).toMatchObject({ mode: 'romanized', showOriginal: true, showRomanized: false, showTranslation: false, showPill: true });
+    expect(await loadSettings()).toMatchObject({ mode: 'romanized', allLines: false, showPill: true });
   });
 
   it('drop the switches that are now always on, keeping everything else', async () => {
-    await chrome.storage.sync.set({ settings: { mode: 'translated', targetLang: 'ta', showOriginal: true, showTranslation: false, fillMissing: false, restoreNative: false, showPill: false } });
+    await chrome.storage.sync.set({ settings: { mode: 'translated', targetLang: 'ta', fillMissing: false, restoreNative: false, showPill: false } });
     const { loadSettings } = await import('../../src/shared/settings');
-    expect(await loadSettings()).toEqual({ mode: 'translated', targetLang: 'ta', showOriginal: true, showRomanized: false, showTranslation: false, showPill: false });
+    expect(await loadSettings()).toEqual({ mode: 'translated', targetLang: 'ta', allLines: false, showPill: false });
+  });
+
+  it('turn an earlier build\'s original + romanization + translation into all three lines', async () => {
+    await chrome.storage.sync.set({ settings: { mode: 'romanized', targetLang: 'ta', showOriginal: true, showRomanized: false, showTranslation: true } });
+    const { loadSettings } = await import('../../src/shared/settings');
+    expect((await loadSettings()).allLines).toBe(true);
+  });
+
+  it('keep the switcher\'s own setting while all three lines are on', async () => {
+    const { loadSettings, saveSettings } = await import('../../src/shared/settings');
+    await saveSettings({ showPill: false });
+    await saveSettings({ allLines: true });
+    await saveSettings({ allLines: false });
+    expect((await loadSettings()).showPill).toBe(false);
   });
 
   it('ignore a stored mode that no longer exists', async () => {
@@ -54,11 +63,13 @@ describe('settings', () => {
     expect((await loadSettings()).mode).toBe('romanized');
   });
 
-  it('know when all three lines are on screen', async () => {
-    const { allLinesShown } = await import('../../src/shared/settings');
-    expect(allLinesShown(s())).toBe(false);
-    expect(allLinesShown(s({ showTranslation: true }))).toBe(true);
-    expect(allLinesShown(s({ mode: 'original', showRomanized: true, showTranslation: true }))).toBe(true);
+  it('Reset data puts settings and per-song choices back to their defaults', async () => {
+    const { loadSettings, saveSettings, setSpotifyOnly, loadSpotifyOnly, resetSettings } = await import('../../src/shared/settings');
+    await saveSettings({ mode: 'translated', allLines: true });
+    await setSpotifyOnly('b'.repeat(22), true);
+    await resetSettings();
+    expect(await loadSettings()).toMatchObject({ mode: 'romanized', allLines: false });
+    expect(await loadSpotifyOnly()).toEqual([]);
   });
 });
 

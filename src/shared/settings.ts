@@ -19,26 +19,27 @@ export function defaults(): Settings {
   return { ...DEFAULT_SETTINGS, targetLang: browserTargetLanguage() };
 }
 
-/** Stored settings over the defaults; keys older versions stored (fillMissing, restoreNative) are dropped. */
+/**
+ * Stored settings over the defaults. Keys older builds stored are dropped (fillMissing,
+ * restoreNative) or folded in: original, romanization and translation all switched on
+ * beneath the main line becomes "all three lines".
+ */
 export function settingsFrom(stored: unknown): Settings {
   const d = defaults();
-  const s = (stored ?? {}) as Partial<Record<keyof Settings, unknown>>;
-  const bool = (k: 'showOriginal' | 'showRomanized' | 'showTranslation' | 'showPill') => (typeof s[k] === 'boolean' ? (s[k] as boolean) : d[k]);
+  const s = (stored ?? {}) as Record<string, unknown>;
+  const mode = s.mode === 'original' || s.mode === 'romanized' || s.mode === 'translated' ? s.mode : d.mode;
+  let allLines = typeof s.allLines === 'boolean' ? s.allLines : d.allLines;
+  if (typeof s.allLines !== 'boolean' && ['showOriginal', 'showRomanized', 'showTranslation'].some((k) => k in s)) {
+    const on = { original: s.showOriginal === true, romanized: s.showRomanized === true, translated: s.showTranslation === true };
+    on[mode] = true;
+    allLines = on.original && on.romanized && on.translated;
+  }
   return {
-    mode: s.mode === 'original' || s.mode === 'romanized' || s.mode === 'translated' ? s.mode : d.mode,
+    mode,
     targetLang: typeof s.targetLang === 'string' && s.targetLang ? s.targetLang : d.targetLang,
-    showOriginal: bool('showOriginal'),
-    showRomanized: bool('showRomanized'),
-    showTranslation: bool('showTranslation'),
-    showPill: bool('showPill'),
+    allLines,
+    showPill: typeof s.showPill === 'boolean' ? s.showPill : d.showPill,
   };
-}
-
-/** Whether original, romanization and translation are all on screen: the switcher has nothing left to switch. */
-export function allLinesShown(s: Settings): boolean {
-  const on = { original: s.showOriginal, romanized: s.showRomanized, translated: s.showTranslation };
-  on[s.mode] = true;
-  return on.original && on.romanized && on.translated;
 }
 
 export async function loadSettings(): Promise<Settings> {
@@ -90,4 +91,9 @@ export function onSpotifyOnlyChanged(fn: (ids: string[]) => void): void {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'sync' && changes[SPOTIFY_ONLY]) fn((changes[SPOTIFY_ONLY].newValue as string[] | undefined) ?? []);
   });
+}
+
+/** "Reset data": settings and per-song choices back to their defaults (the caller clears the cache). */
+export async function resetSettings(): Promise<void> {
+  await chrome.storage.sync.remove([KEY, SPOTIFY_ONLY]);
 }
