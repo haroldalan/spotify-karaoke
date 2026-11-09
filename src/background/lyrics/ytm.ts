@@ -12,7 +12,22 @@ import type { LyricLine, TrackMeta } from '../../shared/types';
 import { isMatch, parseClock } from './match';
 
 const BASE = 'https://music.youtube.com/youtubei/v1';
-const WEB = { client: { clientName: 'WEB_REMIX', clientVersion: '1.20251103.01.00', hl: 'en', gl: 'US' } };
+/** Used when the current version can't be read from YouTube Music's homepage. */
+const WEB_VERSION_FALLBACK = '1.20251103.01.00';
+const WEB_VERSION_TTL = 24 * 3600_000;
+let webVersion: { value: string; at: number } | null = null;
+
+/** The web client's current version, read from YouTube Music's homepage once a day. */
+async function webClientVersion(fetchImpl: typeof fetch): Promise<string> {
+  if (webVersion && Date.now() - webVersion.at < WEB_VERSION_TTL) return webVersion.value;
+  let value = WEB_VERSION_FALLBACK;
+  try {
+    const html = await (await fetchImpl('https://music.youtube.com/', { credentials: 'omit' })).text();
+    value = /"INNERTUBE_CLIENT_VERSION"\s*:\s*"([\d.]+)"/.exec(html)?.[1] ?? value;
+  } catch { /* fallback */ }
+  webVersion = { value, at: Date.now() };
+  return value;
+}
 const ANDROID = { client: { clientName: 'ANDROID_MUSIC', clientVersion: '7.21.50', hl: 'en', gl: 'US', osName: 'Android', osVersion: '12' } };
 const ANDROID_UA = 'com.google.android.apps.youtube.music/7.21.50 (Linux; U; Android 12; en_US; Pixel 6) gzip';
 const SONGS_ONLY = 'EgWKAQIIAWAB';
@@ -26,7 +41,9 @@ type Client = 'web' | 'android';
 export async function ytmHeaderRules(): Promise<void> {
   const dnr = chrome.declarativeNetRequest;
   if (!dnr?.updateSessionRules) return;
+  // Only this extension's own background requests: never a tab, never another extension or site worker.
   const noTab = [chrome.tabs?.TAB_ID_NONE ?? -1];
+  const ours = [chrome.runtime.id];
   const types = ['xmlhttprequest', 'other'] as chrome.declarativeNetRequest.ResourceType[];
   await dnr.updateSessionRules({
     removeRuleIds: [101, 102],
@@ -41,7 +58,7 @@ export async function ytmHeaderRules(): Promise<void> {
             { header: 'referer', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
           ],
         },
-        condition: { urlFilter: '||music.youtube.com/youtubei/', tabIds: noTab, resourceTypes: types },
+        condition: { urlFilter: '||music.youtube.com/youtubei/', tabIds: noTab, initiatorDomains: ours, resourceTypes: types },
       },
       {
         id: 102,
@@ -54,7 +71,7 @@ export async function ytmHeaderRules(): Promise<void> {
             { header: 'user-agent', operation: 'set' as chrome.declarativeNetRequest.HeaderOperation, value: ANDROID_UA },
           ],
         },
-        condition: { urlFilter: `||music.youtube.com/youtubei/*${ANDROID_MARK}`, tabIds: noTab, resourceTypes: types },
+        condition: { urlFilter: `||music.youtube.com/youtubei/*${ANDROID_MARK}`, tabIds: noTab, initiatorDomains: ours, resourceTypes: types },
       },
     ],
   });
@@ -81,7 +98,7 @@ async function call(endpoint: string, body: Json, client: Client, fetchImpl: typ
   const res = await fetchImpl(`${BASE}/${endpoint}?prettyPrint=false${mark}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ context: client === 'android' ? ANDROID : WEB, ...body }),
+    body: JSON.stringify({ context: client === 'android' ? ANDROID : { client: { clientName: 'WEB_REMIX', clientVersion: await webClientVersion(fetchImpl), hl: 'en', gl: 'US' } }, ...body }),
   });
   if (!res.ok) throw new Error(`YouTube Music ${endpoint} (${client}) HTTP ${res.status}`);
   return (await res.json()) as Json;

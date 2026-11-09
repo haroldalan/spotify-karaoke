@@ -2,6 +2,7 @@
 // passes its reports on.
 import { TAG, isUp, type Down, type PageConfig, type Up } from '../page/channel';
 import type { FoundLyrics, NativeResult, TrackMeta } from '../shared/types';
+import { isNativeRequest, isTrackMeta } from '../shared/validate';
 
 export interface BridgeHandlers {
   findLyrics(meta: TrackMeta): Promise<FoundLyrics | null>;
@@ -16,12 +17,19 @@ export class Bridge {
 
   constructor(private h: BridgeHandlers, config: PageConfig) {
     this.config = config;
-    window.addEventListener('message', (e) => {
-      if (e.source !== window || !isUp(e.data)) return;
-      this.receive(e.data);
-    });
+    window.addEventListener('message', this.onMessage);
     // In case the page script started first and said hello before we listened.
     this.send({ tag: TAG, dir: 'down', kind: 'ready', data: this.config });
+  }
+
+  private onMessage = (e: MessageEvent) => {
+    if (e.source !== window || !isUp(e.data)) return;
+    this.receive(e.data);
+  };
+
+  /** Stops listening to the page. */
+  dispose() {
+    window.removeEventListener('message', this.onMessage);
   }
 
   setConfig(config: PageConfig) {
@@ -37,13 +45,15 @@ export class Bridge {
     if (msg.kind === 'hello') {
       this.send({ tag: TAG, dir: 'down', kind: 'ready', data: this.config });
     } else if (msg.kind === 'event') {
-      if (msg.type === 'meta') this.h.onMeta(msg.data as TrackMeta);
+      if (msg.type === 'meta') { if (isTrackMeta(msg.data)) this.h.onMeta(msg.data); }
       else if (msg.type === 'lyrics') this.h.onLyrics(msg.data as Parameters<BridgeHandlers['onLyrics']>[0]);
       else if (msg.type === 'error') this.h.onError(String(msg.data));
     } else if (msg.kind === 'call' && (msg.type === 'findLyrics' || msg.type === 'restoreNative')) {
-      const run = msg.type === 'findLyrics'
-        ? this.h.findLyrics(msg.data as TrackMeta)
-        : this.h.restoreNative(msg.data as Parameters<BridgeHandlers['restoreNative']>[0]);
+      // Only well-formed requests reach the background; anything else is answered with null.
+      const run =
+        msg.type === 'findLyrics'
+          ? isTrackMeta(msg.data) ? this.h.findLyrics(msg.data) : Promise.resolve(null)
+          : isNativeRequest(msg.data) ? this.h.restoreNative(msg.data) : Promise.resolve(null);
       run.then(
         (v) => this.send({ tag: TAG, dir: 'down', kind: 'reply', id: msg.id, data: v }),
         () => this.send({ tag: TAG, dir: 'down', kind: 'reply', id: msg.id, data: null }),

@@ -3,6 +3,7 @@
 // release) > LRCLIB synced > YouTube Music plain > LRCLIB plain.
 import type { FoundLyrics, LyricLine, TrackMeta } from '../../shared/types';
 import { cacheGet, cacheSet, once } from '../cache';
+import { hash } from '../../shared/hash';
 import { lrclib } from './lrclib';
 import { parseLrc, plainLines } from './lrc';
 import { ytm } from './ytm';
@@ -89,7 +90,8 @@ export async function knownNoLyrics(now = Date.now()): Promise<string[]> {
 }
 
 export function findLyrics(meta: TrackMeta, sources: Sources = DEFAULT_SOURCES, now = () => Date.now()): Promise<FoundLyrics | null> {
-  const key = `lyr3:${meta.id}`;
+  // The details are part of the key: a request with a forged title can't overwrite the real song's entry.
+  const key = `lyr3:${meta.id}:${hash(`${meta.name}\n${meta.artists.join(',')}\n${Math.round(meta.durationMs / 1000)}`)}`;
   return once(key, async () => {
     const cached = await cacheGet<Stored>(key);
     if (cached && isFresh(cached, now())) return cached.found;

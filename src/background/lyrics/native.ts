@@ -12,6 +12,7 @@ import type { LyricLine, NativeResult, TrackMeta } from '../../shared/types';
 export type { NativeResult };
 import { expectedScript, songScript, type Script } from '../../shared/scripts';
 import { cacheGet, cacheSet, once } from '../cache';
+import { hash } from '../../shared/hash';
 import { romanizeLines } from '../text/romanize';
 import { googleLines } from '../text/google';
 import type { LicensedLyrics } from './find';
@@ -177,7 +178,7 @@ const NONE_TTL = 3 * 24 * 3600_000;
 const UNREACHABLE_TTL = 30 * 60_000;
 
 export function restoreNative(req: NativeRequest, sources: NativeSources = DEFAULT_SOURCES): Promise<NativeResult | null> {
-  const key = `nat:${req.meta.id}:${req.lines.length}`;
+  const key = `nat:${req.meta.id}:${hash(`${req.meta.name}\n${req.lines.join('\n')}`)}`;
   return once(key, async () => {
     const cached = await cacheGet<NativeResult | { none: true }>(key);
     if (cached) return 'none' in cached ? null : cached;

@@ -54,6 +54,7 @@ Verified live in Chrome 156:
 - Song changes: no undecorated or wrong-song line in any 100 ms sample, including while
   both songs' panels are mounted.
 - Unsynced Spotify lyrics upgraded to a synced LRCLIB copy (same script).
+- See PRIVACY_POLICY.md for every service contacted and what is sent.
 - Songs without lyrics: Spotify asks for them after we claim `has_lyrics`, and renders
   ours. When nothing is found, Spotify shows its own "still working on lyrics" message.
 - Native script: Spotify's romanized Tamil (Thangamey) and a Hindi song restored from
@@ -63,9 +64,21 @@ Verified live in Chrome 156:
   lyrics through the Android client; まどろみ (no Spotify or LRCLIB lyrics) now shows
   YouTube Music's (unsynced) lyrics.
 
-Not done yet:
-- Songs whose Spotify line breaks differ from every native copy stay romanized
-  (alignment is line-for-line).
-- Firefox build and live test.
+Not done yet: see the batches below.
+
+## Fix plan (from three audits, 2026-11-09)
+
+| Batch | Scope | State |
+|---|---|---|
+| 0 | First commit, CI, tests for hook, bridge, cache, Google, YouTube Music | done |
+| 1 | Romanization: Japanese by word, offline Thai, Indic fixes, per-line scripts | done |
+| 2 | Never the wrong song (song-scoped results); caching that keeps what's good | done |
+| 3 | Any Spotify host, GraphQL fallback, settings first, time pairing, Spotify's romanization | done |
+| 4 | Header rules scoped to the extension, request validation, privacy policy, license | done |
+| 5 | UX: no-lyrics state with Retry, cache reset, language picker, O/R/T keys, health | |
+| 6 | Firefox build, version 3.1.7+, release workflow | |
+
+Known limit: lyrics drawn with CSS can't be selected or copied (the cost of never touching
+React's nodes). Batch 5 gives screen readers the drawn text through `aria-label`.
 
 `window.__skLog` in the Spotify page lists the page script's recent decisions.

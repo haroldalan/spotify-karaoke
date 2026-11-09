@@ -83,22 +83,26 @@ describe('YouTube Music parsing', () => {
 
   function ytmFake(browseAndroid: unknown, browseWeb: unknown) {
     const seen: string[] = [];
+    const versions: string[] = [];
     const impl = (async (url: string, init?: RequestInit) => {
+      if (!url.includes('/youtubei/')) return new Response('<script>{"INNERTUBE_CLIENT_VERSION":"1.20261109.00.00"}</script>');
       const body = JSON.parse(String(init?.body));
       const client = body.context.client.clientName;
+      if (client === 'WEB_REMIX') versions.push(body.context.client.clientVersion);
       const endpoint = url.split('/v1/')[1].split('?')[0];
       seen.push(`${endpoint}:${client}`);
       if (endpoint === 'search') return new Response(JSON.stringify(search));
       if (endpoint === 'next') return new Response(JSON.stringify(next));
       return new Response(JSON.stringify(client === 'ANDROID_MUSIC' ? browseAndroid : browseWeb));
     }) as typeof fetch;
-    return { impl, seen };
+    return { impl, seen, versions };
   }
 
   it('prefers timed lyrics from the app client', async () => {
     const f = ytmFake(timed, plain);
     expect((await ytm(meta, f.impl))?.synced).toBe(true);
     expect(f.seen).toEqual(['search:WEB_REMIX', 'next:ANDROID_MUSIC', 'browse:ANDROID_MUSIC']);
+    expect(f.versions).toEqual(['1.20261109.00.00']); // read from the homepage, not hard-coded
   });
 
   it('falls back to the web client\'s plain lyrics', async () => {

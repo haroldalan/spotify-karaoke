@@ -41,7 +41,7 @@ type Handlers = { [M in Method]: (params: Params<M>) => Promise<Result<M>> | Res
 export function serve(handlers: Handlers): void {
   chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     const req = msg as Request | undefined;
-    if (!req?.sk || !(req.method in handlers)) return false;
+    if (!req?.sk || typeof req.method !== 'string' || !Object.hasOwn(handlers, req.method)) return false;
     const fn = handlers[req.method] as (p: unknown) => unknown;
     Promise.resolve()
       .then(() => fn(req.params))

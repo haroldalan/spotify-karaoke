@@ -70,4 +70,8 @@ page (MAIN world, document_start)        content (isolated world)            bac
 - No timers that guess at timing. No polling loops.
 - No node that React owns is ever created, moved or removed by us.
 - If something we depend on is missing, do nothing and report it; never break Spotify.
-- No header spoofing or bot-check workarounds against any service.
+- YouTube Music is the one exception to plain requests: it serves timed lyrics only to its
+  Android app, and refuses an extension's Origin. Its requests are made as that client, with
+  header rules limited to this extension's own background requests (`tabIds: [none]`,
+  `initiatorDomains: [this extension]`). Kept by the owner's decision (2026-11-09). No
+  captchas or sign-ins are worked around anywhere.
