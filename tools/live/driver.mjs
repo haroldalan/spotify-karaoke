@@ -106,10 +106,11 @@ const handlers = {
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     return page.url();
   },
-  async reload({ ext }) {
+  /** {ext:true} reinstalls the extension first; {page:false} leaves the tab as it is (an install with Spotify open). */
+  async reload({ ext, page: reloadPage = true }) {
     if (ext) await install();
     const page = await spotifyPage();
-    await page.reload({ waitUntil: 'domcontentloaded' });
+    if (reloadPage) await page.reload({ waitUntil: 'domcontentloaded' });
     return { extId, url: page.url() };
   },
   async logs({ match, n }) {

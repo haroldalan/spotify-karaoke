@@ -1,8 +1,9 @@
 // The on-page controls, in their own shadow root on <body>, outside React's tree:
 // - the mode switcher (Original / Romanized / Translated): 3.1.6's capsule, centred 12 px
-//   under Spotify's lyrics header, shown only while the lyrics view is on screen;
-// - in the same spot, the actions for a song nothing was found for (Search again / Add to
-//   LRCLIB), under Spotify's own "no lyrics" message rather than repeating it.
+//   under Spotify's lyrics header, shown only while the lyrics view is open, offering only
+//   the modes that change something for the song, and fading while the mouse is still;
+// - in the same spot, "Add lyrics" for a song nothing was found for, under Spotify's own
+//   "no lyrics" message rather than repeating it.
 // Spotify's font comes from its page (@font-face applies inside shadow roots).
 import type { Mode } from '../shared/types';
 import type { Anchor } from './view';
@@ -17,6 +18,11 @@ const CSS = `
   font-family: ${FONT}; pointer-events: none;
 }
 .slot[hidden] { display: none; }
+/* Out of the way while the mouse is still, like video controls; back on any movement. */
+.slot { transition: opacity .4s ease; }
+.slot.idle { opacity: 0; }
+.slot.idle .capsule { pointer-events: none; }
+button[hidden] { display: none; }
 .capsule {
   pointer-events: auto; display: flex; align-items: center; gap: 4px; padding: 6px;
   background: rgba(0, 0, 0, .4); -webkit-backdrop-filter: blur(4px) saturate(180%); backdrop-filter: blur(4px) saturate(180%);
@@ -58,6 +64,8 @@ export interface Notice {
 
 /** The full lyrics view, not Spotify's small lyrics card in the sidebar. */
 const isFullView = (a: Anchor) => a.width >= 420 && a.height >= 260;
+/** How long the mouse has to rest before the switcher fades. */
+export const IDLE_MS = 3000;
 
 export class Pill {
   private host = document.createElement('sk-pill');
@@ -69,6 +77,7 @@ export class Pill {
   private noticeCapsule: HTMLDivElement;
   private noticeCaption: HTMLDivElement;
   private noticeKey = '';
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(onPick: (m: Mode) => void) {
     const shadow = this.host.attachShadow({ mode: 'closed' });
@@ -92,13 +101,44 @@ export class Pill {
     if (!this.host.isConnected) document.body.append(this.host);
   }
 
-  update(o: { mode: Mode; visible: boolean; anchor: Anchor | null; busy: boolean; caption?: string }) {
-    for (const [m, b] of this.buttons) b.setAttribute('aria-pressed', String(m === o.mode));
+  remove() {
+    clearTimeout(this.idleTimer);
+    this.host.remove();
+  }
+
+  /**
+   * `mode` is the mode in effect for this song, `modes` the ones that change something for
+   * it (a Latin-script song has nothing to romanize: Original and Translated only).
+   */
+  update(o: { mode: Mode; modes: Mode[]; visible: boolean; anchor: Anchor | null; busy: boolean; caption?: string }) {
+    for (const [m, b] of this.buttons) {
+      b.setAttribute('aria-pressed', String(m === o.mode));
+      b.hidden = !o.modes.includes(m);
+    }
     this.switcherCapsule.classList.toggle('busy', o.busy);
     this.switcherCaption.textContent = o.caption ?? '';
     const show = o.visible && !!o.anchor && isFullView(o.anchor);
+    const appearing = show && this.switcher.hidden;
     this.switcher.hidden = !show;
     if (show) place(this.switcher, o.anchor!);
+    if (appearing || o.busy || o.caption) this.wake();
+  }
+
+  /** Brings the switcher back (mouse moved, a key switched modes) and fades it again after a rest. */
+  wake() {
+    this.switcher.classList.remove('idle');
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => this.rest(), IDLE_MS);
+  }
+
+  private rest() {
+    const c = this.switcherCapsule;
+    // Not under the pointer, not while keyboard focus is in it, not while it has something to say.
+    if (c.matches(':hover') || c.matches(':focus-within') || c.classList.contains('busy') || this.switcherCaption.textContent) {
+      this.idleTimer = setTimeout(() => this.rest(), IDLE_MS);
+      return;
+    }
+    this.switcher.classList.add('idle');
   }
 
   /** Actions in the switcher's spot when the lyrics view is open but empty; null hides them. */

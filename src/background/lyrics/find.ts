@@ -92,11 +92,13 @@ export async function knownNoLyrics(now = Date.now()): Promise<string[]> {
 // The details are part of the key: a request with a forged title can't overwrite the real song's entry.
 const lyricsKey = (meta: TrackMeta) => `lyr3:${meta.id}:${hash(`${meta.name}\n${meta.artists.join(',')}\n${Math.round(meta.durationMs / 1000)}`)}`;
 
-/** "Search again": forgets what was found (or not) for this song, and asks the sources now. */
-export async function retryLyrics(meta: TrackMeta, sources: Sources = DEFAULT_SOURCES): Promise<FoundLyrics | null> {
+/**
+ * Someone went to add lyrics for this song: forget that no source had any, so the next
+ * time it loads the sources are asked again.
+ */
+export async function forgetLyrics(meta: TrackMeta): Promise<void> {
   await cacheDelete(lyricsKey(meta));
   await noteNone(meta.id, false, Date.now());
-  return findLyrics(meta, sources);
 }
 
 export function findLyrics(meta: TrackMeta, sources: Sources = DEFAULT_SOURCES, now = () => Date.now()): Promise<FoundLyrics | null> {

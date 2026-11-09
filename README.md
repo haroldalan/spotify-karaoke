@@ -91,6 +91,26 @@ Seamless-UI pass (2026-11-09, after a UI audit and a third-party one):
   details folded away, the playing song, footer credit. Verified with a stubbed API;
   the live check covered the capsule on Spring Day (romanized Korean, Hangul beneath).
 
+"It just works" pass (2026-11-09, from docs/ux-audit-personas.md and the owner's two rules:
+fewer choices, and not everything possible):
+- One choice: Original / Romanized / Translated, plus the language (from the browser).
+  The line beneath is decided: the original under romanized, the romanization under
+  translated (the original for Latin-script songs). Finding lyrics and restoring scripts
+  are always on. Gone: the "also show" switches, three other switches, Search again and
+  Reload Spotify, the status details and cache button, the Alt+Shift shortcuts.
+- Installing or updating adds the scripts to Spotify tabs already open; an older copy in
+  the tab steps aside. Verified in the test Chrome: reinstalled with Spotify open, the
+  sidebar line became "tteonaga" with no reload, one switcher, one stylesheet.
+- The switcher shows only in the full lyrics view (not over the Now Playing sidebar),
+  offers Original / Translated on Latin-script songs, and fades after 3 s without mouse
+  movement. O / R / T only with the lyrics view open, and in the mini player.
+- Pending translations show the romanized line, not bare text; the Japanese dictionary
+  loads when a Japanese song starts; a native-script copy that arrives late is used at
+  the next load. "Add lyrics" makes the next load search again.
+- Verified live in the owner's Chrome (Haru Haru): no switcher over a 420 px sidebar, O
+  ignored on the home page, fade and return, Romanized (Hangul beneath) and Translated
+  (Tamil, romanization beneath).
+
 Not done yet: see the batches below.
 
 ## Fix plan (from three audits, 2026-11-09)
