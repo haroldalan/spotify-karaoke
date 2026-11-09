@@ -1,11 +1,28 @@
 // Google Translate's public web endpoint (client=gtx): translation and romanization.
 // Lines are sent joined by newlines and split back; when the line count doesn't survive,
 // the batch is retried line by line.
+import { tracked } from '../health';
 
 const ENDPOINT = 'https://translate.googleapis.com/translate_a/single';
 const MAX_CHARS = 4000;
 
 export class RateLimited extends Error {}
+
+// After a 429, wait before asking again: 1, 2, 4 ... up to 30 minutes. Requests in the
+// meantime fail at once, without touching the network.
+let blockedUntil = 0;
+let strikes = 0;
+
+/** When Google may be asked again (0: now). */
+export function googleBlockedUntil(): number {
+  return blockedUntil > Date.now() ? blockedUntil : 0;
+}
+
+/** For tests. */
+export function resetGoogleBackoff() {
+  blockedUntil = 0;
+  strikes = 0;
+}
 
 interface Raw {
   translated: string;
@@ -13,6 +30,13 @@ interface Raw {
 }
 
 async function request(text: string, target: string, wantRomanized: boolean, fetchImpl = fetch): Promise<Raw> {
+  if (Date.now() < blockedUntil) {
+    throw new RateLimited(`Google Translate is rate-limiting this network; retrying after ${new Date(blockedUntil).toLocaleTimeString()}`);
+  }
+  return tracked('google', () => send(text, target, wantRomanized, fetchImpl));
+}
+
+async function send(text: string, target: string, wantRomanized: boolean, fetchImpl: typeof fetch): Promise<Raw> {
   const params = new URLSearchParams({ client: 'gtx', sl: 'auto', tl: target, dj: '1' });
   params.append('dt', 't');
   if (wantRomanized) params.append('dt', 'rm');
@@ -21,8 +45,13 @@ async function request(text: string, target: string, wantRomanized: boolean, fet
     headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: new URLSearchParams({ q: text }).toString(),
   });
-  if (res.status === 429) throw new RateLimited('Google Translate is rate-limiting this network');
+  if (res.status === 429) {
+    strikes++;
+    blockedUntil = Date.now() + Math.min(30, 2 ** (strikes - 1)) * 60_000;
+    throw new RateLimited('Google Translate is rate-limiting this network');
+  }
   if (!res.ok) throw new Error(`Google Translate HTTP ${res.status}`);
+  strikes = 0;
   const j = (await res.json()) as { sentences?: { trans?: string; src_translit?: string }[] };
   const sentences = j.sentences ?? [];
   const translated = sentences.map((s) => s.trans ?? '').join('');
@@ -67,8 +96,10 @@ export async function googleLines(
     const trLines = splitLines(raw.translated);
     const rmLines = raw.romanized ? splitLines(raw.romanized) : null;
     if (trLines.length === chunk.length) tr = trLines;
-    if (!wantRomanized || (rmLines && rmLines.length === chunk.length)) rm = rmLines;
-    if (!tr || !rm) {
+    // Without a romanization wanted, there is none to check.
+    const rmOk = !wantRomanized || (!!rmLines && rmLines.length === chunk.length);
+    if (rmOk) rm = rmLines;
+    if (!tr || !rmOk) {
       // Line structure lost: one request per line, a few at a time.
       const single: Raw[] = [];
       for (let i = 0; i < chunk.length; i += 6) {

@@ -18,6 +18,7 @@
         <label><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
         <label><input type="radio" name="mode" value="translated" /><span>Translated</span></label>
       </div>
+      <p class="hint">Keys while lyrics are open: <kbd>O</kbd> <kbd>R</kbd> <kbd>T</kbd></p>
     </section>
 
     <section>
@@ -28,8 +29,9 @@
     </section>
 
     <section>
-      <h2><label for="lang">Translate into</label></h2>
-      <select id="lang" name="targetLang"></select>
+      <h2><label for="lang-search">Translate into</label></h2>
+      <input id="lang-search" type="search" placeholder="Search languages" autocomplete="off" aria-controls="lang" />
+      <select id="lang" name="targetLang" size="5" aria-label="Translate into"></select>
     </section>
 
     <section>
@@ -39,9 +41,18 @@
       <label class="row"><input type="checkbox" name="showPill" /> Show the switcher on the lyrics</label>
     </section>
 
+    <section>
+      <h2>Status</h2>
+      <ul id="status" class="status" aria-live="polite"></ul>
+      <div class="cache">
+        <span id="cache-size">Cache: …</span>
+        <button id="clear" type="button">Clear cache</button>
+      </div>
+    </section>
+
     <footer>
       <span id="version"></span>
-      <a href="chrome://extensions/shortcuts" id="shortcuts">Keyboard shortcuts</a>
+      <a href="#" id="shortcuts">Keyboard shortcuts</a>
     </footer>
     <script type="module" src="./main.ts"></script>
   </body>

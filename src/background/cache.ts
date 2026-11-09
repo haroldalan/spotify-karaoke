@@ -53,6 +53,28 @@ export async function cacheSet<T>(key: string, v: T, ttlMs?: number): Promise<vo
   scheduleIndexSave();
 }
 
+/** Removes one entry. */
+export async function cacheDelete(key: string): Promise<void> {
+  memory.delete(key);
+  delete (await loadIndex())[key];
+  await chrome.storage.local.remove(key);
+  scheduleIndexSave();
+}
+
+/** Removes everything the extension stored on this device (settings live in storage.sync). */
+export async function cacheClear(): Promise<void> {
+  memory.clear();
+  index = {};
+  await chrome.storage.local.clear();
+}
+
+/** Bytes stored on this device. */
+export async function cacheBytes(): Promise<number> {
+  const local = chrome.storage.local as chrome.storage.LocalStorageArea & { getBytesInUse?: (keys: null) => Promise<number> };
+  if (local.getBytesInUse) return local.getBytesInUse(null);
+  return new Blob([JSON.stringify(await chrome.storage.local.get(null))]).size;
+}
+
 /** Runs fn once per key at a time; concurrent callers share the result. */
 const running = new Map<string, Promise<unknown>>();
 export function once<T>(key: string, fn: () => Promise<T>): Promise<T> {

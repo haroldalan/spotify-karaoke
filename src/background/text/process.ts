@@ -5,7 +5,9 @@ import { hash } from '../../shared/hash';
 import { cacheGet, cacheSet, once } from '../cache';
 import { googleLines } from './google';
 import { GOOGLE_PREFERRED, romanizeLinesDetailed } from './romanize';
-import { songScript } from '../../shared/scripts';
+import { expectedScript, songScript } from '../../shared/scripts';
+
+const baseLang = (l?: string | null) => (l ?? '').toLowerCase().split(/[-_]/)[0];
 
 export interface ProcessRequest {
   lines: string[];
@@ -27,6 +29,13 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
   // is part of the key, so a song first seen without its language can't keep the wrong reading.
   const rmKey = `rm${ROMANIZER_VERSION}:${script}:${key}`;
   const trKey = req.translateTo ? `tr:${req.translateTo}:${key}` : null;
+
+  // Already in the target language (Spotify's or the track's tag agrees with the script):
+  // nothing to translate. Chinese is left to Google: simplified and traditional differ.
+  const target = baseLang(req.translateTo);
+  const lang = baseLang(req.language);
+  const sameLanguage = !!req.translateTo && target !== 'zh' && lang === target &&
+    (expectedScript([lang]) === script || (!expectedScript([lang]) && script === 'Latn'));
 
   // Shared Google call: translation (+ romanization when Google is the romanizer).
   let googleCall: Promise<{ translated: string[]; romanized: (string | null)[] }> | null = null;
@@ -53,7 +62,7 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
       })
     : Promise.resolve(null);
 
-  const translated = trKey
+  const translated = trKey && !sameLanguage
     ? once(trKey, async () => {
         const cached = await cacheGet<string[]>(trKey);
         if (cached) return cached;

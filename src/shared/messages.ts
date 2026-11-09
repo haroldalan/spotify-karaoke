@@ -6,6 +6,17 @@ export interface Api {
   findLyrics: (meta: TrackMeta) => FoundLyrics | null;
   /** The song's lyrics in its own script, when Spotify serves them romanized. */
   restoreNative: (req: { meta: TrackMeta; lines: string[]; times: number[]; synced: boolean }) => NativeResult | null;
+  /** "Search again" for one song: forgets earlier results and asks the sources now. */
+  retryLyrics: (meta: TrackMeta) => FoundLyrics | null;
+  /** Bytes stored on this device. */
+  storage: (req: Record<string, never>) => { bytes: number };
+  /** Removes every cached result (settings are kept). */
+  clearCache: (req: Record<string, never>) => true;
+  /** Whether each outside service is answering. */
+  health: (req: Record<string, never>) => {
+    sources: Partial<Record<'lrclib' | 'ytm' | 'google', { ok: boolean; at: number; detail?: string }>>;
+    googleBlockedUntil: number;
+  };
   /** Tracks known to have no lyrics anywhere. */
   knownNoLyrics: (req: Record<string, never>) => string[];
   /** Romanize and/or translate a song's lines. */

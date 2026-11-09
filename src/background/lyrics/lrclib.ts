@@ -1,6 +1,7 @@
 // LRCLIB (lrclib.net): open, crowd-sourced lyrics, synced when available.
 import type { TrackMeta } from '../../shared/types';
 import { durationOk, isMatch } from './match';
+import { tracked } from '../health';
 
 const BASE = 'https://lrclib.net/api';
 // LRCLIB asks clients to identify themselves; browsers can't set User-Agent, so it accepts this header.
@@ -23,11 +24,13 @@ export interface LrclibResult {
   instrumental: boolean;
 }
 
-async function getJson<T>(url: string, fetchImpl: typeof fetch): Promise<T | null> {
-  const res = await fetchImpl(url, { headers: HEADERS });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`LRCLIB HTTP ${res.status}`);
-  return (await res.json()) as T;
+function getJson<T>(url: string, fetchImpl: typeof fetch): Promise<T | null> {
+  return tracked('lrclib', async () => {
+    const res = await fetchImpl(url, { headers: HEADERS });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`LRCLIB HTTP ${res.status}`);
+    return (await res.json()) as T;
+  });
 }
 
 const matches = (r: LrclibRecord, meta: TrackMeta) => isMatch(meta, { title: r.trackName, artist: r.artistName, durationS: r.duration });

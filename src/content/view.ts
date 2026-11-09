@@ -23,6 +23,8 @@ export class View {
   private observer: MutationObserver;
   private settings: Settings;
   private listeners = new Set<(s: ViewState) => void>();
+  /** Whether anyone needs the lyrics view's box (only the switcher does). */
+  private wantRect = true;
 
   constructor(private store: LineStore, settings: Settings) {
     this.settings = settings;
@@ -42,6 +44,10 @@ export class View {
 
   onUpdate(fn: (s: ViewState) => void) {
     this.listeners.add(fn);
+  }
+
+  setWantRect(want: boolean) {
+    this.wantRect = want;
   }
 
   setSettings(s: Settings) {
@@ -89,7 +95,7 @@ export class View {
         apply(el, d);
       });
     }
-    const rect = visibleLine ? scrollBox(visibleLine)?.getBoundingClientRect() ?? null : null;
+    const rect = this.wantRect && visibleLine ? scrollBox(visibleLine)?.getBoundingClientRect() ?? null : null;
     for (const fn of this.listeners) fn({ lineCount: lines.length, rect, song: visibleSong });
   }
 

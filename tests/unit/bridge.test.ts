@@ -16,6 +16,7 @@ function setup(over: Partial<BridgeHandlers> = {}) {
     restoreNative: vi.fn(async () => null),
     onMeta: vi.fn(),
     onLyrics: vi.fn(),
+    onMissing: vi.fn(),
     onError: vi.fn(),
     ...over,
   };

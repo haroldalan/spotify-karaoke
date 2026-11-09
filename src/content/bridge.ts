@@ -9,6 +9,8 @@ export interface BridgeHandlers {
   restoreNative(req: { meta: TrackMeta; lines: string[]; times: number[]; synced: boolean }): Promise<NativeResult | null>;
   onMeta(meta: TrackMeta): void;
   onLyrics(l: { id: string; lines: string[]; language: string | null; source: string }): void;
+  /** Spotify had no lyrics for a song and asked for them: whether we found any. */
+  onMissing(m: { id: string; found: boolean }): void;
   onError(message: string): void;
 }
 
@@ -47,6 +49,10 @@ export class Bridge {
     } else if (msg.kind === 'event') {
       if (msg.type === 'meta') { if (isTrackMeta(msg.data)) this.h.onMeta(msg.data); }
       else if (msg.type === 'lyrics') this.h.onLyrics(msg.data as Parameters<BridgeHandlers['onLyrics']>[0]);
+      else if (msg.type === 'missing') {
+        const m = msg.data as { id?: unknown; found?: unknown };
+        if (typeof m?.id === 'string' && typeof m.found === 'boolean') this.h.onMissing({ id: m.id, found: m.found });
+      }
       else if (msg.type === 'error') this.h.onError(String(msg.data));
     } else if (msg.kind === 'call' && (msg.type === 'findLyrics' || msg.type === 'restoreNative')) {
       // Only well-formed requests reach the background; anything else is answered with null.

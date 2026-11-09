@@ -176,6 +176,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     if (!meta) return null;
     const found = (await call('findLyrics', meta, timing.lookupMs)) as FoundLyrics | null;
     note(`missing ${id} ${found?.lines.length ? (found.synced ? 'synced ' : 'unsynced ') + found.source : 'none'}`);
+    emit('missing', { id, found: !!found?.lines.length });
     if (!found?.lines.length) return null;
     const language = meta.languages[0] ?? null;
     emit('lyrics', { id, lines: found.lines.map((l) => l.text), language, source: found.source });

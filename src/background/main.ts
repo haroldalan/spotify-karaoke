@@ -1,7 +1,10 @@
 import { serve } from '../shared/messages';
 import { saveSettings } from '../shared/settings';
 import type { Mode } from '../shared/types';
-import { findLyrics, knownNoLyrics } from './lyrics/find';
+import { findLyrics, knownNoLyrics, retryLyrics } from './lyrics/find';
+import { cacheBytes, cacheClear } from './cache';
+import { getHealth } from './health';
+import { googleBlockedUntil } from './text/google';
 import { restoreNative } from './lyrics/native';
 import { processLines } from './text/process';
 import { ytmHeaderRules } from './lyrics/ytm';
@@ -17,6 +20,10 @@ export function startBackground(): void {
   serve({
     findLyrics,
     knownNoLyrics: () => knownNoLyrics(),
+    retryLyrics: (meta) => retryLyrics(meta),
+    storage: async () => ({ bytes: await cacheBytes() }),
+    clearCache: async () => { await cacheClear(); return true as const; },
+    health: async () => ({ sources: await getHealth(), googleBlockedUntil: googleBlockedUntil() }),
     restoreNative,
     process: processLines,
     status: () => ({ version: chrome.runtime.getManifest().version }),

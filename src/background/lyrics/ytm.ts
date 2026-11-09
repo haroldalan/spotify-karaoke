@@ -10,6 +10,7 @@
 // The user chose to keep this source on 2026-11-09, knowing it is unofficial.
 import type { LyricLine, TrackMeta } from '../../shared/types';
 import { isMatch, parseClock } from './match';
+import { tracked } from '../health';
 
 const BASE = 'https://music.youtube.com/youtubei/v1';
 /** Used when the current version can't be read from YouTube Music's homepage. */
@@ -92,7 +93,11 @@ function ensureRules(): Promise<void> {
   return rulesReady;
 }
 
-async function call(endpoint: string, body: Json, client: Client, fetchImpl: typeof fetch): Promise<Json> {
+function call(endpoint: string, body: Json, client: Client, fetchImpl: typeof fetch): Promise<Json> {
+  return tracked('ytm', () => callUntracked(endpoint, body, client, fetchImpl));
+}
+
+async function callUntracked(endpoint: string, body: Json, client: Client, fetchImpl: typeof fetch): Promise<Json> {
   if (typeof chrome !== 'undefined' && fetchImpl === fetch) await ensureRules();
   const mark = client === 'android' ? `&${ANDROID_MARK}` : '';
   const res = await fetchImpl(`${BASE}/${endpoint}?prettyPrint=false${mark}`, {
