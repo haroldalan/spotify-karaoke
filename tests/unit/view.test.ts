@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { LineStore, MAX_SONGS } from '../../src/content/lineStore';
 import { View } from '../../src/content/view';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
+import { readEl } from '../helpers/lines';
 
 const flush = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
 
@@ -37,9 +38,8 @@ describe('View', () => {
     await flush();
     const [ja, zh] = lyricsDom(['永遠', 'さよなら'], ['永遠', '我爱你']);
     view.pass();
-    expect(ja[0].dataset.skMain).toBe('ja(永遠)');
-    expect(zh[0].dataset.skMain).toBe('zh(永遠)');
-    expect(ja[0].dataset.skSub).toBe('永遠');
+    expect(readEl(ja[0])).toEqual({ main: 'ja(永遠)', beneath: ['永遠'] });
+    expect(readEl(zh[0]).main).toBe('zh(永遠)');
   });
 
   it('reads a list it has never seen off the screen', async () => {
@@ -48,8 +48,8 @@ describe('View', () => {
     view.pass();
     await flush();
     view.pass();
-    expect(list[0].dataset.skMain).toBe('zh(我爱你)');
-    expect(list[1].dataset.skMain).toBeUndefined();
+    expect(readEl(list[0]).main).toBe('zh(我爱你)');
+    expect(list[1].dataset.skBig).toBeUndefined();
   });
 
   it('shows the restored script for romanized lines Spotify drew before restoration finished', async () => {
@@ -58,7 +58,7 @@ describe('View', () => {
     store.addRestored(['tera hai', 'dil mera'], ['तेरा है', 'दिल मेरा'], 'hi');
     await flush();
     view.pass();
-    expect(list[0].dataset.skMain).toBe('तेरा है');
+    expect(readEl(list[0])).toEqual({ main: 'तेरा है', beneath: [] });
   });
 
   it('never lends a restored line to another song that shares a romanized line', async () => {
@@ -68,7 +68,7 @@ describe('View', () => {
     await flush();
     const [other] = lyricsDom(['tera hai', 'kahin aur', 'kuch aur']);
     view.pass();
-    expect(other[0].dataset.skMain).toBeUndefined();
+    expect(other[0].dataset.skBig).toBeUndefined();
   });
 
   it('re-decorates a line element React reuses for another line', async () => {
@@ -79,7 +79,7 @@ describe('View', () => {
     view.pass();
     a.firstElementChild!.textContent = '永远';
     view.pass();
-    expect(a.dataset.skMain).toBe('zh(永远)');
+    expect(readEl(a).main).toBe('zh(永远)');
   });
 
   it('reports the visible list\'s song, for the loading indicator', async () => {

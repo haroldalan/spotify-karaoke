@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { decoration } from '../../src/content/decorate';
+import { NONE, decoration } from '../../src/content/decorate';
+import { read } from '../helpers/lines';
 import { artistScore, isMatch, normalizeTitle, parseClock, titleScore } from '../../src/background/lyrics/match';
 import { parseLrc } from '../../src/background/lyrics/lrc';
 import { buildColorLyrics, parseColorLyrics, parseMeta } from '../../src/page/spotifyFormat';
@@ -70,19 +71,39 @@ describe('LRC', () => {
 describe('decoration', () => {
   const s = (p: Partial<Settings>): Settings => ({ ...DEFAULT_SETTINGS, ...p });
   const info = { romanized: 'kimi o aishiteru', translated: { en: 'I love you' } };
-  it('romanized main with the original beneath', () => {
-    expect(decoration('君を愛してる', info, s({ mode: 'romanized' }))).toEqual({ main: 'kimi o aishiteru', sub: '君を愛してる', dir: null });
+  const shown = (original: string, i: Parameters<typeof decoration>[1], p: Partial<Settings>, aliased = false, onScreen = original) =>
+    read(onScreen, decoration(original, i, s(p), aliased));
+
+  it('by default: romanized main with the original beneath', () => {
+    expect(shown('君を愛してる', info, {})).toEqual({ main: 'kimi o aishiteru', beneath: ['君を愛してる'] });
   });
-  it('all three stacked', () => {
-    const d = decoration('君を愛してる', info, s({ mode: 'romanized', showTranslation: true }));
-    expect(d.sub).toBe('君を愛してる\nI love you');
+  it('all three: the main line, then original, romanization, translation, in that order', () => {
+    expect(shown('君を愛してる', info, { mode: 'romanized', showTranslation: true }).beneath).toEqual(['君を愛してる', 'I love you']);
+    expect(shown('君を愛してる', info, { mode: 'translated', showRomanized: true })).toEqual({ main: 'I love you', beneath: ['君を愛してる', 'kimi o aishiteru'] });
+    expect(shown('君を愛してる', info, { mode: 'original', showRomanized: true, showTranslation: true })).toEqual({ main: '君を愛してる', beneath: ['kimi o aishiteru', 'I love you'] });
   });
-  it('original mode can still show a translation beneath', () => {
-    expect(decoration('君を愛してる', info, s({ mode: 'original', showTranslation: true }))).toEqual({ main: null, sub: 'I love you', dir: null });
+  it('puts the translation in its own slot (::after), styled apart from the lines in the song\'s words', () => {
+    expect(decoration('君を愛してる', info, s({ mode: 'romanized', showTranslation: true })).b).toBe('I love you');
+    expect(decoration('君を愛してる', info, s({ mode: 'translated', showRomanized: true }))).toMatchObject({ big: 'b', a: 'kimi o aishiteru' });
+  });
+  it('shows the romanized line, never bare text, while the translation is on its way', () => {
+    expect(shown('君を愛してる', { romanized: 'kimi o aishiteru', translated: {} }, { mode: 'translated' })).toEqual({ main: 'kimi o aishiteru', beneath: ['君を愛してる'] });
+  });
+  it('original mode with nothing beneath is Spotify as it is', () => {
+    expect(decoration('君を愛してる', info, s({ mode: 'original', showOriginal: true }))).toEqual(NONE);
+  });
+  it('can hide the original', () => {
+    expect(shown('君を愛してる', info, { mode: 'romanized', showOriginal: false })).toEqual({ main: 'kimi o aishiteru', beneath: [] });
   });
   it('shows nothing extra for a line with nothing to add', () => {
-    expect(decoration('hello', { romanized: null }, s({ mode: 'romanized' }))).toEqual({ main: null, sub: null, dir: null });
-    expect(decoration('hello', undefined, s({ mode: 'translated' }))).toEqual({ main: null, sub: null, dir: null });
+    expect(decoration('hello', { romanized: null }, s({ mode: 'romanized' }))).toEqual(NONE);
+    expect(decoration('hello', undefined, s({ mode: 'translated' }))).toEqual(NONE);
+  });
+  it('a restored song: Spotify shows its romanization, ours is the original script', () => {
+    const restored = { romanized: 'tera hai', translated: { en: 'is yours' } };
+    expect(shown('तेरा है', restored, { mode: 'romanized' }, true, 'tera hai')).toEqual({ main: 'tera hai', beneath: ['तेरा है'] });
+    expect(shown('तेरा है', restored, { mode: 'original', showOriginal: false }, true, 'tera hai')).toEqual({ main: 'तेरा है', beneath: [] });
+    expect(shown('तेरा है', restored, { mode: 'translated', showRomanized: true }, true, 'tera hai')).toEqual({ main: 'is yours', beneath: ['तेरा है', 'tera hai'] });
   });
   it('turns right-to-left lines left-to-right when the main line is Latin', () => {
     expect(decoration('أحبك', { romanized: "'uhibuk" }, s({ mode: 'romanized' })).dir).toBe('ltr');

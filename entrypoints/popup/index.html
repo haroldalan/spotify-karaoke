@@ -13,7 +13,7 @@
     </header>
 
     <section aria-labelledby="mode-label">
-      <h2 id="mode-label">Main line</h2>
+      <div class="heading"><h2 id="mode-label">Main line</h2><span class="hint" title="Press O, R or T while the lyrics are open">O · R · T on the lyrics</span></div>
       <div class="seg" role="radiogroup" aria-labelledby="mode-label">
         <label title="Original (O)"><input type="radio" name="mode" value="original" /><span>Original</span></label>
         <label title="Romanized (R)"><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
@@ -40,27 +40,18 @@
     </section>
 
     <section>
-      <label class="row"><span>Find lyrics when Spotify has none</span><input type="checkbox" role="switch" name="fillMissing" /></label>
-      <label class="row"><span>Restore the original script</span><input type="checkbox" role="switch" name="restoreNative" /></label>
-      <label class="row"><span>Show the switcher on the lyrics</span><input type="checkbox" role="switch" name="showPill" /></label>
+      <label class="row"><span>Show the switcher on the lyrics<span id="pill-note" class="sub" hidden>Hidden while all three lines show</span></span><input type="checkbox" role="switch" name="showPill" /></label>
     </section>
 
     <section class="status-section">
       <div id="summary" class="summary" aria-live="polite"></div>
       <div id="song" class="song" hidden></div>
-      <details>
-        <summary>Details</summary>
-        <ul id="status" class="status"></ul>
-        <div class="cache">
-          <span id="cache-size">Cache: …</span>
-          <button id="clear" type="button">Clear cache</button>
-        </div>
-      </details>
     </section>
 
     <footer>
       <span id="version"></span>
       <span class="links">
+        <button id="clear" type="button" class="link" title="Cached lyrics, romanizations and translations">Clear cache</button>
         <a href="https://github.com/haroldalan/spotify-karaoke" target="_blank" rel="noopener noreferrer">GitHub</a>
         <a href="#" id="shortcuts">Shortcuts</a>
       </span>

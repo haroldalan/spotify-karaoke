@@ -1,6 +1,7 @@
 // The on-page controls, in their own shadow root on <body>, outside React's tree:
 // - the mode switcher (Original / Romanized / Translated): 3.1.6's capsule, centred 12 px
-//   under Spotify's lyrics header, shown only while the lyrics view is on screen;
+//   under Spotify's lyrics header, shown only while the lyrics view is open, offering only
+//   the modes that change something for the song;
 // - in the same spot, the actions for a song nothing was found for (Search again / Add to
 //   LRCLIB), under Spotify's own "no lyrics" message rather than repeating it.
 // Spotify's font comes from its page (@font-face applies inside shadow roots).
@@ -16,7 +17,7 @@ const CSS = `
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   font-family: ${FONT}; pointer-events: none;
 }
-.slot[hidden] { display: none; }
+.slot[hidden], button[hidden] { display: none; }
 .capsule {
   pointer-events: auto; display: flex; align-items: center; gap: 4px; padding: 6px;
   background: rgba(0, 0, 0, .4); -webkit-backdrop-filter: blur(4px) saturate(180%); backdrop-filter: blur(4px) saturate(180%);
@@ -92,8 +93,19 @@ export class Pill {
     if (!this.host.isConnected) document.body.append(this.host);
   }
 
-  update(o: { mode: Mode; visible: boolean; anchor: Anchor | null; busy: boolean; caption?: string }) {
-    for (const [m, b] of this.buttons) b.setAttribute('aria-pressed', String(m === o.mode));
+  remove() {
+    this.host.remove();
+  }
+
+  /**
+   * `mode` is the mode in effect for this song, `modes` the ones that change something for
+   * it (a Latin-script song has nothing to romanize: Original and Translated only).
+   */
+  update(o: { mode: Mode; modes: Mode[]; visible: boolean; anchor: Anchor | null; busy: boolean; caption?: string }) {
+    for (const [m, b] of this.buttons) {
+      b.setAttribute('aria-pressed', String(m === o.mode));
+      b.hidden = !o.modes.includes(m);
+    }
     this.switcherCapsule.classList.toggle('busy', o.busy);
     this.switcherCaption.textContent = o.caption ?? '';
     const show = o.visible && !!o.anchor && isFullView(o.anchor);

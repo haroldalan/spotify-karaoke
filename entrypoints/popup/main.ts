@@ -1,11 +1,11 @@
 import { LANGUAGES } from '../../src/shared/languages';
 import { call } from '../../src/shared/messages';
-import { loadSettings, onSettingsChanged, saveSettings } from '../../src/shared/settings';
+import { allLinesShown, loadSettings, onSettingsChanged, saveSettings } from '../../src/shared/settings';
 import type { Mode, Settings } from '../../src/shared/types';
-import type { PageStatus } from '../../src/content/main';
+import type { PageRequest, PageStatus } from '../../src/content/main';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
-const BOOLS = ['showOriginal', 'showRomanized', 'showTranslation', 'fillMissing', 'restoreNative', 'showPill'] as const;
+const BOOLS = ['showOriginal', 'showRomanized', 'showTranslation', 'showPill'] as const;
 /** The "also show" switch that would repeat the main line. */
 const SAME_AS_MAIN: Record<Mode, (typeof BOOLS)[number]> = { original: 'showOriginal', romanized: 'showRomanized', translated: 'showTranslation' };
 
@@ -85,6 +85,8 @@ function render(s: Settings) {
     const input = row.querySelector('input')!;
     const same = row.dataset.for === s.mode;
     input.disabled = same;
+    // It is on screen (as the main line): shown on, the same way in every mode.
+    if (same) input.checked = true;
     row.classList.toggle('disabled', same);
     row.querySelector('.note')?.remove();
     if (same) {
@@ -94,6 +96,8 @@ function render(s: Settings) {
       row.firstElementChild!.append(note);
     }
   }
+  // With every version on screen the switcher has nothing to switch: it hides itself.
+  $('#pill-note').hidden = !allLinesShown(s);
   current = s.targetLang;
   langName.textContent = nameOf(current);
 }
@@ -107,24 +111,7 @@ document.addEventListener('change', (e) => {
   else if ((BOOLS as readonly string[]).includes(el.name)) void saveSettings({ [el.name]: el.checked });
 });
 
-// ── Status: one line, the details folded away unless something is wrong ──
-const ago = (t: number) => {
-  if (!t) return 'never';
-  const s = Math.round((Date.now() - t) / 1000);
-  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
-};
-
-function row(label: string, state: 'ok' | 'bad' | 'idle', text: string) {
-  const li = document.createElement('li');
-  li.className = state;
-  const name = document.createElement('span');
-  name.textContent = label;
-  const value = document.createElement('span');
-  value.textContent = text;
-  li.append(name, value);
-  return li;
-}
-
+// ── Status: one line; the song playing beneath it ──
 /** The Spotify tab: this one if it is Spotify, else any open one. */
 async function spotifyTab(): Promise<chrome.tabs.Tab | null> {
   const [here] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -133,103 +120,146 @@ async function spotifyTab(): Promise<chrome.tabs.Tab | null> {
   return tabs.find((t) => t.audible) ?? tabs[0] ?? null;
 }
 
-async function pageStatus(tab: chrome.tabs.Tab | null): Promise<PageStatus | null> {
-  if (tab?.id === undefined) return null;
-  return (await chrome.tabs.sendMessage(tab.id, { sk: 'page-status' }).catch(() => null)) as PageStatus | null;
-}
+let tab: chrome.tabs.Tab | null = null;
+const ask = <T>(req: PageRequest) =>
+  tab?.id === undefined ? Promise.resolve(null) : (chrome.tabs.sendMessage(tab.id, req).catch(() => null) as Promise<T | null>);
 
 const summary = $('#summary');
 const song = $('#song');
-const details = $<HTMLDetailsElement>('details');
 
 function setSummary(state: 'ok' | 'bad' | 'idle', text: string) {
   summary.className = `summary ${state}`;
   summary.textContent = text;
 }
 
-function renderSong(tab: chrome.tabs.Tab, page: PageStatus) {
+type Action = { label: string; run: () => void; primary?: boolean; link?: boolean };
+
+function button(a: Action, group: HTMLElement): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = a.label;
+  if (a.primary) b.className = 'primary';
+  if (a.link) b.className = 'link';
+  b.addEventListener('click', () => { for (const x of group.querySelectorAll('button')) x.disabled = true; a.run(); }, { once: true });
+  return b;
+}
+
+/**
+ * The song row: its title, then one line of text (with an inline link, e.g. Undo) and at
+ * most two buttons.
+ */
+function songRow(title: string, text: string, actions: Action[], inline?: Action) {
+  const t = document.createElement('div');
+  t.className = 'title';
+  t.textContent = title;
+  const line = document.createElement('div');
+  line.className = 'line';
+  const label = document.createElement('span');
+  label.textContent = text;
+  const buttons = document.createElement('span');
+  buttons.className = 'actions';
+  if (inline) label.append(' ', button({ ...inline, link: true }, song));
+  for (const a of actions) buttons.append(button(a, song));
+  line.append(label, buttons);
+  song.replaceChildren(t, ...(text || actions.length ? [line] : []));
+  song.classList.toggle('stacked', actions.length > 1);
+  song.hidden = false;
+}
+
+const FROM: Record<string, string> = { found: 'Lyrics from', upgraded: 'Synced lyrics from', restored: 'Original script from' };
+
+function renderSong(page: PageStatus, note = '') {
   const c = page.current;
   if (!c) { song.hidden = true; return; }
-  const label = document.createElement('span');
-  label.textContent = `${c.name} · ${c.artists.join(', ')}`;
-  song.replaceChildren(label);
-  song.hidden = false;
-  if (!c.noLyrics) return;
-  label.textContent = `No lyrics for ${c.name}`;
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.textContent = 'Search again';
-  button.addEventListener('click', async () => {
-    button.disabled = true;
-    button.textContent = 'Searching…';
-    const r = (await chrome.tabs.sendMessage(tab.id!, { sk: 'search-again' }).catch(() => null)) as { found: boolean } | null;
-    if (r?.found) {
-      label.textContent = 'Lyrics found. Spotify shows them after a reload.';
-      button.textContent = 'Reload Spotify';
-      button.disabled = false;
-      button.onclick = () => { void chrome.tabs.reload(tab.id!); window.close(); };
-    } else {
-      label.textContent = 'Still none to be found.';
-      button.remove();
+  const title = `${c.name} · ${c.artists.join(', ')}`;
+  /** Sends the song back to Spotify, or undoes that. */
+  const choose = (on: boolean) => () => void ask({ sk: 'not-this-song', on }).then(() => refresh());
+  if (page.reload) {
+    const reloadNow = { label: 'Reload now', primary: true, run: () => { void ask({ sk: 'reload', when: 'now' }); window.close(); } };
+    // A choice made for this song can be undone until the reload.
+    const undo = page.reload.reason === 'choice' ? { label: 'Undo', run: choose(!c.spotifyOnly) } : undefined;
+    if (page.reload.scheduled) {
+      songRow(title, 'Spotify reloads when this song ends.', [
+        { label: 'Cancel', run: () => void ask({ sk: 'reload', when: 'cancel' }).then(() => refresh()) },
+        reloadNow,
+      ], undo);
+      return;
     }
-  }, { once: true });
-  song.append(button);
+    const what = page.reload.reason === 'found'
+      ? 'Lyrics found. Spotify shows them after a reload'
+      : c.spotifyOnly ? 'Spotify’s own lyrics show after a reload' : 'Ours show again after a reload';
+    songRow(title, `${note || what}, which stops the music.`, [
+      { label: 'After this song', run: () => void ask({ sk: 'reload', when: 'after-song' }).then(() => refresh()) },
+      reloadNow,
+    ], undo);
+    return;
+  }
+  if (c.spotifyOnly) {
+    songRow(title, 'Showing Spotify’s lyrics for this song.', [], { label: 'Undo', run: choose(false) });
+    return;
+  }
+  if (c.noLyrics) {
+    songRow(title, note || 'No lyrics found.', [
+      {
+        label: 'Search again',
+        run: () => {
+          songRow(title, 'Searching again…', []);
+          void ask<{ found: boolean }>({ sk: 'search-again' }).then((r) => refresh(r?.found ? '' : 'Still none to be found.'));
+        },
+      },
+    ]);
+    return;
+  }
+  if (c.ours) {
+    songRow(title, `${FROM[c.ours.kind] ?? 'Lyrics from'} ${c.ours.source}.`, [], { label: 'Not this song?', run: choose(true) });
+    return;
+  }
+  songRow(title, '', []);
+}
+
+async function refresh(note = '') {
+  const page = await ask<PageStatus>({ sk: 'page-status' });
+  if (page?.pageSeenAt) renderSong(page, note);
 }
 
 async function renderStatus() {
-  const tab = await spotifyTab();
-  const [page, health] = await Promise.all([pageStatus(tab), call('health', {}).catch(() => null)]);
-  const rows: HTMLLIElement[] = [];
-  const failing: string[] = [];
-
-  if (!tab) rows.push(row('Spotify', 'idle', 'not open'));
-  else if (!page?.pageSeenAt) rows.push(row('Spotify', 'bad', 'reload the Spotify tab'));
-  else rows.push(row('Spotify', 'ok', page.lyricsSeenAt ? `lyrics seen ${ago(page.lyricsSeenAt)}` : 'connected'));
-
+  tab = await spotifyTab();
+  const [page, health] = await Promise.all([ask<PageStatus>({ sk: 'page-status' }), call('health', {}).catch(() => null)]);
   const names = { lrclib: 'LRCLIB', ytm: 'YouTube Music', google: 'Google Translate' } as const;
-  for (const key of Object.keys(names) as (keyof typeof names)[]) {
-    const h = health?.sources[key];
-    if (key === 'google' && health?.googleBlockedUntil) {
-      rows.push(row(names[key], 'bad', `paused until ${new Date(health.googleBlockedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`));
-      failing.push('Translations are paused for a few minutes');
-    } else if (!h) rows.push(row(names[key], 'idle', 'not used yet'));
-    else {
-      rows.push(row(names[key], h.ok ? 'ok' : 'bad', h.ok ? `answered ${ago(h.at)}` : `failing: ${h.detail ?? 'error'}`));
-      if (!h.ok) failing.push(`${names[key]} isn’t answering`);
-    }
+  let failing = '';
+  if (health?.googleBlockedUntil) {
+    failing = `Translations paused until ${new Date(health.googleBlockedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  } else {
+    const down = (Object.keys(names) as (keyof typeof names)[]).find((k) => health?.sources[k] && !health.sources[k]!.ok);
+    if (down) failing = `${names[down]} isn’t answering`;
   }
-  $('#status').replaceChildren(...rows);
-
   if (!tab) setSummary('idle', 'Open Spotify in a tab to start');
   else if (!page?.pageSeenAt) setSummary('bad', 'Reload the Spotify tab to start');
-  else if (failing.length) setSummary('bad', failing[0]);
+  else if (failing) setSummary('bad', failing);
   else setSummary('ok', 'Working');
-  if (failing.length) details.open = true;
-  if (tab && page?.pageSeenAt) renderSong(tab, page);
+  if (page?.pageSeenAt) renderSong(page);
 }
 
 // ── Cache ──
-const size = $('#cache-size');
 const clear = $<HTMLButtonElement>('#clear');
 const kb = (b: number) => (b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
 async function renderCache() {
   const s = await call('storage', {}).catch(() => null);
-  size.textContent = s ? `Cache: ${kb(s.bytes)}` : 'Cache: unknown';
+  clear.textContent = s ? `Clear cache (${kb(s.bytes)})` : 'Clear cache';
 }
 let armed = false;
 clear.addEventListener('click', async () => {
   if (!armed) {
     armed = true;
     clear.textContent = 'Click again to clear';
-    setTimeout(() => { armed = false; clear.textContent = 'Clear cache'; }, 4000);
+    setTimeout(() => { if (armed) { armed = false; void renderCache(); } }, 4000);
     return;
   }
   armed = false;
   clear.disabled = true;
   await call('clearCache', {}).catch(() => null);
   clear.textContent = 'Cleared';
-  await renderCache();
-  setTimeout(() => { clear.disabled = false; clear.textContent = 'Clear cache'; }, 1500);
+  setTimeout(() => { clear.disabled = false; void renderCache(); }, 1500);
 });
 
 void renderStatus();

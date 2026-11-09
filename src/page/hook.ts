@@ -15,8 +15,8 @@ export interface HookTiming {
   lookupMs: number;
   /** How long Spotify's unsynced lyrics may wait for a synced copy. */
   upgradeMs: number;
-  /** How long Spotify's romanized lyrics may wait for the original script. Later results
-   *  still reach the display, through the content script's restored-song record. */
+  /** How long Spotify's romanized lyrics may wait for the original script. A later result
+   *  is used the next time the song loads. */
   nativeMs: number;
   /** How long a lyrics response may wait for its track's metadata. */
   metaWaitMs: number;
@@ -24,8 +24,8 @@ export interface HookTiming {
   configWaitMs: number;
 }
 
-// Spotify's own lyrics wait at most 1.5 s for a better copy: a line-for-line restoration that
-// comes later still reaches the screen (content script), others are used next time.
+// Spotify's own lyrics wait at most 1.5 s for a better copy; one that comes later is used the
+// next time the song loads (from cache), never dropped onto lines already being read.
 export const DEFAULT_TIMING: HookTiming = { lookupMs: 12_000, upgradeMs: 1_500, nativeMs: 1_500, metaWaitMs: 1_500, configWaitMs: 800 };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -34,8 +34,9 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
   if ((win as unknown as { __skHook?: boolean }).__skHook) return;
   (win as unknown as { __skHook?: boolean }).__skHook = true;
 
-  let config: PageConfig = { fillMissing: true, restoreNative: true, noLyrics: [] };
+  let config: PageConfig = { noLyrics: [], spotifyOnly: [] };
   let noLyrics = new Set<string>();
+  let spotifyOnly = new Set<string>();
   let ready = false;
   let configArrived!: () => void;
   const configReady = new Promise<void>((r) => (configArrived = r));
@@ -90,6 +91,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     if (msg.kind === 'ready' || msg.kind === 'config') {
       config = msg.data;
       noLyrics = new Set(config.noLyrics);
+      spotifyOnly = new Set(config.spotifyOnly ?? []);
       configArrived();
       if (!ready) {
         ready = true;
@@ -123,7 +125,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     note(`meta ${meta.id} has_lyrics=${meta.hasLyrics} lang=${meta.languages.join(',')}`);
     if (meta.hasLyrics) return null;
     await settled();
-    if (!config.fillMissing || noLyrics.has(meta.id)) return null;
+    if (noLyrics.has(meta.id) || spotifyOnly.has(meta.id)) return null;
     // Claim lyrics so Spotify enables its Lyrics button and asks color-lyrics for them.
     return json({ ...raw, has_lyrics: true }, res);
   }
@@ -148,7 +150,8 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
       await settled();
       note(`lyrics ${id} ${l.syncType} script=${songScript(l.lines, l.language)} meta=${meta ? 'yes' : 'no'}`);
       // Romanized lyrics for a song written in another script: restore the original script.
-      const lang = config.restoreNative && meta ? romanizedLanguage(l.lines, meta, l.language) : null;
+      const ours = !spotifyOnly.has(id);
+      const lang = ours && meta ? romanizedLanguage(l.lines, meta, l.language) : null;
       if (meta && lang) {
         const native = (await call(
           'restoreNative',
@@ -157,25 +160,25 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
         )) as NativeResult | null;
         note(`native ${id} ${native ? (native.aligned ? 'aligned' : 'own-timing') + ' ' + native.source : 'none/late'}`);
         if (native) {
-          emit('lyrics', { id, lines: native.lines.map((x) => x.text), language: lang, source: native.source });
+          emit('lyrics', { id, lines: native.lines.map((x) => x.text), language: lang, source: native.source, kind: 'restored' });
           return json(buildColorLyrics(native, lang, raw), res);
         }
       }
       // Unsynced lyrics: a synced copy elsewhere is better, as long as it is in the same script.
-      if (l.syncType === 'UNSYNCED' && config.fillMissing && meta) {
+      if (l.syncType === 'UNSYNCED' && ours && meta) {
         const found = (await call('findLyrics', meta, timing.upgradeMs)) as FoundLyrics | null;
         const theirs = songScript(l.lines, l.language);
         if (found?.synced && (theirs === 'Latn' || songScript(found.lines.map((x) => x.text)) === theirs)) {
-          emit('lyrics', { id, lines: found.lines.map((x) => x.text), language: l.language, source: found.source });
+          emit('lyrics', { id, lines: found.lines.map((x) => x.text), language: l.language, source: found.source, kind: 'upgraded' });
           return json(buildColorLyrics(found, l.language, raw), res);
         }
       }
-      emit('lyrics', { id, lines: l.lines, language: l.language, source: 'spotify' });
+      emit('lyrics', { id, lines: l.lines, language: l.language, source: 'spotify', kind: 'spotify' });
       return null;
     }
     if (res.status !== 404) return null;
     await settled();
-    if (!config.fillMissing) return null;
+    if (spotifyOnly.has(id)) return null;
     const meta = await metaFor(id);
     if (!meta) return null;
     const found = (await call('findLyrics', meta, timing.lookupMs)) as FoundLyrics | null;
@@ -183,7 +186,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     emit('missing', { id, found: !!found?.lines.length });
     if (!found?.lines.length) return null;
     const language = meta.languages[0] ?? null;
-    emit('lyrics', { id, lines: found.lines.map((l) => l.text), language, source: found.source });
+    emit('lyrics', { id, lines: found.lines.map((l) => l.text), language, source: found.source, kind: 'found' });
     return json(buildColorLyrics(found, language), res);
   }
 

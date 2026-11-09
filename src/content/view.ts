@@ -4,7 +4,7 @@
 // Lines are handled per list (their parent element, one per song panel): each list is
 // matched to the song it shares the most lines with, and decorated from that song only.
 import type { Settings } from '../shared/types';
-import { LINE_SELECTOR, apply, decoration, lineText, clear, type Decoration } from './decorate';
+import { LINE_SELECTOR, NONE, apply, decoration, lineText, clear } from './decorate';
 import type { LineStore, Song } from './lineStore';
 
 /** Where the switcher goes: centred under Spotify's lyrics header (3.1.6's spot). */
@@ -19,7 +19,7 @@ export interface Anchor {
 }
 
 export interface ViewState {
-  /** Lines of lyrics currently in the document. */
+  /** Lines of lyrics in the document, not counting Spotify's small lyrics card in the sidebar. */
   lineCount: number;
   /** The full lyrics view's switcher spot, when one is on screen. */
   anchor: Anchor | null;
@@ -27,8 +27,9 @@ export interface ViewState {
   song: Song | null;
 }
 
-const NONE: Decoration = { main: null, sub: null, dir: null };
-/** Lists in boxes narrower than this are previews (the sidebar's lyrics card): no lines beneath. */
+/** Spotify's small lyrics card in the Now Playing sidebar: a preview, never the lyrics view. */
+const CARD = '[data-testid="lyrics-npv-section"]';
+/** Lists in boxes narrower than this (the mini player, a very narrow window) show the main line only. */
 const COMPACT_WIDTH = 420;
 const ANCHOR_GAP = 12;
 
@@ -94,9 +95,13 @@ export class View {
       if (!lists.has(list)) lists.set(list, []);
       lists.get(list)!.push(el);
     }
-    // The visible list in the largest box is the one the listener is reading.
+    // The visible list in the largest box is the one the listener is reading. The sidebar's
+    // card is never it: the switcher and O / R / T belong to the lyrics view.
     let main: { song: Song; line: Element; area: number } | null = null;
+    let lineCount = 0;
     for (const els of lists.values()) {
+      const inCard = !!els[0]?.closest(CARD);
+      if (!inCard) lineCount += els.length;
       const texts = els.map(lineText);
       let song = this.store.songFor(texts);
       // Never seen through the network: read the whole list off the screen.
@@ -104,8 +109,8 @@ export class View {
       const visible = els.find((el) => (el as HTMLElement).offsetParent !== null);
       const box = visible ? scrollBox(visible) : null;
       const rect = box?.getBoundingClientRect();
-      const compact = !!rect && rect.width > 0 && rect.width < COMPACT_WIDTH;
-      if (song && visible) {
+      const compact = inCard || (!!rect && rect.width > 0 && rect.width < COMPACT_WIDTH);
+      if (song && visible && !inCard) {
         this.store.touch(song);
         const area = rect ? rect.width * rect.height : 0;
         if (!main || area > main.area) main = { song, line: visible, area };
@@ -115,14 +120,11 @@ export class View {
         else el.removeAttribute('data-sk-compact');
         const r = song ? this.store.resolve(song, texts[i]) : null;
         if (!r) return apply(el, NONE);
-        const d = decoration(r.original, r.info, this.settings);
-        // Restored by us after Spotify drew its romanized line: the original script is the main line.
-        if (r.aliased && !d.main) d.main = r.original;
-        apply(el, d);
+        apply(el, decoration(r.original, r.info, this.settings, r.aliased));
       });
     }
     const anchor = !this.wantAnchor ? null : main ? this.anchorFor(main.line) : this.emptyViewAnchor();
-    for (const fn of this.listeners) fn({ lineCount: lines.length, anchor, song: main?.song ?? null });
+    for (const fn of this.listeners) fn({ lineCount, anchor, song: main?.song ?? null });
   }
 
   /**

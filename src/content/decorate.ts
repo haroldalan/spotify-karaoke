@@ -1,66 +1,89 @@
 // Draws processed lines into Spotify's lyrics view without touching React's nodes:
 // attributes on each line element + the stylesheet below.
+//
+// A Spotify lyrics line is one block holding one text block. A decorated line becomes a
+// column of three slots: Spotify's own text, our ::before, our ::after. Spotify's text is
+// the original line (or, for a restored song, Spotify's romanization); ::before holds the
+// other of the two; ::after holds the translation. Flex `order` puts the main line first,
+// then whatever is shown beneath in one fixed order: original, romanization, translation.
 import type { Settings } from '../shared/types';
 import type { LineInfo } from './lineStore';
 
 export const LINE_SELECTOR = '[data-testid="lyrics-line"]';
+const L = LINE_SELECTOR;
 
 export const STYLE = `
-${LINE_SELECTOR}[data-sk-main] > * { display: none !important; }
-${LINE_SELECTOR}[data-sk-main]::before {
-  content: attr(data-sk-main);
-  display: block;
-  unicode-bidi: plaintext;
-}
-${LINE_SELECTOR}[data-sk-sub]::after {
-  content: attr(data-sk-sub);
-  display: block;
-  white-space: pre-line;
-  unicode-bidi: plaintext;
-  font-size: 0.56em;
+${L}[data-sk-big] { display: flex !important; flex-direction: column; }
+${L}[data-sk-big] > * { order: 1; }
+${L}[data-sk-a]::before { content: attr(data-sk-a); order: 2; }
+${L}[data-sk-b]::after { content: attr(data-sk-b); order: 3; }
+${L}[data-sk-alias] > * { order: 2; }
+${L}[data-sk-alias][data-sk-a]::before { order: 1; }
+${L}[data-sk-a]::before, ${L}[data-sk-b]::after { display: block; white-space: pre-line; unicode-bidi: plaintext; }
+${L}[data-sk-hide] > * { display: none !important; }
+/* The main line first, at Spotify's size. */
+${L}[data-sk-big="a"]::before, ${L}[data-sk-big="b"]::after, ${L}[data-sk-big="c"] > * { order: 0; }
+/* Lines beneath: smaller and quieter. */
+${L}[data-sk-big]:not([data-sk-big="c"]) > *,
+${L}[data-sk-big]:not([data-sk-big="a"])::before,
+${L}[data-sk-big]:not([data-sk-big="b"])::after {
+  font-size: 0.56em !important;
   line-height: 1.4;
   font-weight: 600;
   opacity: 0.72;
   margin-top: 0.15em;
-  margin-bottom: 0.1em;
 }
-/* Spotify's small lyrics preview card (sidebar): the main line only, nothing beneath. */
-${LINE_SELECTOR}[data-sk-compact][data-sk-sub]::after { display: none; }
-${LINE_SELECTOR}[data-sk-dir="ltr"] { direction: ltr; text-align: start; }
+/* The translation beneath reads differently from the lines in the song's own words. */
+${L}[data-sk-big]:not([data-sk-big="b"])::after { font-weight: 400; opacity: 0.8; margin-top: 0.35em; }
+/* Spotify's small lyrics card (sidebar) and narrow views: the main line only. */
+${L}[data-sk-compact]:not([data-sk-big="c"]) > *,
+${L}[data-sk-compact]:not([data-sk-big="a"])::before,
+${L}[data-sk-compact]:not([data-sk-big="b"])::after { display: none !important; }
+${L}[data-sk-dir="ltr"] { direction: ltr; text-align: start; }
 `;
 
 export interface Decoration {
-  main: string | null;
-  sub: string | null;
+  /** ::before: the romanization (the original script, on a restored song's line). */
+  a: string | null;
+  /** ::after: the translation. */
+  b: string | null;
+  /** Which slot is the main line: a, b, or c (Spotify's own text). null: not decorated. */
+  big: 'a' | 'b' | 'c' | null;
+  /** Spotify's own text is not shown. */
+  hide: boolean;
+  /** Spotify's own text is its romanization of a song we restored (a then holds the original). */
+  alias: boolean;
   dir: 'ltr' | null;
 }
 
-const RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
+export const NONE: Decoration = { a: null, b: null, big: null, hide: false, alias: false, dir: null };
 
-/** What a line with this text should show under these settings. Pure. */
-export function decoration(original: string, info: LineInfo | undefined, s: Settings): Decoration {
-  const rom = info?.romanized ?? null;
-  const tr = info?.translated?.[s.targetLang] ?? null;
-  let main: string | null = null;
-  if (s.mode === 'romanized') main = rom;
-  else if (s.mode === 'translated') main = tr;
-  if (main === original) main = null;
+const RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
 
-  const subs: string[] = [];
-  const add = (x: string | null) => {
-    if (x && x !== original && x !== main && !subs.includes(x)) subs.push(x);
-  };
-  if (main) {
-    if (s.showOriginal) subs.push(original);
-    if (s.showRomanized && s.mode !== 'romanized') add(rom);
-    if (s.showTranslation && s.mode !== 'translated') add(tr);
-  } else {
-    if (s.showRomanized || s.mode === 'romanized') add(rom);
-    if (s.showTranslation) add(tr);
+/**
+ * What a line should show under these settings. Pure. `aliased`: Spotify's text on screen
+ * is its romanization of `original` (a restored song). In translated mode, a line whose
+ * translation hasn't arrived (or can't be had) shows as in romanized mode, never bare.
+ */
+export function decoration(original: string, info: LineInfo | undefined, s: Settings, aliased = false): Decoration {
+  const differs = (x: string | null | undefined) => (x && x !== original ? x : null);
+  const rom = differs(info?.romanized);
+  const tr = differs(info?.translated?.[s.targetLang]);
+  const big: 'O' | 'R' | 'T' =
+    s.mode === 'translated' ? (tr ? 'T' : rom ? 'R' : 'O') : s.mode === 'romanized' && rom ? 'R' : 'O';
+  const showO = big === 'O' || s.showOriginal;
+  const showR = !!rom && (big === 'R' || s.showRomanized);
+  const showT = !!tr && tr !== rom && (big === 'T' || s.showTranslation);
+  const bigText = big === 'R' ? rom! : big === 'T' ? tr! : original;
+  const dir = RTL.test(original) && !RTL.test(bigText) ? 'ltr' : null;
+  const b = showT ? tr : null;
+  if (!aliased) {
+    if (big === 'O' && !showR && !showT) return NONE;
+    return { a: showR ? rom : null, b, big: big === 'O' ? 'c' : big === 'R' ? 'a' : 'b', hide: !showO, alias: false, dir };
   }
-  const sub = subs.length ? subs.join('\n') : null;
-  const dir = main && RTL.test(original) && !RTL.test(main) ? 'ltr' : null;
-  return { main, sub, dir };
+  // Spotify's text is the romanization; the original script goes in ::before.
+  if (big === 'R' && !showO && !showT) return NONE;
+  return { a: showO ? original : null, b, big: big === 'O' ? 'a' : big === 'R' ? 'c' : 'b', hide: !showR, alias: true, dir };
 }
 
 function setAttr(el: Element, name: string, value: string | null) {
@@ -75,13 +98,18 @@ export function lineText(el: Element): string {
 }
 
 export function apply(el: Element, d: Decoration) {
-  setAttr(el, 'data-sk-main', d.main);
-  setAttr(el, 'data-sk-sub', d.sub);
-  setAttr(el, 'data-sk-dir', d.dir);
+  setAttr(el, 'data-sk-a', d.a);
+  setAttr(el, 'data-sk-b', d.b);
+  setAttr(el, 'data-sk-big', d.big);
+  setAttr(el, 'data-sk-hide', d.hide && d.big ? '' : null);
+  setAttr(el, 'data-sk-alias', d.alias && d.big ? '' : null);
+  setAttr(el, 'data-sk-dir', d.big ? d.dir : null);
 }
 
+const ATTRS = ['data-sk-a', 'data-sk-b', 'data-sk-big', 'data-sk-hide', 'data-sk-alias', 'data-sk-dir', 'data-sk-compact'];
+
 export function clear(root: ParentNode = document) {
-  for (const el of root.querySelectorAll('[data-sk-main],[data-sk-sub],[data-sk-dir],[data-sk-compact]')) {
-    for (const a of ['data-sk-main', 'data-sk-sub', 'data-sk-dir', 'data-sk-compact']) el.removeAttribute(a);
+  for (const el of root.querySelectorAll(ATTRS.map((a) => `[${a}]`).join(','))) {
+    for (const a of ATTRS) el.removeAttribute(a);
   }
 }

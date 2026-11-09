@@ -196,7 +196,8 @@ export class LineStore {
   private wants() {
     const s = this.settings;
     return {
-      romanize: s.mode === 'romanized' || s.showRomanized,
+      // Translated mode needs the romanization too: it stands in until the translation arrives.
+      romanize: s.mode !== 'original' || s.showRomanized,
       translateTo: s.mode === 'translated' || s.showTranslation ? s.targetLang : null,
     };
   }

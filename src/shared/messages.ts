@@ -21,6 +21,8 @@ export interface Api {
   knownNoLyrics: (req: Record<string, never>) => string[];
   /** Romanize and/or translate a song's lines. */
   process: (req: { lines: string[]; language?: string | null; romanize: boolean; translateTo: string | null }) => Processed;
+  /** Get ready for a song in this language (Japanese: load the dictionary now). */
+  warm: (req: { language: string }) => true;
   /** Diagnostics for the popup. */
   status: () => { version: string };
 }

@@ -23,6 +23,11 @@ export default defineConfig({
       'https://cdn.jsdelivr.net/*',
     ],
     icons: { 16: 'icon16.png', 48: 'icon48.png', 128: 'icon128.png' },
+    commands: {
+      'mode-original': { description: 'Show original lyrics', suggested_key: { default: 'Alt+Shift+O' } },
+      'mode-romanized': { description: 'Show romanized lyrics', suggested_key: { default: 'Alt+Shift+R' } },
+      'mode-translated': { description: 'Show translated lyrics', suggested_key: { default: 'Alt+Shift+T' } },
+    },
     ...(browser === 'firefox'
       ? {
           browser_specific_settings: {

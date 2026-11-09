@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Bridge, type BridgeHandlers } from '../../src/content/bridge';
 import { TAG } from '../../src/page/channel';
 
-const config = { fillMissing: true, restoreNative: true, noLyrics: [] };
+const config = { noLyrics: [] as string[], spotifyOnly: [] as string[] };
 const meta = { id: '33BdipYlRY2WBvIBNk4Wmn', name: 'まどろみ', artists: ['Naoko Gushima'], album: 'Best', durationMs: 250040, languages: ['ja'], hasLyrics: false };
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const bridges: Bridge[] = [];
@@ -85,7 +85,7 @@ describe('content bridge', () => {
 
   it('sends new settings to the page', () => {
     const { sent, bridge } = setup();
-    bridge.setConfig({ ...config, fillMissing: false });
-    expect(sent.at(-1)).toMatchObject({ kind: 'config', data: { fillMissing: false } });
+    bridge.setConfig({ ...config, spotifyOnly: ['x'] });
+    expect(sent.at(-1)).toMatchObject({ kind: 'config', data: { spotifyOnly: ['x'] } });
   });
 });

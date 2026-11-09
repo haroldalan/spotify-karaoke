@@ -29,8 +29,8 @@ describe('page hook: track metadata', () => {
     expect((await res.json()).has_lyrics).toBe(true);
   });
 
-  it('claims nothing when finding lyrics is off, or the song is known to have none', async () => {
-    for (const config of [{ fillMissing: false }, { noLyrics: [NO_LYRICS_ID] }]) {
+  it('claims nothing for a song known to have none, or one the listener sent back to Spotify', async () => {
+    for (const config of [{ noLyrics: [NO_LYRICS_ID] }, { spotifyOnly: [NO_LYRICS_ID] }]) {
       const page = fakePage({ routes: { 'metadata/4': () => json(fixture('metadata-no-lyrics.json')) }, config });
       await tick(); // let the content script's settings arrive
       expect((await (await page.fetch(NO_LYRICS_META)).json()).has_lyrics).toBeUndefined();
@@ -107,6 +107,21 @@ describe('page hook: lyrics Spotify has', () => {
     expect(body.lyrics.lines[0]).toMatchObject({ startTimeMs: '780', words: 'देवनागरी 0' });
     expect(page.calls[0]).toMatchObject({ type: 'restoreNative', data: { synced: true } });
     expect(page.calls[0].data.lines[0]).toBe('Mera dil tera hai, tu kahan hai yaar');
+  });
+
+  it('leaves a song the listener sent back to Spotify exactly as Spotify has it', async () => {
+    const roman = fixture('color-lyrics-romanized-hindi.json');
+    const page = fakePage({
+      routes: { 'metadata/4': () => json(fixture('metadata-hindi.json')), 'color-lyrics': () => json(roman) },
+      config: { spotifyOnly: [HINDI_ID] },
+      answer: () => { throw new Error('should not be asked'); },
+    });
+    await tick();
+    await page.fetch(HINDI_META);
+    expect(await (await page.fetch(lyricsUrl(HINDI_ID))).json()).toEqual(roman);
+    expect(page.calls).toHaveLength(0);
+    await tick();
+    expect(page.events.find((e) => e.type === 'lyrics')?.data).toMatchObject({ id: HINDI_ID, kind: 'spotify' });
   });
 
   it('waits a little for metadata that arrives after the lyrics request', async () => {

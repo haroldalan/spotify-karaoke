@@ -2,6 +2,7 @@
 export type Mode = 'original' | 'romanized' | 'translated';
 
 export interface Settings {
+  /** The big, highlighted line. */
   mode: Mode;
   /** BCP-47 primary tag Google Translate understands, e.g. 'en', 'hi', 'zh-CN'. */
   targetLang: string;
@@ -9,22 +10,17 @@ export interface Settings {
   showOriginal: boolean;
   showRomanized: boolean;
   showTranslation: boolean;
-  /** Find lyrics elsewhere when Spotify has none. */
-  fillMissing: boolean;
-  /** Replace romanized lyrics with the song's own script when a matching copy exists. */
-  restoreNative: boolean;
   /** Show the on-page mode switcher. */
   showPill: boolean;
 }
 
+/** Two lines: the romanization, with the original beneath. Finding missing lyrics and restoring the original script are always on. */
 export const DEFAULT_SETTINGS: Settings = {
   mode: 'romanized',
   targetLang: 'en',
   showOriginal: true,
   showRomanized: false,
   showTranslation: false,
-  fillMissing: true,
-  restoreNative: true,
   showPill: true,
 };
 

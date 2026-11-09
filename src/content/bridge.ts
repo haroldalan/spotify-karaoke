@@ -1,6 +1,6 @@
 // The content script's end of the page channel: answers the page script's calls and
 // passes its reports on.
-import { TAG, isUp, type Down, type PageConfig, type Up } from '../page/channel';
+import { TAG, isUp, type Down, type LyricsKind, type PageConfig, type Up } from '../page/channel';
 import type { FoundLyrics, NativeResult, TrackMeta } from '../shared/types';
 import { isNativeRequest, isTrackMeta } from '../shared/validate';
 
@@ -8,7 +8,7 @@ export interface BridgeHandlers {
   findLyrics(meta: TrackMeta): Promise<FoundLyrics | null>;
   restoreNative(req: { meta: TrackMeta; lines: string[]; times: number[]; synced: boolean }): Promise<NativeResult | null>;
   onMeta(meta: TrackMeta): void;
-  onLyrics(l: { id: string; lines: string[]; language: string | null; source: string }): void;
+  onLyrics(l: { id: string; lines: string[]; language: string | null; source: string; kind: LyricsKind }): void;
   /** Spotify had no lyrics for a song and asked for them: whether we found any. */
   onMissing(m: { id: string; found: boolean }): void;
   onError(message: string): void;
