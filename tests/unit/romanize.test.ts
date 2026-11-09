@@ -32,7 +32,7 @@ describe('Indic romanization', () => {
     expect(hi('अपना')).toBe('apna');
     expect(hi('कमल')).toBe('kamal');
     expect(hi('बचपन')).toBe('bachpan');
-    expect(hi('प्यार')).toBe('pyar');
+    expect(hi('प्यार')).toBe('pyaar');
     expect(hi('ज़िंदगी')).toBe('zindagi');
     expect(hi('ज\u093cिंदगी'.replace('\\u093c', '\u093c'))).toBe('zindagi');
     expect(hi('फिर')).toBe('phir');
@@ -47,9 +47,27 @@ describe('Indic romanization', () => {
     expect(romanizeIndic('ਮੇਰਾ ਦਿਲ', 'Guru')).toBe('mera dil');
     expect(romanizeIndic('আমার সোনার', 'Beng')).toBe('amar sonar');
   });
-  it('leaves non-Indic text alone', () => {
+  it('leaves non-Indic text alone, English words included', () => {
     expect(deleteSchwas('love', 'Deva')).toBe('love');
     expect(hi('दिल baby')).toBe('dil baby');
+    expect(hi('चल dance करें')).toBe('chal dance karein');
+  });
+  it('writes Hindi the way lyrics are written', () => {
+    expect(hi('मैं हूँ ना')).toBe('main hoon na'); // ँ is a nasal, not "~"
+    expect(hi('ख़याल आता है')).toBe('khayaal aata hai'); // long vowels doubled inside a word
+    expect(hi('तेरी मेरी')).toBe('teri meri'); // ...and single at its end
+    expect(hi('दिल में बातें')).toBe('dil mein baatein'); // final ें is "ein"
+    expect(hi('दूर')).toBe('door');
+    expect(hi('हाँ')).toBe('haan');
+  });
+  it('converts Malayalam final consonants', () => {
+    expect(romanizeIndic('ഞാൻ നിന്നെ', 'Mlym')).toBe('njan ninne');
+    expect(romanizeIndic('അവൾ', 'Mlym')).toBe('aval');
+    expect(romanizeIndic('ഇവർ', 'Mlym')).toBe('ivar');
+  });
+  it('writes Bengali with b and ng, and short vowels', () => {
+    expect(romanizeIndic('ভালোবাসি বাংলা', 'Beng')).toBe('bhalobasi bangla');
+    expect(romanizeIndic('আমার সোনার বাংলা', 'Beng')).toBe('amar sonar bangla');
   });
 });
 
@@ -71,10 +89,16 @@ describe('romanizeLines', () => {
   it('romanizes Tamil', async () => {
     expect((await romanizeLines(['வணக்கம்'], 'Taml', noGoogle))[0]).toBe('vanakkam');
   });
-  it('prefers Google for Arabic and strips its diacritics for Thai', async () => {
-    const google = async (lines: string[]) => lines.map((l) => (l.includes('ฉัน') ? 'C̄hạn rạk ṭhex' : "'uhibuk"));
+  it('prefers Google for Arabic, and stays offline for Thai', async () => {
+    let asked = 0;
+    const google = async (lines: string[]) => { asked++; return lines.map(() => "'uhibuk"); };
     expect((await romanizeLines(['أحبك'], 'Arab', { google }))[0]).toBe("'uhibuk");
-    expect((await romanizeLines(['ฉันรักเธอ'], 'Thai', { google }))[0]).toBe('Chan rak thex');
+    expect((await romanizeLines(['ฉันรักเธอ', 'สบายดีไหม'], 'Thai', { google }))).toEqual(['chan rak thoe', 'sabai di mai']);
+    expect(asked).toBe(1);
+  });
+  it('romanizes each line by its own script in a song with two', async () => {
+    const out = await romanizeLines(['사랑해', 'Привет', 'oh yeah'], 'Kore', noGoogle);
+    expect(out).toEqual(['saranghae', 'Privet', null]);
   });
   it('falls back to generic transliteration when Google is unavailable', async () => {
     const out = await romanizeLines(['שלום'], 'Hebr', noGoogle);

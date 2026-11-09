@@ -84,6 +84,9 @@ export function deleteSchwas(word: string, script: Script): string {
 }
 
 const DRAVIDIAN_FINAL_M = new Set<Script>(['Telu', 'Knda', 'Mlym']);
+/** Hindi, Punjabi and Gujarati lyrics write long vowels doubled inside a word ("aata",
+ *  "pyaar", "door") but single at its end ("mera", "teri"). Bengali has no length contrast. */
+const LONG_VOWELS_DOUBLED = new Set<Script>(['Deva', 'Guru', 'Gujr']);
 
 /** IAST (and sanscript's extras) -> plain ASCII. */
 export function iastToAscii(s: string, script: Script): string {
@@ -91,6 +94,15 @@ export function iastToAscii(s: string, script: Script): string {
   // Anusvara: m before labials, at word end in Dravidian languages; n elsewhere.
   t = t.replace(/ṃ(?=[pbm])/g, 'm');
   if (DRAVIDIAN_FINAL_M.has(script)) t = t.replace(/ṃ(?=$|[^\p{L}])/gu, 'm');
+  // Bengali: ং is "ng" (bangla), and ব is "b" (sanscript reads it as v).
+  if (script === 'Beng') t = t.replace(/ṃ/g, 'ng').replace(/v/g, 'b');
+  // Malayalam ഞ is written "nj" (njan); elsewhere ñ only appears in clusters ("nch").
+  if (script === 'Mlym') t = t.replace(/ñ/g, 'nj');
+  if (LONG_VOWELS_DOUBLED.has(script)) {
+    // Hindi word-final ें is written "ein" (mein, baatein).
+    if (script === 'Deva') t = t.replace(/eṃ(?=$|[^\p{L}])/gu, 'ein');
+    t = t.replace(/ā(?=[\p{L}\p{M}])/gu, 'aa').replace(/ī(?=[\p{L}\p{M}])/gu, 'ee').replace(/ū(?=[\p{L}\p{M}])/gu, 'oo');
+  }
   t = t.replace(/ch/g, 'chh').replace(/c/g, 'ch');
   const map: Record<string, string> = {
     ā: 'a', ī: 'i', ū: 'u', ṛ: 'ri', ṝ: 'ri', ḷ: 'l', ḹ: 'l', ē: 'e', ō: 'o', è: 'e', ò: 'o',
@@ -119,12 +131,31 @@ function hindiFlaps(s: string): string {
   return s.replace(/ड़|ड़/g, 'ड').replace(/ढ़|ढ़/g, 'ढ');
 }
 
+/** Malayalam chillu letters (consonants with no vowel) as consonant + virama, which sanscript knows. */
+const CHILLU: Record<string, string> = { 'ൺ': 'ണ്', 'ൻ': 'ന്', 'ർ': 'ര്', 'ൽ': 'ല്', 'ൾ': 'ള്', 'ൿ': 'ക്' };
+
+/** Romanizes the words written in the script; other words (English, numbers) are kept as written. */
 export function romanizeIndic(line: string, script: Script): string {
   const scheme = SCHEME[script];
-  if (!scheme) return line;
-  let text = line.normalize('NFC');
-  if (script === 'Deva') text = hindiFlaps(text);
-  const words = text.split(/(\s+)/).map((w) => (/\s/.test(w) ? w : deleteSchwas(w, script)));
-  const iast = Sanscript.t(words.join('').replace(COMPOSE_RE, (m) => COMPOSE.get(m)!), scheme, 'iast');
-  return iastToAscii(iast, script);
+  const base = BLOCK[script];
+  if (!scheme || base === undefined) return line;
+  const chandrabindu = new RegExp(String.fromCodePoint(base + 0x01), 'g');
+  const anusvara = String.fromCodePoint(base + 0x02);
+  const inScript = (ch: string) => {
+    const o = ch.codePointAt(0)! - base;
+    return o >= 0 && o < 0x80;
+  };
+  return line
+    .normalize('NFC')
+    .split(/(\s+)/)
+    .map((token) => {
+      if (![...token].some(inScript)) return token;
+      let w = token;
+      if (script === 'Mlym') w = w.replace(/[ൺ-ൿ]/g, (c) => CHILLU[c] ?? c);
+      w = w.replace(chandrabindu, anusvara); // ँ: a nasal vowel, read like anusvara ("hoon", "haan")
+      if (script === 'Deva') w = hindiFlaps(w);
+      w = deleteSchwas(w, script);
+      return iastToAscii(Sanscript.t(w.replace(COMPOSE_RE, (m) => COMPOSE.get(m)!), scheme, 'iast'), script);
+    })
+    .join('');
 }

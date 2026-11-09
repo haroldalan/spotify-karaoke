@@ -15,7 +15,7 @@ export interface ProcessRequest {
 }
 
 /** Bump when romanizer output changes, so stale cached romanizations are not reused. */
-const ROMANIZER_VERSION = 1;
+const ROMANIZER_VERSION = 2;
 
 export async function processLines(req: ProcessRequest): Promise<Processed> {
   const lines = req.lines;
