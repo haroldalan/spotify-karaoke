@@ -8,51 +8,62 @@
   </head>
   <body>
     <header>
+      <img src="/icon48.png" alt="" width="24" height="24" />
       <h1>Spotify Karaoke</h1>
     </header>
 
     <section aria-labelledby="mode-label">
       <h2 id="mode-label">Main line</h2>
       <div class="seg" role="radiogroup" aria-labelledby="mode-label">
-        <label><input type="radio" name="mode" value="original" /><span>Original</span></label>
-        <label><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
-        <label><input type="radio" name="mode" value="translated" /><span>Translated</span></label>
+        <label title="Original (O)"><input type="radio" name="mode" value="original" /><span>Original</span></label>
+        <label title="Romanized (R)"><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
+        <label title="Translated (T)"><input type="radio" name="mode" value="translated" /><span>Translated</span></label>
       </div>
-      <p class="hint">Keys while lyrics are open: <kbd>O</kbd> <kbd>R</kbd> <kbd>T</kbd></p>
     </section>
 
     <section>
       <h2>Also show beneath</h2>
-      <label class="row"><input type="checkbox" name="showOriginal" /> Original lyrics</label>
-      <label class="row"><input type="checkbox" name="showRomanized" /> Romanization</label>
-      <label class="row"><input type="checkbox" name="showTranslation" /> Translation</label>
+      <label class="row" data-for="original"><span>Original lyrics</span><input type="checkbox" role="switch" name="showOriginal" /></label>
+      <label class="row" data-for="romanized"><span>Romanization</span><input type="checkbox" role="switch" name="showRomanized" /></label>
+      <label class="row" data-for="translated"><span>Translation</span><input type="checkbox" role="switch" name="showTranslation" /></label>
     </section>
 
     <section>
-      <h2><label for="lang-search">Translate into</label></h2>
-      <input id="lang-search" type="search" placeholder="Search languages" autocomplete="off" aria-controls="lang" />
-      <select id="lang" name="targetLang" size="5" aria-label="Translate into"></select>
-    </section>
-
-    <section>
-      <h2>More</h2>
-      <label class="row"><input type="checkbox" name="fillMissing" /> Find lyrics when Spotify has none</label>
-      <label class="row"><input type="checkbox" name="restoreNative" /> Restore the original script</label>
-      <label class="row"><input type="checkbox" name="showPill" /> Show the switcher on the lyrics</label>
-    </section>
-
-    <section>
-      <h2>Status</h2>
-      <ul id="status" class="status" aria-live="polite"></ul>
-      <div class="cache">
-        <span id="cache-size">Cache: …</span>
-        <button id="clear" type="button">Clear cache</button>
+      <div class="row">
+        <span id="lang-label">Translate into</span>
+        <button id="lang-button" type="button" class="dropdown" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="lang-label lang-button"><span id="lang-name">English</span></button>
       </div>
+      <div id="lang-panel" class="lang-panel" hidden>
+        <input id="lang-search" type="search" placeholder="Search languages" autocomplete="off" aria-label="Search languages" aria-controls="lang-list" />
+        <ul id="lang-list" role="listbox" aria-labelledby="lang-label" tabindex="-1"></ul>
+      </div>
+    </section>
+
+    <section>
+      <label class="row"><span>Find lyrics when Spotify has none</span><input type="checkbox" role="switch" name="fillMissing" /></label>
+      <label class="row"><span>Restore the original script</span><input type="checkbox" role="switch" name="restoreNative" /></label>
+      <label class="row"><span>Show the switcher on the lyrics</span><input type="checkbox" role="switch" name="showPill" /></label>
+    </section>
+
+    <section class="status-section">
+      <div id="summary" class="summary" aria-live="polite"></div>
+      <div id="song" class="song" hidden></div>
+      <details>
+        <summary>Details</summary>
+        <ul id="status" class="status"></ul>
+        <div class="cache">
+          <span id="cache-size">Cache: …</span>
+          <button id="clear" type="button">Clear cache</button>
+        </div>
+      </details>
     </section>
 
     <footer>
       <span id="version"></span>
-      <a href="#" id="shortcuts">Keyboard shortcuts</a>
+      <span class="links">
+        <a href="https://github.com/haroldalan/spotify-karaoke" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="#" id="shortcuts">Shortcuts</a>
+      </span>
     </footer>
     <script type="module" src="./main.ts"></script>
   </body>
