@@ -79,6 +79,18 @@ Firefox (test profile, no playback): page hook, background lookups and romanized
   lyrics through the Android client; まどろみ (no Spotify or LRCLIB lyrics) now shows
   YouTube Music's (unsynced) lyrics.
 
+Seamless-UI pass (2026-11-09, after a UI audit and a third-party one):
+- The switcher is 3.1.6's capsule in 3.1.6's place, under the lyrics header; it hides on
+  the artwork view and in narrow panels (the sidebar shows only the main line there).
+- Lyrics we supply are credited in Spotify's own footer ("Lyrics provided by LRCLIB ·
+  Spotify Karaoke"), keep the album colours and are marked dense for CJK/Indic scripts.
+- The no-lyrics notice sits where the switcher does; the popup can Search again even
+  when Spotify has disabled its Lyrics button.
+- Spotify's mini player gets the same decoration.
+- Popup: switches, a dropdown language picker with search, a one-line status with the
+  details folded away, the playing song, footer credit. Verified with a stubbed API;
+  the live check covered the capsule on Spring Day (romanized Korean, Hangul beneath).
+
 Not done yet: see the batches below.
 
 ## Fix plan (from three audits, 2026-11-09)
