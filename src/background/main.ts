@@ -1,7 +1,7 @@
 import { serve } from '../shared/messages';
 import { saveSettings } from '../shared/settings';
 import type { Mode } from '../shared/types';
-import { findLyrics } from './lyrics/find';
+import { findLyrics, knownNoLyrics } from './lyrics/find';
 import { restoreNative } from './lyrics/native';
 import { processLines } from './text/process';
 import { ytmHeaderRules } from './lyrics/ytm';
@@ -16,6 +16,7 @@ export function startBackground(): void {
   );
   serve({
     findLyrics,
+    knownNoLyrics: () => knownNoLyrics(),
     restoreNative,
     process: processLines,
     status: () => ({ version: chrome.runtime.getManifest().version }),

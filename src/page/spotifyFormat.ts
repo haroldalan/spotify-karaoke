@@ -1,9 +1,73 @@
 // Spotify's JSON formats: reading metadata/4 and color-lyrics, writing color-lyrics.
 import type { FoundLyrics, TrackMeta } from '../shared/types';
 import { hexToBase62 } from '../shared/spotifyId';
+import { songScript } from '../shared/scripts';
 
-export const METADATA_URL = /^https:\/\/spclient\.wg\.spotify\.com\/metadata\/4\/track\/([0-9a-f]{32})/;
-export const COLOR_LYRICS_URL = /^https:\/\/spclient\.wg\.spotify\.com\/color-lyrics\/v2\/track\/([0-9A-Za-z]{22})/;
+const METADATA_PATH = /^\/metadata\/4\/track\/([0-9a-f]{32})/;
+const COLOR_LYRICS_PATH = /^\/color-lyrics\/v2\/track\/([0-9A-Za-z]{22})/;
+const GRAPHQL_PATH = /^\/pathfinder\/v\d+\/query/;
+
+export type SpotifyRequest =
+  | { kind: 'metadata'; gid: string }
+  | { kind: 'lyrics'; id: string }
+  | { kind: 'graphql' };
+
+/**
+ * What a request is, on any *.spotify.com host (spclient.wg.spotify.com, regional
+ * gae2-spclient.spotify.com, api-partner.spotify.com ...). null: not ours to look at.
+ */
+export function classify(url: string): SpotifyRequest | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = u.hostname.toLowerCase();
+  if (u.protocol !== 'https:' || (host !== 'spotify.com' && !host.endsWith('.spotify.com'))) return null;
+  let m = METADATA_PATH.exec(u.pathname);
+  if (m) return { kind: 'metadata', gid: m[1] };
+  m = COLOR_LYRICS_PATH.exec(u.pathname);
+  if (m) return { kind: 'lyrics', id: m[1] };
+  if (GRAPHQL_PATH.test(u.pathname)) return { kind: 'graphql' };
+  return null;
+}
+
+/** Track details found in any GraphQL response (album, playlist, search, now playing ...). */
+export interface TrackHint {
+  id: string;
+  name: string;
+  artists: string[];
+  album: string;
+  durationMs: number;
+}
+
+/**
+ * Collects track objects from a GraphQL response: { uri: 'spotify:track:<id>', name,
+ * artists.items[].profile.name, duration.totalMilliseconds, albumOfTrack.name }.
+ * Bounded work: stops after `budget` objects.
+ */
+export function harvestTracks(json: unknown, budget = 50_000): TrackHint[] {
+  const out: TrackHint[] = [];
+  const stack: unknown[] = [json];
+  let seen = 0;
+  while (stack.length && seen++ < budget) {
+    const o = stack.pop();
+    if (!o || typeof o !== 'object') continue;
+    if (Array.isArray(o)) { for (const x of o) stack.push(x); continue; }
+    const r = o as Record<string, any>;
+    if (typeof r.uri === 'string' && r.uri.startsWith('spotify:track:') && typeof r.name === 'string') {
+      const id = r.uri.slice('spotify:track:'.length);
+      const artists = ((r.artists?.items ?? r.firstArtist?.items ?? []) as any[]).map((a) => a?.profile?.name).filter((n): n is string => typeof n === 'string');
+      const durationMs = Number(r.duration?.totalMilliseconds ?? r.trackDuration?.totalMilliseconds ?? 0);
+      if (/^[0-9A-Za-z]{22}$/.test(id) && artists.length && durationMs > 0) {
+        out.push({ id, name: r.name, artists, album: typeof r.albumOfTrack?.name === 'string' ? r.albumOfTrack.name : '', durationMs });
+      }
+    }
+    for (const k in r) if (r[k] && typeof r[k] === 'object') stack.push(r[k]);
+  }
+  return out;
+}
 
 interface RawMeta {
   gid?: string;
@@ -58,6 +122,7 @@ export function parseColorLyrics(json: { lyrics?: { lines?: RawLine[]; syncType?
 
 /** A color-lyrics response for lyrics we found. Spotify takes the colours from the cover itself. */
 export function buildColorLyrics(found: FoundLyrics, language: string | null) {
+  const script = songScript(found.lines.map((l) => l.text));
   const lines = found.lines.map((l) => ({
     startTimeMs: String(found.synced ? l.startMs : 0),
     words: l.text,
@@ -76,7 +141,7 @@ export function buildColorLyrics(found: FoundLyrics, language: string | null) {
       isDenseTypeface: false,
       alternatives: [],
       language: language ?? '',
-      isRtlLanguage: false,
+      isRtlLanguage: script === 'Arab' || script === 'Hebr',
       capStatus: 'NONE',
       previewLines: lines.slice(0, 3),
       translationLanguages: [],

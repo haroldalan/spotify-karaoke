@@ -6,6 +6,8 @@ export interface Api {
   findLyrics: (meta: TrackMeta) => FoundLyrics | null;
   /** The song's lyrics in its own script, when Spotify serves them romanized. */
   restoreNative: (req: { meta: TrackMeta; lines: string[]; times: number[]; synced: boolean }) => NativeResult | null;
+  /** Tracks known to have no lyrics anywhere. */
+  knownNoLyrics: (req: Record<string, never>) => string[];
   /** Romanize and/or translate a song's lines. */
   process: (req: { lines: string[]; language?: string | null; romanize: boolean; translateTo: string | null }) => Processed;
   /** Diagnostics for the popup. */

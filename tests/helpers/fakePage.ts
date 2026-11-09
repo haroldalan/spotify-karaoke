@@ -16,7 +16,7 @@ export interface FakePageOptions {
   timing?: Partial<HookTiming>;
 }
 
-export const FAST: HookTiming = { lookupMs: 200, upgradeMs: 200, nativeMs: 200, metaWaitMs: 100 };
+export const FAST: HookTiming = { lookupMs: 200, upgradeMs: 200, nativeMs: 200, metaWaitMs: 100, configWaitMs: 100 };
 
 export function fakePage(o: FakePageOptions) {
   const listeners: ((e: { source: unknown; data: unknown }) => void)[] = [];

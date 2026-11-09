@@ -68,6 +68,26 @@ export function better(next: FoundLyrics | null, before: FoundLyrics | null): Fo
   return before.synced && !next.synced ? before : next;
 }
 
+const NONE_IDS = 'no-lyrics-ids';
+const NONE_IDS_MAX = 1000;
+
+/** Remembers which tracks have no lyrics anywhere, so pages don't claim lyrics for them. */
+async function noteNone(id: string, none: boolean, at: number) {
+  const ids = (await cacheGet<Record<string, number>>(NONE_IDS)) ?? {};
+  if (none) ids[id] = at;
+  else if (!(id in ids)) return;
+  else delete ids[id];
+  const keys = Object.keys(ids).sort((a, b) => ids[a] - ids[b]);
+  for (const k of keys.slice(0, Math.max(0, keys.length - NONE_IDS_MAX))) delete ids[k];
+  await cacheSet(NONE_IDS, ids);
+}
+
+/** Tracks known (within NONE_TTL) to have no lyrics anywhere. */
+export async function knownNoLyrics(now = Date.now()): Promise<string[]> {
+  const ids = (await cacheGet<Record<string, number>>(NONE_IDS)) ?? {};
+  return Object.keys(ids).filter((id) => now - ids[id] < NONE_TTL);
+}
+
 export function findLyrics(meta: TrackMeta, sources: Sources = DEFAULT_SOURCES, now = () => Date.now()): Promise<FoundLyrics | null> {
   const key = `lyr3:${meta.id}`;
   return once(key, async () => {
@@ -78,6 +98,7 @@ export function findLyrics(meta: TrackMeta, sources: Sources = DEFAULT_SOURCES, 
     // Kept older lyrics after an incomplete search: ask again soon rather than in a week.
     const at = keep && keep !== found && !complete ? now() - (keep.synced ? SYNCED_TTL : UNSYNCED_TTL) + UNREACHABLE_TTL : now();
     await cacheSet<Stored>(key, { found: keep, at, complete });
+    await noteNone(meta.id, !keep && complete, at);
     return keep;
   });
 }

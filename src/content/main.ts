@@ -8,8 +8,13 @@ import { Pill } from './pill';
 import { View, type ViewState } from './view';
 
 export async function startContent(): Promise<void> {
-  let settings = await loadSettings();
-  const noLyrics = new Set<string>();
+  // Settings and the no-lyrics list reach the page before Spotify's first requests are decided.
+  const [loaded, known] = await Promise.all([
+    loadSettings(),
+    Promise.race([call('knownNoLyrics', {}), new Promise<string[]>((r) => setTimeout(() => r([]), 500))]).catch(() => [] as string[]),
+  ]);
+  let settings = loaded;
+  const noLyrics = new Set<string>(known);
   const finding = new Map<string, Promise<FoundLyrics | null>>();
   const pageConfig = () => ({ fillMissing: settings.fillMissing, restoreNative: settings.restoreNative, noLyrics: [...noLyrics] });
 

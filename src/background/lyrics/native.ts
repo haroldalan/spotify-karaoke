@@ -36,6 +36,8 @@ export interface NativeSources {
 
 const ALIGN_MIN = 0.45;
 const SONG_MIN = 0.5;
+/** How early a native line may start relative to the Spotify line it belongs to. */
+const TIME_SLACK_MS = 1500;
 
 /** Consonant skeleton: what survives every romanization scheme ("thangamae" ~ "thangame"). */
 export function skeleton(s: string): string {
@@ -95,6 +97,27 @@ export async function fit(
         source: cand.source,
         aligned: true,
       };
+    }
+  }
+  // Line breaks differ, but both copies are timed to the same recording: each of Spotify's
+  // lines takes the native lines that start during it, and keeps Spotify's timing.
+  if (req.synced && cand.synced && native.length !== spotify.length) {
+    const spotifyStart = spotify.map((x) => req.times[x.i] ?? 0);
+    const groups: number[][] = spotify.map(() => []);
+    native.forEach((x, k) => {
+      const t = cand.lines[x.i].startMs;
+      let j = -1;
+      for (let q = 0; q < spotifyStart.length && spotifyStart[q] <= t + TIME_SLACK_MS; q++) j = q;
+      if (j >= 0) groups[j].push(k);
+    });
+    if (groups.every((g) => g.length)) {
+      const joined = groups.map((g) => g.map((k) => rom[k]).join(' '));
+      const score = joined.reduce((s, r, j) => s + similarity(r, spotify[j].l), 0) / joined.length;
+      if (score >= ALIGN_MIN) {
+        const text = [...req.lines];
+        spotify.forEach((x, j) => (text[x.i] = groups[j].map((k) => native[k].l).join(' ')));
+        return { lines: text.map((t, i) => ({ startMs: req.times[i] ?? 0, text: t })), synced: true, source: cand.source, aligned: true };
+      }
     }
   }
   const tolerance = Math.max(2, Math.round(spotify.length * 0.15));
