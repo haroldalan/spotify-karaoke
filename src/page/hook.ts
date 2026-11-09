@@ -138,8 +138,10 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
 
   async function onColorLyrics(res: Response, id: string): Promise<Response | null> {
     if (res.ok) {
-      const l = parseColorLyrics(await res.clone().json());
+      const raw = await res.clone().json();
+      const l = parseColorLyrics(raw);
       if (!l) return null;
+      note(`dense ${id} ${raw?.lyrics?.isDenseTypeface} lang=${raw?.lyrics?.language} provider=${raw?.lyrics?.providerDisplayName}`);
       const meta = await metaFor(id);
       await settled();
       note(`lyrics ${id} ${l.syncType} script=${songScript(l.lines, l.language)} meta=${meta ? 'yes' : 'no'}`);
