@@ -105,23 +105,30 @@ export async function fit(
   return null;
 }
 
-export async function searchNative(req: NativeRequest, sources: NativeSources): Promise<NativeResult | null> {
+/** searchNative's answer: complete is false when a source failed, so "none" isn't final. */
+export interface NativeSearch {
+  result: NativeResult | null;
+  complete: boolean;
+}
+
+export async function searchNative(req: NativeRequest, sources: NativeSources): Promise<NativeSearch> {
   const script = expectedScript(req.meta.languages);
-  if (!script || songScript(req.lines) !== 'Latn') return null;
+  if (!script || songScript(req.lines) !== 'Latn') return { result: null, complete: true };
+  let complete = true;
   // YouTube Music first (licensed), then LRCLIB copies whose duration is known.
-  const yt = sources.ytm ? await sources.ytm(req.meta).catch(() => null) : null;
+  const yt = sources.ytm ? await sources.ytm(req.meta).catch(() => { complete = false; return null; }) : null;
   if (yt) {
     const r = await fit(req, yt, script, sources.romanize);
-    if (r) return r;
+    if (r) return { result: r, complete };
   }
-  const lr = (await sources.lrclib(req.meta)).filter((c) => c.durationKnown);
+  const lr = (await sources.lrclib(req.meta).catch(() => { complete = false; return []; })).filter((c) => c.durationKnown);
   // Synced copies first.
   lr.sort((a, b) => Number(b.synced) - Number(a.synced));
   for (const c of lr) {
     const r = await fit(req, { ...c, source: 'LRCLIB' }, script, sources.romanize);
-    if (r) return r;
+    if (r) return { result: r, complete };
   }
-  return null;
+  return { result: null, complete };
 }
 
 async function lrclibNative(meta: TrackMeta) {
@@ -143,19 +150,16 @@ const DEFAULT_SOURCES: NativeSources = {
 
 const FOUND_TTL = 30 * 24 * 3600_000;
 const NONE_TTL = 3 * 24 * 3600_000;
+/** A source failed: look again soon. */
+const UNREACHABLE_TTL = 30 * 60_000;
 
-export function restoreNative(req: NativeRequest): Promise<NativeResult | null> {
+export function restoreNative(req: NativeRequest, sources: NativeSources = DEFAULT_SOURCES): Promise<NativeResult | null> {
   const key = `nat:${req.meta.id}:${req.lines.length}`;
   return once(key, async () => {
     const cached = await cacheGet<NativeResult | { none: true }>(key);
     if (cached) return 'none' in cached ? null : cached;
-    let result: NativeResult | null;
-    try {
-      result = await searchNative(req, DEFAULT_SOURCES);
-    } catch {
-      return null; // unreachable: not cached
-    }
-    await cacheSet(key, result ?? { none: true }, result ? FOUND_TTL : NONE_TTL);
+    const { result, complete } = await searchNative(req, sources).catch(() => ({ result: null, complete: false }));
+    await cacheSet(key, result ?? { none: true }, result ? FOUND_TTL : complete ? NONE_TTL : UNREACHABLE_TTL);
     return result;
   });
 }

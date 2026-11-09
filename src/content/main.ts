@@ -5,7 +5,7 @@ import { Bridge } from './bridge';
 import { STYLE } from './decorate';
 import { LineStore } from './lineStore';
 import { Pill } from './pill';
-import { View } from './view';
+import { View, type ViewState } from './view';
 
 export async function startContent(): Promise<void> {
   let settings = await loadSettings();
@@ -44,8 +44,11 @@ export async function startContent(): Promise<void> {
           (r) => {
             if (r) {
               // Aligned: also map Spotify's romanized lines to ours, in case Spotify drew its own first.
-              if (r.aligned) store.addAliases(req.lines, r.lines.map((l) => l.text));
-              store.addSong(r.lines.map((l) => l.text), req.meta.languages[0] ?? null);
+              const native = r.lines.map((l) => l.text);
+              const language = req.meta.languages[0] ?? null;
+              // Aligned: Spotify may already show its romanized lines; tie them to this song.
+              if (r.aligned) store.addRestored(req.lines, native, language);
+              else store.addSong(native, language);
             }
             return r;
           },
@@ -65,14 +68,16 @@ export async function startContent(): Promise<void> {
 
   const style = document.createElement('style');
   style.id = 'spotify-karaoke-style';
+  // Which build is running (for diagnostics): version, and -dev for `npm run dev` builds.
+  style.dataset.skBuild = `${chrome.runtime.getManifest().version}${import.meta.env.DEV ? '-dev' : ''}`;
   style.textContent = STYLE;
   (document.head ?? document.documentElement).append(style);
 
   const view = new View(store, settings);
   const pill = new Pill((mode) => void saveSettings({ mode }));
-  let lastView = { lineCount: 0, rect: null as DOMRect | null };
+  let lastView: ViewState = { lineCount: 0, rect: null, song: null };
   const renderPill = () => {
-    const st = store.status();
+    const st = store.status(lastView.song);
     const translating = settings.mode === 'translated' || settings.showTranslation;
     pill.update({
       mode: settings.mode,

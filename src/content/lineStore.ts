@@ -1,5 +1,8 @@
-// Every song's lines we have seen, and their processed versions, addressed by line text.
-// A line on screen reading X is decorated with whatever we know about X.
+// The songs whose lyrics we have seen, with their processed versions. Results belong to
+// their song: a lyrics list on screen is matched to the song it shares the most lines with
+// (View), and decorated from that song only, so an identical line in another song (a
+// kanji line in a Chinese and a Japanese song, "Tera" in two Hindi songs) never borrows
+// the wrong romanization or restored script.
 import type { Processed, Settings } from '../shared/types';
 import { hash } from '../shared/hash';
 
@@ -9,29 +12,49 @@ export interface LineInfo {
   translated?: Record<string, string | null>;
 }
 
-interface Song {
+type State = 'no' | 'pending' | 'done' | 'failed';
+
+export interface Song {
   key: string;
+  /** The song's lines (normalized), in the song's own script. */
   lines: string[];
+  /**
+   * Restored songs: the romanized lines Spotify shows, line for line with `lines`.
+   * A list showing these is this song, drawn before its original script arrived.
+   */
+  shown?: string[];
   language: string | null;
-  romanized: 'no' | 'pending' | 'done' | 'failed';
-  translated: Record<string, 'pending' | 'done' | 'failed'>;
+  romanized: (string | null)[] | null;
+  translated: Record<string, (string | null)[]>;
+  romanizeState: State;
+  translateState: Record<string, State>;
   translateError?: string;
   script?: string | null;
 }
 
+/** A line on screen, resolved against its song. */
+export interface ResolvedLine {
+  song: Song;
+  /** The song's own line (original script). */
+  original: string;
+  /** True when the screen shows Spotify's romanized line rather than `original`. */
+  aliased: boolean;
+  info: LineInfo;
+}
+
 export type Processor = (req: { lines: string[]; language: string | null; romanize: boolean; translateTo: string | null }) => Promise<Processed>;
 
-const MAX_SONGS = 60;
+export const MAX_SONGS = 60;
 
 export function normalizeLine(s: string): string {
   return s.normalize('NFC').replace(/\s+/g, ' ').trim();
 }
 
 export class LineStore {
+  /** Least recently used first. */
   private songs = new Map<string, Song>();
-  private lines = new Map<string, LineInfo>();
-  /** Spotify's romanized line -> the same line in the song's own script. */
-  private aliases = new Map<string, string>();
+  /** Line text (own or shown) -> keys of the songs that contain it. */
+  private index = new Map<string, Set<string>>();
   private listeners = new Set<() => void>();
   private settings: Settings;
 
@@ -48,61 +71,122 @@ export class LineStore {
     for (const fn of this.listeners) fn();
   }
 
-  /** The original-script line for a romanized line Spotify shows, when known. */
-  alias(text: string): string | undefined {
-    return this.aliases.get(normalizeLine(text));
-  }
-
-  /** Registers line-for-line pairs (romanized -> original script). */
-  addAliases(from: string[], to: string[]) {
-    from.forEach((f, i) => {
-      const a = normalizeLine(f);
-      const b = normalizeLine(to[i] ?? '');
-      if (a && b && a !== b) this.aliases.set(a, b);
-    });
-    while (this.aliases.size > 20000) this.aliases.delete(this.aliases.keys().next().value!);
-    this.changed();
-  }
-
-  get(text: string): LineInfo | undefined {
-    return this.lines.get(normalizeLine(text));
+  get size() {
+    return this.songs.size;
   }
 
   /** Registers a song's lines (from Spotify, from us, or read off the screen). */
-  addSong(rawLines: string[], language: string | null = null): string {
+  addSong(rawLines: string[], language: string | null = null): Song {
     const lines = rawLines.map(normalizeLine);
     const key = hash(lines.join('\n'));
-    const existing = this.songs.get(key);
-    if (existing) {
-      // Most recent last.
-      this.songs.delete(key);
-      this.songs.set(key, existing);
-      if (language && !existing.language) existing.language = language;
+    let song = this.songs.get(key);
+    if (song) {
+      this.touch(song);
+      if (language && !song.language) song.language = language;
     } else {
-      this.songs.set(key, { key, lines, language, romanized: 'no', translated: {} });
-      while (this.songs.size > MAX_SONGS) this.songs.delete(this.songs.keys().next().value!);
+      song = { key, lines, language, romanized: null, translated: {}, romanizeState: 'no', translateState: {} };
+      this.songs.set(key, song);
+      this.indexSong(song);
+      this.evict();
     }
-    this.ensure(key);
-    return key;
+    this.ensure(song);
+    return song;
+  }
+
+  /**
+   * A song restored line for line: `shown` is what Spotify drew (romanized), `native` the
+   * same lines in the song's own script.
+   */
+  addRestored(shown: string[], native: string[], language: string | null): Song {
+    const song = this.addSong(native, language);
+    song.shown = shown.map(normalizeLine);
+    this.indexSong(song);
+    this.changed();
+    return song;
+  }
+
+  /** Marks a song as just seen on screen. */
+  touch(song: Song) {
+    this.songs.delete(song.key);
+    this.songs.set(song.key, song);
+  }
+
+  /**
+   * The song a list of lines on screen belongs to: the one sharing the most lines with it,
+   * the most recently seen on a tie. null: no known song shares a line.
+   */
+  songFor(texts: string[]): Song | null {
+    const score = new Map<string, number>();
+    for (const t of texts) {
+      const n = normalizeLine(t);
+      if (!n) continue;
+      for (const key of this.index.get(n) ?? []) score.set(key, (score.get(key) ?? 0) + 1);
+    }
+    let best: Song | null = null;
+    let bestScore = 0;
+    let bestRank = -1;
+    const ranks = new Map([...this.songs.keys()].map((k, i) => [k, i]));
+    for (const [key, s] of score) {
+      const rank = ranks.get(key) ?? -1;
+      if (s > bestScore || (s === bestScore && rank > bestRank)) {
+        best = this.songs.get(key) ?? null;
+        bestScore = s;
+        bestRank = rank;
+      }
+    }
+    return best;
+  }
+
+  /** A line of a song, as shown on screen. */
+  resolve(song: Song, text: string): ResolvedLine | null {
+    const n = normalizeLine(text);
+    if (!n) return null;
+    let i = song.lines.indexOf(n);
+    let aliased = false;
+    if (i < 0 && song.shown) {
+      i = song.shown.indexOf(n);
+      aliased = i >= 0;
+    }
+    if (i < 0) return null;
+    const info: LineInfo = { romanized: song.romanized?.[i] ?? null, translated: {} };
+    for (const [lang, tr] of Object.entries(song.translated)) info.translated![lang] = tr[i] ?? null;
+    return { song, original: song.lines[i], aliased, info };
   }
 
   setSettings(s: Settings) {
     this.settings = s;
     // Newest songs first: they are the ones on screen.
-    for (const key of [...this.songs.keys()].reverse()) this.ensure(key);
+    for (const song of [...this.songs.values()].reverse()) this.ensure(song);
     this.changed();
   }
 
-  /** Whether any song still waits for what the current settings need. */
-  status(): { pending: boolean; translateError?: string; script?: string | null } {
+  /** Whether this song still waits for what the current settings need. */
+  status(song: Song | null): { pending: boolean; translateError?: string } {
+    if (!song) return { pending: false };
     const want = this.wants();
-    const last = [...this.songs.values()].pop();
-    let pending = false;
-    for (const s of this.songs.values()) {
-      if (want.romanize && s.romanized === 'pending') pending = true;
-      if (want.translateTo && s.translated[want.translateTo] === 'pending') pending = true;
+    const pending = (want.romanize && song.romanizeState === 'pending') || (!!want.translateTo && song.translateState[want.translateTo] === 'pending');
+    return { pending, translateError: song.translateError };
+  }
+
+  private indexSong(song: Song) {
+    for (const t of [...song.lines, ...(song.shown ?? [])]) {
+      if (!t) continue;
+      let set = this.index.get(t);
+      if (!set) this.index.set(t, (set = new Set()));
+      set.add(song.key);
     }
-    return { pending, translateError: last?.translateError, script: last?.script };
+  }
+
+  private evict() {
+    while (this.songs.size > MAX_SONGS) {
+      const oldest = this.songs.values().next().value!;
+      this.songs.delete(oldest.key);
+      for (const t of [...oldest.lines, ...(oldest.shown ?? [])]) {
+        const set = this.index.get(t);
+        set?.delete(oldest.key);
+        if (set && !set.size) this.index.delete(t);
+      }
+    }
   }
 
   private wants() {
@@ -113,38 +197,34 @@ export class LineStore {
     };
   }
 
-  private ensure(key: string) {
-    const song = this.songs.get(key);
-    if (!song || !song.lines.some((l) => l)) return;
+  private ensure(song: Song) {
+    if (!song.lines.some((l) => l)) return;
     const want = this.wants();
-    const romanize = want.romanize && (song.romanized === 'no' || song.romanized === 'failed');
-    const translateTo = want.translateTo && !song.translated[want.translateTo] ? want.translateTo : null;
+    const romanize = want.romanize && (song.romanizeState === 'no' || song.romanizeState === 'failed');
+    const translateTo = want.translateTo && !song.translateState[want.translateTo] ? want.translateTo : null;
     if (!romanize && !translateTo) return;
-    if (romanize) song.romanized = 'pending';
-    if (translateTo) song.translated[translateTo] = 'pending';
+    if (romanize) song.romanizeState = 'pending';
+    if (translateTo) song.translateState[translateTo] = 'pending';
     this.changed();
     this.process({ lines: song.lines, language: song.language, romanize, translateTo }).then(
       (p) => {
         song.script = p.script;
         song.translateError = p.translateError;
-        song.lines.forEach((line, i) => {
-          if (!line) return;
-          const info = this.lines.get(line) ?? {};
-          if (romanize && p.romanized) info.romanized = p.romanized[i];
-          if (translateTo && p.translated) (info.translated ??= {})[translateTo] = p.translated[i];
-          this.lines.set(line, info);
-        });
-        if (romanize) song.romanized = p.romanized ? 'done' : 'failed';
-        if (translateTo) {
-          if (p.translated) song.translated[translateTo] = 'done';
-          else delete song.translated[translateTo]; // failed: retry when asked again
+        if (romanize) {
+          song.romanized = p.romanized;
+          song.romanizeState = p.romanized ? 'done' : 'failed';
         }
-        if (this.lines.size > 20000) this.lines.clear();
+        if (translateTo) {
+          if (p.translated) {
+            song.translated[translateTo] = p.translated;
+            song.translateState[translateTo] = 'done';
+          } else delete song.translateState[translateTo]; // failed: retry when asked again
+        }
         this.changed();
       },
       (e) => {
-        if (romanize) song.romanized = 'failed';
-        if (translateTo) delete song.translated[translateTo];
+        if (romanize) song.romanizeState = 'failed';
+        if (translateTo) delete song.translateState[translateTo];
         song.translateError = String(e?.message || e);
         this.changed();
       },

@@ -1,22 +1,27 @@
 // Keeps every lyrics line on the page decorated. Event-driven: a MutationObserver
 // schedules one pass per animation frame; a pass is cheap and idempotent.
+//
+// Lines are handled per list (their parent element, one per song panel): each list is
+// matched to the song it shares the most lines with, and decorated from that song only.
 import type { Settings } from '../shared/types';
-import { LINE_SELECTOR, apply, decoration, lineText, clear } from './decorate';
-import type { LineStore } from './lineStore';
+import { LINE_SELECTOR, apply, decoration, lineText, clear, type Decoration } from './decorate';
+import type { LineStore, Song } from './lineStore';
 
 export interface ViewState {
   /** Lines of lyrics currently in the document. */
   lineCount: number;
   /** The lyrics view's box, for placing the mode switcher. */
   rect: DOMRect | null;
+  /** The song of the visible lyrics list, when known. */
+  song: Song | null;
 }
+
+const NONE: Decoration = { main: null, sub: null, dir: null };
 
 export class View {
   private scheduled = false;
   private observer: MutationObserver;
   private settings: Settings;
-  /** Lyrics lists already handed to the store from the screen, by their text. */
-  private seenLists = new Set<string>();
   private listeners = new Set<(s: ViewState) => void>();
 
   constructor(private store: LineStore, settings: Settings) {
@@ -53,34 +58,39 @@ export class View {
     });
   }
 
-  private pass() {
-    const lines = document.querySelectorAll(LINE_SELECTOR);
-    const unknownLists = new Map<Element, string[]>();
+  /** One decoration pass over every lyrics list in the document. Exposed for tests. */
+  pass() {
+    const lines = [...document.querySelectorAll(LINE_SELECTOR)];
+    const lists = new Map<Element | null, Element[]>();
     for (const el of lines) {
-      const shown = lineText(el);
-      // Romanized by Spotify, restored by us after Spotify had drawn it: treat it as the original.
-      const native = shown ? this.store.alias(shown) : undefined;
-      const text = native ?? shown;
-      const info = text ? this.store.get(text) : undefined;
-      if (text && !info && !native && el.parentElement) {
-        // Never seen through the network: read the whole list off the screen once.
-        if (!unknownLists.has(el.parentElement)) unknownLists.set(el.parentElement, []);
+      const list = el.parentElement;
+      if (!lists.has(list)) lists.set(list, []);
+      lists.get(list)!.push(el);
+    }
+    let visibleSong: Song | null = null;
+    let visibleLine: Element | null = null;
+    for (const els of lists.values()) {
+      const texts = els.map(lineText);
+      let song = this.store.songFor(texts);
+      // Never seen through the network: read the whole list off the screen.
+      if (!song && texts.some((t) => t)) song = this.store.addSong(texts);
+      const visible = els.find((el) => (el as HTMLElement).offsetParent !== null);
+      if (song && visible) {
+        this.store.touch(song);
+        visibleSong = song;
+        visibleLine = visible;
       }
-      const d = text ? decoration(text, info, this.settings) : { main: null, sub: null, dir: null };
-      if (native && !d.main) d.main = native;
-      apply(el, d);
+      els.forEach((el, i) => {
+        const r = song ? this.store.resolve(song, texts[i]) : null;
+        if (!r) return apply(el, NONE);
+        const d = decoration(r.original, r.info, this.settings);
+        // Restored by us after Spotify drew its romanized line: the original script is the main line.
+        if (r.aliased && !d.main) d.main = r.original;
+        apply(el, d);
+      });
     }
-    for (const list of unknownLists.keys()) {
-      const texts = [...list.querySelectorAll(LINE_SELECTOR)].map(lineText);
-      const sig = texts.join('\n');
-      if (this.seenLists.has(sig)) continue;
-      this.seenLists.add(sig);
-      this.store.addSong(texts);
-    }
-    let rect: DOMRect | null = null;
-    const visible = [...lines].find((l) => (l as HTMLElement).offsetParent !== null);
-    if (visible) rect = scrollBox(visible)?.getBoundingClientRect() ?? null;
-    for (const fn of this.listeners) fn({ lineCount: lines.length, rect });
+    const rect = visibleLine ? scrollBox(visibleLine)?.getBoundingClientRect() ?? null : null;
+    for (const fn of this.listeners) fn({ lineCount: lines.length, rect, song: visibleSong });
   }
 
   stop() {

@@ -173,3 +173,79 @@ describe('processing', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('lyrics cache', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    installChromeStorage();
+  });
+  const meta: TrackMeta = { id: 'y'.repeat(22), name: 'Song', artists: ['A'], album: '', durationMs: 200000, languages: [], hasLyrics: false };
+  const DAY = 24 * 3600_000;
+  const lrc = (text: string) => async () => ({ synced: `[00:01.00]${text}`, plain: text, instrumental: false });
+  const plain = (text: string) => async () => ({ synced: null, plain: text, instrumental: false });
+
+  it('answers from cache until the result is due, sooner for unsynced lyrics', async () => {
+    const { findLyrics } = await import('../../src/background/lyrics/find');
+    let t = 0;
+    let asked = 0;
+    const sources = { lrclib: async () => { asked++; return plain('words')(); } };
+    await findLyrics(meta, sources, () => t);
+    t = 6 * DAY;
+    await findLyrics(meta, sources, () => t);
+    expect(asked).toBe(1);
+    t = 8 * DAY;
+    await findLyrics(meta, sources, () => t);
+    expect(asked).toBe(2);
+  });
+
+  it('keeps good lyrics when a refresh fails or finds less', async () => {
+    const { findLyrics } = await import('../../src/background/lyrics/find');
+    let t = 0;
+    await findLyrics(meta, { lrclib: lrc('synced') }, () => t);
+    t = 31 * DAY;
+    const offline = { lrclib: async () => { throw new Error('offline'); } };
+    expect((await findLyrics(meta, offline, () => t))?.lines[0].text).toBe('synced');
+    t += 31 * 60_000; // retried soon, not in a month
+    expect((await findLyrics(meta, { lrclib: plain('unsynced') }, () => t))?.synced).toBe(true);
+  });
+
+  it('does not keep "unreachable" as long as "none"', async () => {
+    const { findLyrics } = await import('../../src/background/lyrics/find');
+    let t = 0;
+    let asked = 0;
+    const down = { lrclib: async () => { asked++; throw new Error('offline'); } };
+    await findLyrics(meta, down, () => t);
+    t = 31 * 60_000;
+    await findLyrics(meta, down, () => t);
+    expect(asked).toBe(2);
+  });
+});
+
+describe('romanization cache', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    installChromeStorage();
+  });
+
+  it('does not keep a stopgap: Arabic without Google is retried next time', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', (async () => { calls++; return new Response('', { status: 503 }); }) as typeof fetch);
+    const { processLines } = await import('../../src/background/text/process');
+    const req = { lines: ['أحبك'], language: 'ar', romanize: true, translateTo: null };
+    await processLines(req);
+    const before = calls;
+    await processLines(req);
+    expect(calls).toBeGreaterThan(before);
+    vi.unstubAllGlobals();
+  });
+
+  it('keys romanizations by script, so a kanji-only song read without its language can be read again as Japanese', async () => {
+    vi.stubGlobal('fetch', (async () => new Response('', { status: 503 })) as typeof fetch);
+    const { processLines } = await import('../../src/background/text/process');
+    const zh = await processLines({ lines: ['永远'], language: null, romanize: true, translateTo: null });
+    expect(zh.script).toBe('Hani');
+    const ja = await processLines({ lines: ['永远'], language: 'ja', romanize: true, translateTo: null });
+    expect(ja.script).toBe('Jpan');
+    vi.unstubAllGlobals();
+  });
+});

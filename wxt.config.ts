@@ -1,6 +1,9 @@
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
+  // `npm run dev` builds .output/chrome-mv3-dev and reloads it on every change; load that folder
+  // unpacked in your own Chrome. WXT doesn't launch a browser of its own.
+  webExt: { disabled: true },
   manifest: {
     name: 'Spotify Karaoke',
     description: 'Romanize and translate Spotify lyrics as they play, and find lyrics for songs Spotify has none for.',

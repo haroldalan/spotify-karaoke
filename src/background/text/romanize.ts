@@ -94,7 +94,11 @@ export function lineScript(line: string, songScript: Script): Script | null {
   return best;
 }
 
-async function romanizeGroup(lines: string[], script: Script, deps: RomanizeDeps): Promise<(string | null)[]> {
+/**
+ * complete: false when the result is a stopgap worth replacing later (generic
+ * transliteration, Google unreachable for a script that needs it, kanji left unread).
+ */
+async function romanizeGroup(lines: string[], script: Script, deps: RomanizeDeps): Promise<{ result: (string | null)[]; complete: boolean }> {
   let result: (string | null)[] | null = null;
   if (GOOGLE_PREFERRED.has(script)) {
     result = await deps.google(lines).catch(() => null);
@@ -108,12 +112,20 @@ async function romanizeGroup(lines: string[], script: Script, deps: RomanizeDeps
     }
   }
   if (!result) result = await deps.google(lines).catch(() => null);
-  if (!result) result = lines.map((l) => transliterate(l));
-  return result;
+  if (!result) return { result: lines.map((l) => transliterate(l)), complete: false };
+  // Japanese with a kanji still unread means Google couldn't be asked: worth another try.
+  const complete = !(script === 'Jpan' && result.some((r) => r && UNREAD_KANJI.test(r)));
+  return { result, complete };
 }
 
 /** Romanizes a song's lines. Lines with nothing to romanize stay null. */
 export async function romanizeLines(lines: string[], songScript: Script, deps: RomanizeDeps): Promise<(string | null)[]> {
+  return (await romanizeLinesDetailed(lines, songScript, deps)).lines;
+}
+
+/** romanizeLines, also saying whether the result is final (see romanizeGroup). */
+export async function romanizeLinesDetailed(lines: string[], songScript: Script, deps: RomanizeDeps): Promise<{ lines: (string | null)[]; complete: boolean }> {
+  let complete = true;
   const out: (string | null)[] = lines.map(() => null);
   const groups = new Map<Script, number[]>();
   lines.forEach((l, i) => {
@@ -122,12 +134,13 @@ export async function romanizeLines(lines: string[], songScript: Script, deps: R
   });
   await Promise.all(
     [...groups].map(async ([script, idx]) => {
-      const result = await romanizeGroup(idx.map((i) => lines[i]), script, deps);
+      const { result, complete: groupComplete } = await romanizeGroup(idx.map((i) => lines[i]), script, deps);
+      if (!groupComplete) complete = false;
       idx.forEach((i, k) => {
         const r = result[k]?.trim();
         out[i] = r && r !== lines[i] ? r : null;
       });
     }),
   );
-  return out;
+  return { lines: out, complete };
 }

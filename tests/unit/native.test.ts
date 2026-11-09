@@ -63,20 +63,26 @@ describe('searchNative', () => {
   });
   const good = { lines: nativeHindi.map((text) => ({ startMs: 0, text })), synced: false, durationKnown: true };
   it('restores romanized Hindi', async () => {
-    expect((await searchNative(req(spotifyHindi), sources([good])))?.aligned).toBe(true);
+    expect((await searchNative(req(spotifyHindi), sources([good]))).result?.aligned).toBe(true);
   });
   it('needs a known duration for crowd-sourced copies', async () => {
-    expect(await searchNative(req(spotifyHindi), sources([{ ...good, durationKnown: false }]))).toBeNull();
+    expect((await searchNative(req(spotifyHindi), sources([{ ...good, durationKnown: false }]))).result).toBeNull();
   });
   it('leaves lyrics already in their script, and Latin-script languages, alone', async () => {
     let asked = false;
     const spy: NativeSources = { lrclib: async () => { asked = true; return [good]; }, romanize };
-    expect(await searchNative(req(nativeHindi), spy)).toBeNull();
-    expect(await searchNative(req(spotifyHindi, ['es']), spy)).toBeNull();
+    expect((await searchNative(req(nativeHindi), spy)).result).toBeNull();
+    expect((await searchNative(req(spotifyHindi, ['es']), spy)).result).toBeNull();
     expect(asked).toBe(false);
   });
   it('tries licensed lyrics first', async () => {
     const ytm = async () => ({ lines: nativeHindi.map((text) => ({ startMs: 0, text })), synced: false, source: 'LyricFind via YouTube Music' });
-    expect((await searchNative(req(spotifyHindi), { ...sources([good]), ytm }))?.source).toBe('LyricFind via YouTube Music');
+    expect((await searchNative(req(spotifyHindi), { ...sources([good]), ytm })).result?.source).toBe('LyricFind via YouTube Music');
+  });
+  it('says the search was incomplete when YouTube Music fails, so "none" is not final', async () => {
+    const ytm = async () => { throw new Error('YouTube Music HTTP 503'); };
+    const other = { ...good, lines: [{ startMs: 0, text: 'कोई और गाना' }] };
+    expect(await searchNative(req(spotifyHindi), { ...sources([other]), ytm })).toEqual({ result: null, complete: false });
+    expect(await searchNative(req(spotifyHindi), sources([other]))).toEqual({ result: null, complete: true });
   });
 });
