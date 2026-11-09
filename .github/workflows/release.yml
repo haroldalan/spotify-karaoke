@@ -1,0 +1,161 @@
+name: Build and Release
+
+# Adapted from Spotify Karaoke 3.1.6's workflow.
+#  - Push a `v*` tag: checks, builds, creates the GitHub release, submits to all three stores.
+#  - Run it by hand (Actions -> Build and Release -> Run workflow): rebuilds an existing tag and
+#    submits only to the stores you tick. "Dry run" checks the store credentials, uploads nothing.
+# Each store is its own job, so one failing never blocks another.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build and submit (e.g. v4.0.0)'
+        required: true
+        type: string
+      chrome:
+        description: 'Submit to the Chrome Web Store'
+        type: boolean
+        default: false
+      firefox:
+        description: 'Submit to Firefox Add-ons'
+        type: boolean
+        default: false
+      edge:
+        description: 'Submit to Edge Add-ons'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run: only check the store credentials, upload nothing'
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  SUBMIT: npx --yes -p publish-browser-extension@4.0.4 publish-extension
+  DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the tag matches package.json
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$expected" ]; then
+            echo "::error::Tag $TAG does not match package.json version ($expected)."
+            exit 1
+          fi
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build the zips
+        run: |
+          npm run zip
+          npm run zip:firefox
+          npm run zip:edge
+
+      - name: Keep the zips for the next jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: zips
+          path: .output/*.zip
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  github-release:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: zips
+          path: .output
+      - name: Release to GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            .output/*-chrome.zip
+            .output/*-firefox.zip
+            .output/*-edge.zip
+          generate_release_notes: true
+
+  chrome:
+    if: github.event_name == 'push' || inputs.chrome
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: zips
+          path: .output
+      - name: Submit to the Chrome Web Store
+        run: $SUBMIT $DRY_RUN_FLAG --chrome-zip .output/*-chrome.zip
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+
+  firefox:
+    if: github.event_name == 'push' || inputs.firefox
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: zips
+          path: .output
+      - name: Submit to Firefox Add-ons
+        run: $SUBMIT $DRY_RUN_FLAG --firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip
+        env:
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+
+  edge:
+    if: github.event_name == 'push' || inputs.edge
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: zips
+          path: .output
+      - name: Submit to Edge Add-ons
+        run: $SUBMIT $DRY_RUN_FLAG --edge-zip .output/*-edge.zip
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}

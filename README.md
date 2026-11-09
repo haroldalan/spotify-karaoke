@@ -14,9 +14,12 @@ uses the same build; Firefox comes later.
 
 ```bash
 npm install
-npm run build        # .output/chrome-mv3
+npm run build          # .output/chrome-mv3 (Edge: npm run build:edge)
+npm run build:firefox  # .output/firefox-mv3 (Firefox 142+, MV3)
+npm run zip && npm run zip:firefox && npm run zip:edge   # store zips + Firefox sources zip
 npm test
 npm run typecheck
+npm run dev            # .output/chrome-mv3-dev, rebuilt and reloaded on every change
 ```
 
 Load `.output/chrome-mv3` at `chrome://extensions` (Developer mode → Load unpacked).
@@ -75,10 +78,11 @@ Not done yet: see the batches below.
 | 2 | Never the wrong song (song-scoped results); caching that keeps what's good | done |
 | 3 | Any Spotify host, GraphQL fallback, settings first, time pairing, Spotify's romanization | done |
 | 4 | Header rules scoped to the extension, request validation, privacy policy, license | done |
-| 5 | UX: no-lyrics state with Retry, cache reset, language picker, O/R/T keys, health | |
-| 6 | Firefox build, version 3.1.7+, release workflow | |
+| 5 | UX: no-lyrics notice with Search again, status, cache clear, language search, O/R/T keys | done |
+| 6 | Firefox (MV3, the published add-on id), version 4.0.0, release workflow | done |
 
 Known limit: lyrics drawn with CSS can't be selected or copied (the cost of never touching
-React's nodes). Batch 5 gives screen readers the drawn text through `aria-label`.
+React's nodes). Chrome and Firefox include CSS-generated text in what they give screen
+readers; not yet checked with an actual screen reader.
 
 `window.__skLog` in the Spotify page lists the page script's recent decisions.

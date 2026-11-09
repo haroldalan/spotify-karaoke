@@ -4,9 +4,15 @@ export default defineConfig({
   // `npm run dev` builds .output/chrome-mv3-dev and reloads it on every change; load that folder
   // unpacked in your own Chrome. WXT doesn't launch a browser of its own.
   webExt: { disabled: true },
-  manifest: {
-    name: 'Spotify Karaoke',
-    description: 'Romanize and translate Spotify lyrics as they play, and find lyrics for songs Spotify has none for.',
+  zip: {
+    // The Firefox sources zip is built from this folder: never ship the signed-in test
+    // browser profile (.live) or local probes.
+    excludeSources: ['.live/**', '.output/**', 'tools/probe/**', '.env*'],
+  },
+  // Same names as the published listings, so updates land on them.
+  manifest: ({ browser }) => ({
+    name: browser === 'firefox' ? 'Spotify Karaoke' : 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Songs',
+    description: 'Romanizes and translates Spotify lyrics as they play, restores their original script, and finds lyrics Spotify doesn’t have.',
     permissions: ['storage', 'unlimitedStorage', 'declarativeNetRequestWithHostAccess'],
     host_permissions: [
       'https://open.spotify.com/*',
@@ -22,5 +28,18 @@ export default defineConfig({
       'mode-romanized': { description: 'Show romanized lyrics', suggested_key: { default: 'Alt+Shift+R' } },
       'mode-translated': { description: 'Show translated lyrics', suggested_key: { default: 'Alt+Shift+T' } },
     },
-  },
+    ...(browser === 'firefox'
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              // The published add-on's id: this build updates it.
+              id: 'spotify-karaoke@example.com',
+              // Page-world content scripts (world: MAIN) need Firefox's MV3; 142 matches 3.1.6.
+              strict_min_version: '142.0',
+              data_collection_permissions: { required: ['none'] },
+            },
+          },
+        }
+      : {}),
+  }),
 });

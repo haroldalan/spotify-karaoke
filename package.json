@@ -1,18 +1,21 @@
 {
   "name": "spotify-karaoke-next",
-  "version": "0.1.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "description": "Romanize, translate and fill in missing lyrics inside Spotify's web player",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
-    "build:firefox": "wxt build -b firefox",
+    "build:firefox": "wxt build -b firefox --mv3",
     "zip": "wxt zip",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "live": "node tools/live/driver.mjs",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "build:edge": "wxt build -b edge",
+    "zip:firefox": "wxt zip -b firefox --mv3",
+    "zip:edge": "wxt zip -b edge"
   },
   "dependencies": {
     "@dehoist/romanize-thai": "^1.0.0",
