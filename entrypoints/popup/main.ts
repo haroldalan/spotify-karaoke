@@ -5,6 +5,9 @@ import type { Mode, Settings } from '../../src/shared/types';
 import type { PageStatus } from '../../src/content/main';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
+const BOOLS = ['showOriginal', 'showRomanized', 'showTranslation', 'fillMissing', 'restoreNative', 'showPill'] as const;
+/** The "also show" switch that would repeat the main line. */
+const SAME_AS_MAIN: Record<Mode, (typeof BOOLS)[number]> = { original: 'showOriginal', romanized: 'showRomanized', translated: 'showTranslation' };
 
 // ── Language: a dropdown that opens a searchable list ──
 const langButton = $<HTMLButtonElement>('#lang-button');
@@ -77,19 +80,51 @@ list.addEventListener('click', (e) => choose((e.target as HTMLElement).closest<H
 // ── Settings ──
 function render(s: Settings) {
   for (const r of document.querySelectorAll<HTMLInputElement>('input[name="mode"]')) r.checked = r.value === s.mode;
+  for (const k of BOOLS) $<HTMLInputElement>(`input[name="${k}"]`).checked = s[k];
+  for (const row of document.querySelectorAll<HTMLElement>('.row[data-for]')) {
+    const input = row.querySelector('input')!;
+    const same = row.dataset.for === s.mode;
+    input.disabled = same;
+    row.classList.toggle('disabled', same);
+    row.querySelector('.note')?.remove();
+    if (same) {
+      const note = document.createElement('span');
+      note.className = 'note';
+      note.textContent = 'main line';
+      row.firstElementChild!.append(note);
+    }
+  }
   current = s.targetLang;
   langName.textContent = nameOf(current);
 }
 
 void loadSettings().then(render);
-onSettingsChanged(render); // a key or the switcher on the page changed something
+onSettingsChanged(render); // a shortcut or the in-page switcher changed something
 
 document.addEventListener('change', (e) => {
   const el = e.target as HTMLInputElement;
   if (el.name === 'mode') void saveSettings({ mode: el.value as Mode });
+  else if ((BOOLS as readonly string[]).includes(el.name)) void saveSettings({ [el.name]: el.checked });
 });
 
-// ── Status: one line, naming the problem when there is one ──
+// ── Status: one line, the details folded away unless something is wrong ──
+const ago = (t: number) => {
+  if (!t) return 'never';
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`;
+};
+
+function row(label: string, state: 'ok' | 'bad' | 'idle', text: string) {
+  const li = document.createElement('li');
+  li.className = state;
+  const name = document.createElement('span');
+  name.textContent = label;
+  const value = document.createElement('span');
+  value.textContent = text;
+  li.append(name, value);
+  return li;
+}
+
 /** The Spotify tab: this one if it is Spotify, else any open one. */
 async function spotifyTab(): Promise<chrome.tabs.Tab | null> {
   const [here] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -103,23 +138,107 @@ async function pageStatus(tab: chrome.tabs.Tab | null): Promise<PageStatus | nul
   return (await chrome.tabs.sendMessage(tab.id, { sk: 'page-status' }).catch(() => null)) as PageStatus | null;
 }
 
-const NAMES = { lrclib: 'LRCLIB', ytm: 'YouTube Music', google: 'Google Translate' } as const;
+const summary = $('#summary');
+const song = $('#song');
+const details = $<HTMLDetailsElement>('details');
 
-async function renderStatus() {
-  const tab = await spotifyTab();
-  const [page, health] = await Promise.all([pageStatus(tab), call('health', {}).catch(() => null)]);
-  const summary = $('#summary');
-  let state: 'ok' | 'bad' | 'idle' = 'ok';
-  let text = 'Working';
-  const down = (Object.keys(NAMES) as (keyof typeof NAMES)[]).find((k) => health?.sources[k] && !health.sources[k]!.ok);
-  if (!tab) [state, text] = ['idle', 'Open Spotify in a tab to start'];
-  else if (!page) [state, text] = ['bad', 'Reload the Spotify tab to start'];
-  else if (health?.googleBlockedUntil) [state, text] = ['bad', 'Translations are paused for a few minutes'];
-  else if (down) [state, text] = ['bad', `${NAMES[down]} isn’t answering`];
+function setSummary(state: 'ok' | 'bad' | 'idle', text: string) {
   summary.className = `summary ${state}`;
   summary.textContent = text;
 }
 
+function renderSong(tab: chrome.tabs.Tab, page: PageStatus) {
+  const c = page.current;
+  if (!c) { song.hidden = true; return; }
+  const label = document.createElement('span');
+  label.textContent = `${c.name} · ${c.artists.join(', ')}`;
+  song.replaceChildren(label);
+  song.hidden = false;
+  if (!c.noLyrics) return;
+  label.textContent = `No lyrics for ${c.name}`;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Search again';
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    button.textContent = 'Searching…';
+    const r = (await chrome.tabs.sendMessage(tab.id!, { sk: 'search-again' }).catch(() => null)) as { found: boolean } | null;
+    if (r?.found) {
+      label.textContent = 'Lyrics found. Spotify shows them after a reload.';
+      button.textContent = 'Reload Spotify';
+      button.disabled = false;
+      button.onclick = () => { void chrome.tabs.reload(tab.id!); window.close(); };
+    } else {
+      label.textContent = 'Still none to be found.';
+      button.remove();
+    }
+  }, { once: true });
+  song.append(button);
+}
+
+async function renderStatus() {
+  const tab = await spotifyTab();
+  const [page, health] = await Promise.all([pageStatus(tab), call('health', {}).catch(() => null)]);
+  const rows: HTMLLIElement[] = [];
+  const failing: string[] = [];
+
+  if (!tab) rows.push(row('Spotify', 'idle', 'not open'));
+  else if (!page?.pageSeenAt) rows.push(row('Spotify', 'bad', 'reload the Spotify tab'));
+  else rows.push(row('Spotify', 'ok', page.lyricsSeenAt ? `lyrics seen ${ago(page.lyricsSeenAt)}` : 'connected'));
+
+  const names = { lrclib: 'LRCLIB', ytm: 'YouTube Music', google: 'Google Translate' } as const;
+  for (const key of Object.keys(names) as (keyof typeof names)[]) {
+    const h = health?.sources[key];
+    if (key === 'google' && health?.googleBlockedUntil) {
+      rows.push(row(names[key], 'bad', `paused until ${new Date(health.googleBlockedUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`));
+      failing.push('Translations are paused for a few minutes');
+    } else if (!h) rows.push(row(names[key], 'idle', 'not used yet'));
+    else {
+      rows.push(row(names[key], h.ok ? 'ok' : 'bad', h.ok ? `answered ${ago(h.at)}` : `failing: ${h.detail ?? 'error'}`));
+      if (!h.ok) failing.push(`${names[key]} isn’t answering`);
+    }
+  }
+  $('#status').replaceChildren(...rows);
+
+  if (!tab) setSummary('idle', 'Open Spotify in a tab to start');
+  else if (!page?.pageSeenAt) setSummary('bad', 'Reload the Spotify tab to start');
+  else if (failing.length) setSummary('bad', failing[0]);
+  else setSummary('ok', 'Working');
+  if (failing.length) details.open = true;
+  if (tab && page?.pageSeenAt) renderSong(tab, page);
+}
+
+// ── Cache ──
+const size = $('#cache-size');
+const clear = $<HTMLButtonElement>('#clear');
+const kb = (b: number) => (b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
+async function renderCache() {
+  const s = await call('storage', {}).catch(() => null);
+  size.textContent = s ? `Cache: ${kb(s.bytes)}` : 'Cache: unknown';
+}
+let armed = false;
+clear.addEventListener('click', async () => {
+  if (!armed) {
+    armed = true;
+    clear.textContent = 'Click again to clear';
+    setTimeout(() => { armed = false; clear.textContent = 'Clear cache'; }, 4000);
+    return;
+  }
+  armed = false;
+  clear.disabled = true;
+  await call('clearCache', {}).catch(() => null);
+  clear.textContent = 'Cleared';
+  await renderCache();
+  setTimeout(() => { clear.disabled = false; clear.textContent = 'Clear cache'; }, 1500);
+});
+
 void renderStatus();
+void renderCache();
 
 $('#version').textContent = `v${chrome.runtime.getManifest().version}`;
+$('#shortcuts').addEventListener('click', (e) => {
+  e.preventDefault();
+  // Chrome and Edge; Firefox has its own page (about:addons, gear menu).
+  const url = navigator.userAgent.includes('Firefox') ? 'about:addons' : 'chrome://extensions/shortcuts';
+  void chrome.tabs.create({ url });
+});

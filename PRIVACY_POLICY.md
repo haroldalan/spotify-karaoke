@@ -25,7 +25,7 @@ to draw romanized and translated lines.
 
 | Data | Where | Kept |
 |:---|:---|:---|
-| Your settings (mode, language) | `storage.sync`: your browser syncs them across your own devices | Until you change them |
+| Your settings (mode, language, toggles) | `storage.sync`: your browser syncs them across your own devices | Until you change them |
 | Lyrics found for songs, romanized and translated lines, songs with no lyrics anywhere | `storage.local` on this device | Up to 2,000 entries, oldest dropped first; entries expire after 30 minutes to 60 days |
 
 Nothing stored is sent anywhere. Removing the extension removes it.
@@ -40,7 +40,7 @@ reveals your IP address to the service that receives it.
 | **LRCLIB** (`lrclib.net`) | When a song starts (or is queued next) that Spotify has no lyrics for, has only unsynced lyrics for, or shows romanized; before you open the lyrics view, so they are ready | Title, artist, album, duration |
 | **YouTube Music** (`music.youtube.com`) | Same as LRCLIB | Title and first artist; then YouTube Music's own ids for the song it found. The extension presents these requests as YouTube Music's Android app, which is the only client YouTube Music gives timed lyrics to |
 | **Google Translate** (`translate.googleapis.com`) | When you show translations, and to romanize scripts without a local romanizer (Arabic, Hebrew, Persian, Urdu and others) or Japanese words the local dictionary doesn't know | The lyric lines and your target language |
-| **jsDelivr** (`cdn.jsdelivr.net`) | When a Japanese song starts and the dictionary isn’t loaded yet | Nothing about you or the song: a public dictionary file is downloaded |
+| **jsDelivr** (`cdn.jsdelivr.net`) | The first time a Japanese song is romanized | Nothing about you or the song: a public dictionary file is downloaded |
 
 ## Permissions
 
@@ -48,7 +48,6 @@ reveals your IP address to the service that receives it.
 |:---|:---|
 | `storage`, `unlimitedStorage` | Your settings and the caches above |
 | `declarativeNetRequestWithHostAccess` | Sets the request headers YouTube Music expects, on the extension's own background requests to YouTube Music only; never on your tabs or any other site |
-| `scripting` | When the extension is installed or updated, adds its scripts to Spotify tabs that are already open, so they work without a reload |
 | Host access to the services above and open.spotify.com | Run inside Spotify's web player and reach the listed services |
 
 ## Third parties

@@ -22,7 +22,7 @@ export function fakePage(o: FakePageOptions) {
   const listeners: ((e: { source: unknown; data: unknown }) => void)[] = [];
   const events: { type: string; data: any }[] = [];
   const calls: { type: string; data: any }[] = [];
-  const config: PageConfig = { noLyrics: [], ...o.config };
+  const config: PageConfig = { fillMissing: true, restoreNative: true, noLyrics: [], ...o.config };
   let contentListening = !o.contentLate;
 
   const win: any = {

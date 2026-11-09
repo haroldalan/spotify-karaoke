@@ -18,9 +18,8 @@ to sing along.
 2. **Understand it (translation).** Show each line translated into the listener's
    language. Equal second core feature.
 3. **See both at once.** The processed line (romanized or translated) is the main,
-   highlighted line, with one line beneath it chosen for the listener: the original
-   under a romanized line, the romanization under a translated one (so it can still be
-   sung). One choice, the mode; the extension decides the rest.
+   highlighted line, with the original beneath it. Optionally all three stacked:
+   original, romanized, translated.
 4. **Lyrics where Spotify has none.** When Spotify says "lyrics not available", find
    synced lyrics elsewhere (YouTube Music first, then LRCLIB) and show them in Spotify's
    lyrics view, in time with the music.
@@ -41,14 +40,14 @@ to sing along.
 - **Never the wrong song.** No frame where one song's lyrics, romanization or
   translation is shown on another song.
 - **Switching modes is instant.** Original / Romanized / Translated switch without a
-  reload, from an on-page control, the popup, or the O / R / T keys.
+  reload, from an on-page control, the popup, or a keyboard shortcut.
 - **Survives Spotify updates.** Spotify changes its web player often. When something
   the extension depends on changes, the extension must never break playback or
   Spotify's own UI; at worst a feature switches off and the popup says so.
 - **Free and private.** No account, no API key, no sign-in, no analytics. Lyrics and
   lines are only sent to the lyrics and translation services that need them.
 - **Chrome, Edge and Firefox**, from one codebase, Manifest V3.
-- **Preferences follow the user** across devices (mode, target language).
+- **Preferences follow the user** across devices (mode, target language, dual lines).
 
 ## Out of scope
 
@@ -56,14 +55,6 @@ to sing along.
 - Editing, submitting or correcting lyrics.
 - Getting past any service's bot detection, captchas or sign-in walls.
 - Controlling playback beyond what the lyrics view already does (click-to-seek).
-
-## How it should feel
-
-- **It just works.** Installing it changes the Spotify tab already open; there is one
-  choice to make (Original / Romanized / Translated) and a language, set from the
-  browser. Finding missing lyrics and restoring scripts are not options: they happen.
-- **Restraint.** A feature that is possible is not therefore wanted. Every control and
-  every message has to earn its place on screen; the default is to leave it out.
 
 ## How we will know
 

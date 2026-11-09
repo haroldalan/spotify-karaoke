@@ -34,7 +34,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
   if ((win as unknown as { __skHook?: boolean }).__skHook) return;
   (win as unknown as { __skHook?: boolean }).__skHook = true;
 
-  let config: PageConfig = { noLyrics: [] };
+  let config: PageConfig = { fillMissing: true, restoreNative: true, noLyrics: [] };
   let noLyrics = new Set<string>();
   let ready = false;
   let configArrived!: () => void;
@@ -123,7 +123,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     note(`meta ${meta.id} has_lyrics=${meta.hasLyrics} lang=${meta.languages.join(',')}`);
     if (meta.hasLyrics) return null;
     await settled();
-    if (noLyrics.has(meta.id)) return null;
+    if (!config.fillMissing || noLyrics.has(meta.id)) return null;
     // Claim lyrics so Spotify enables its Lyrics button and asks color-lyrics for them.
     return json({ ...raw, has_lyrics: true }, res);
   }
@@ -148,7 +148,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
       await settled();
       note(`lyrics ${id} ${l.syncType} script=${songScript(l.lines, l.language)} meta=${meta ? 'yes' : 'no'}`);
       // Romanized lyrics for a song written in another script: restore the original script.
-      const lang = meta ? romanizedLanguage(l.lines, meta, l.language) : null;
+      const lang = config.restoreNative && meta ? romanizedLanguage(l.lines, meta, l.language) : null;
       if (meta && lang) {
         const native = (await call(
           'restoreNative',
@@ -162,7 +162,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
         }
       }
       // Unsynced lyrics: a synced copy elsewhere is better, as long as it is in the same script.
-      if (l.syncType === 'UNSYNCED' && meta) {
+      if (l.syncType === 'UNSYNCED' && config.fillMissing && meta) {
         const found = (await call('findLyrics', meta, timing.upgradeMs)) as FoundLyrics | null;
         const theirs = songScript(l.lines, l.language);
         if (found?.synced && (theirs === 'Latn' || songScript(found.lines.map((x) => x.text)) === theirs)) {
@@ -175,6 +175,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     }
     if (res.status !== 404) return null;
     await settled();
+    if (!config.fillMissing) return null;
     const meta = await metaFor(id);
     if (!meta) return null;
     const found = (await call('findLyrics', meta, timing.lookupMs)) as FoundLyrics | null;

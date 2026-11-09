@@ -29,8 +29,8 @@ describe('page hook: track metadata', () => {
     expect((await res.json()).has_lyrics).toBe(true);
   });
 
-  it('claims nothing for a song known to have none', async () => {
-    for (const config of [{ noLyrics: [NO_LYRICS_ID] }]) {
+  it('claims nothing when finding lyrics is off, or the song is known to have none', async () => {
+    for (const config of [{ fillMissing: false }, { noLyrics: [NO_LYRICS_ID] }]) {
       const page = fakePage({ routes: { 'metadata/4': () => json(fixture('metadata-no-lyrics.json')) }, config });
       await tick(); // let the content script's settings arrive
       expect((await (await page.fetch(NO_LYRICS_META)).json()).has_lyrics).toBeUndefined();

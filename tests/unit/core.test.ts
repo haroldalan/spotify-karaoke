@@ -73,18 +73,12 @@ describe('decoration', () => {
   it('romanized main with the original beneath', () => {
     expect(decoration('君を愛してる', info, s({ mode: 'romanized' }))).toEqual({ main: 'kimi o aishiteru', sub: '君を愛してる', dir: null });
   });
-  it('translated main with the romanization beneath, so the line can still be sung', () => {
-    expect(decoration('君を愛してる', info, s({ mode: 'translated' }))).toEqual({ main: 'I love you', sub: 'kimi o aishiteru', dir: null });
+  it('all three stacked', () => {
+    const d = decoration('君を愛してる', info, s({ mode: 'romanized', showTranslation: true }));
+    expect(d.sub).toBe('君を愛してる\nI love you');
   });
-  it('translated main with the original beneath for a line already in Latin script', () => {
-    expect(decoration('te quiero', { romanized: null, translated: { en: 'I love you' } }, s({ mode: 'translated' })).sub).toBe('te quiero');
-  });
-  it('shows the romanized line, not bare text, while the translation is on its way', () => {
-    expect(decoration('君を愛してる', { romanized: 'kimi o aishiteru', translated: {} }, s({ mode: 'translated' })))
-      .toEqual({ main: 'kimi o aishiteru', sub: '君を愛してる', dir: null });
-  });
-  it('original mode is Spotify as it is', () => {
-    expect(decoration('君を愛してる', info, s({ mode: 'original' }))).toEqual({ main: null, sub: null, dir: null });
+  it('original mode can still show a translation beneath', () => {
+    expect(decoration('君を愛してる', info, s({ mode: 'original', showTranslation: true }))).toEqual({ main: null, sub: 'I love you', dir: null });
   });
   it('shows nothing extra for a line with nothing to add', () => {
     expect(decoration('hello', { romanized: null }, s({ mode: 'romanized' }))).toEqual({ main: null, sub: null, dir: null });

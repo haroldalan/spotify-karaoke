@@ -2,19 +2,30 @@
 export type Mode = 'original' | 'romanized' | 'translated';
 
 export interface Settings {
-  /**
-   * The main line. What appears beneath it follows from this (the extension decides):
-   * romanized: the original script beneath; translated: the romanization beneath (the
-   * original for a Latin-script song); original: Spotify as it is.
-   */
   mode: Mode;
   /** BCP-47 primary tag Google Translate understands, e.g. 'en', 'hi', 'zh-CN'. */
   targetLang: string;
+  /** Lines shown beneath the main line (never the one already shown as main). */
+  showOriginal: boolean;
+  showRomanized: boolean;
+  showTranslation: boolean;
+  /** Find lyrics elsewhere when Spotify has none. */
+  fillMissing: boolean;
+  /** Replace romanized lyrics with the song's own script when a matching copy exists. */
+  restoreNative: boolean;
+  /** Show the on-page mode switcher. */
+  showPill: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   mode: 'romanized',
   targetLang: 'en',
+  showOriginal: true,
+  showRomanized: false,
+  showTranslation: false,
+  fillMissing: true,
+  restoreNative: true,
+  showPill: true,
 };
 
 /** Track metadata, from Spotify's metadata/4 response. */

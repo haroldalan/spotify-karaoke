@@ -37,27 +37,28 @@ export interface Decoration {
 
 const RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
 
-/**
- * What a line with this text should show. Pure. One line beneath at most, chosen here:
- * - romanized: the romanization, the original beneath;
- * - translated: the translation, the romanization beneath (the original when the line has
- *   none, i.e. it is already in Latin script); until the translation arrives, or when it
- *   can't be had, the line shows as in romanized mode rather than falling back to bare text;
- * - original: nothing of ours.
- */
+/** What a line with this text should show under these settings. Pure. */
 export function decoration(original: string, info: LineInfo | undefined, s: Settings): Decoration {
-  const differs = (x: string | null | undefined) => (x && x !== original ? x : null);
-  const rom = differs(info?.romanized);
-  const tr = differs(info?.translated?.[s.targetLang]);
+  const rom = info?.romanized ?? null;
+  const tr = info?.translated?.[s.targetLang] ?? null;
   let main: string | null = null;
-  let sub: string | null = null;
-  if (s.mode === 'translated' && tr) {
-    main = tr;
-    sub = rom && rom !== tr ? rom : original;
-  } else if (s.mode !== 'original' && rom) {
-    main = rom;
-    sub = original;
+  if (s.mode === 'romanized') main = rom;
+  else if (s.mode === 'translated') main = tr;
+  if (main === original) main = null;
+
+  const subs: string[] = [];
+  const add = (x: string | null) => {
+    if (x && x !== original && x !== main && !subs.includes(x)) subs.push(x);
+  };
+  if (main) {
+    if (s.showOriginal) subs.push(original);
+    if (s.showRomanized && s.mode !== 'romanized') add(rom);
+    if (s.showTranslation && s.mode !== 'translated') add(tr);
+  } else {
+    if (s.showRomanized || s.mode === 'romanized') add(rom);
+    if (s.showTranslation) add(tr);
   }
+  const sub = subs.length ? subs.join('\n') : null;
   const dir = main && RTL.test(original) && !RTL.test(main) ? 'ltr' : null;
   return { main, sub, dir };
 }

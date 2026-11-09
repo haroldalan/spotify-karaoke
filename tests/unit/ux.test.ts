@@ -50,21 +50,20 @@ describe('translation', () => {
   });
 });
 
-describe('add lyrics', () => {
+describe('search again', () => {
   beforeEach(() => {
     vi.resetModules();
     installChromeStorage();
   });
   const meta: TrackMeta = { id: 'q'.repeat(22), name: 'Song', artists: ['A'], album: '', durationMs: 200000, languages: [], hasLyrics: false };
 
-  it('forgets "no lyrics", so the next load asks the sources again', async () => {
-    const { findLyrics, forgetLyrics, knownNoLyrics } = await import('../../src/background/lyrics/find');
+  it('forgets "no lyrics" and asks the sources now', async () => {
+    const { findLyrics, retryLyrics, knownNoLyrics } = await import('../../src/background/lyrics/find');
     await findLyrics(meta, { lrclib: async () => null });
     expect(await knownNoLyrics()).toEqual([meta.id]);
-    await forgetLyrics(meta);
-    expect(await knownNoLyrics()).toEqual([]);
-    const found = await findLyrics(meta, { lrclib: async () => ({ synced: '[00:01.00]now', plain: 'now', instrumental: false }) });
+    const found = await retryLyrics(meta, { lrclib: async () => ({ synced: '[00:01.00]now', plain: 'now', instrumental: false }) });
     expect(found?.lines[0].text).toBe('now');
+    expect(await knownNoLyrics()).toEqual([]);
   });
 });
 

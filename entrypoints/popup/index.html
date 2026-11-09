@@ -13,12 +13,19 @@
     </header>
 
     <section aria-labelledby="mode-label">
-      <h2 id="mode-label">Lyrics</h2>
+      <h2 id="mode-label">Main line</h2>
       <div class="seg" role="radiogroup" aria-labelledby="mode-label">
         <label title="Original (O)"><input type="radio" name="mode" value="original" /><span>Original</span></label>
         <label title="Romanized (R)"><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
         <label title="Translated (T)"><input type="radio" name="mode" value="translated" /><span>Translated</span></label>
       </div>
+    </section>
+
+    <section>
+      <h2>Also show beneath</h2>
+      <label class="row" data-for="original"><span>Original lyrics</span><input type="checkbox" role="switch" name="showOriginal" /></label>
+      <label class="row" data-for="romanized"><span>Romanization</span><input type="checkbox" role="switch" name="showRomanized" /></label>
+      <label class="row" data-for="translated"><span>Translation</span><input type="checkbox" role="switch" name="showTranslation" /></label>
     </section>
 
     <section>
@@ -33,13 +40,29 @@
     </section>
 
     <section>
+      <label class="row"><span>Find lyrics when Spotify has none</span><input type="checkbox" role="switch" name="fillMissing" /></label>
+      <label class="row"><span>Restore the original script</span><input type="checkbox" role="switch" name="restoreNative" /></label>
+      <label class="row"><span>Show the switcher on the lyrics</span><input type="checkbox" role="switch" name="showPill" /></label>
+    </section>
+
+    <section class="status-section">
       <div id="summary" class="summary" aria-live="polite"></div>
+      <div id="song" class="song" hidden></div>
+      <details>
+        <summary>Details</summary>
+        <ul id="status" class="status"></ul>
+        <div class="cache">
+          <span id="cache-size">Cache: …</span>
+          <button id="clear" type="button">Clear cache</button>
+        </div>
+      </details>
     </section>
 
     <footer>
       <span id="version"></span>
       <span class="links">
         <a href="https://github.com/haroldalan/spotify-karaoke" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="#" id="shortcuts">Shortcuts</a>
       </span>
     </footer>
     <script type="module" src="./main.ts"></script>

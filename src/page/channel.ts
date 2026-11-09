@@ -15,6 +15,8 @@ export type Down =
 
 /** What the page script needs to know from the extension. */
 export interface PageConfig {
+  fillMissing: boolean;
+  restoreNative: boolean;
   /** Tracks known to have no lyrics anywhere: don't claim lyrics for them. */
   noLyrics: string[];
 }
