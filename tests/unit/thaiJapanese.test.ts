@@ -72,6 +72,13 @@ describe('Japanese: words, not morphemes', () => {
     ]))).toBe('namida uneasy (heart) you, I');
   });
 
+  it('writes long vowels as letters, and joins passive endings to their verb', () => {
+    expect(romanizeJapaneseTokens(tok([['ミルキー', '名詞', '一般', 'ミルキー', 'ミルキー'], ['ウェイ', '名詞', '一般', 'ウェイ', 'ウェイ']]))).toBe('mirukii wei');
+    expect(romanizeJapaneseTokens(tok([
+      ['ひか', '動詞', '自立', 'ひく', 'ヒカ'], ['れ', '動詞', '接尾', 'れる', 'レ'], ['ない', '助動詞', '*', 'ない', 'ナイ'],
+    ]))).toBe('hikarenai');
+  });
+
   it('leaves a kanji the dictionary has no reading for as written', () => {
     expect(romanizeJapaneseTokens(tok([['昏', '名詞', '一般', '*'], ['い', '形容詞', '自立', 'い', 'イ']]))).toContain('昏');
   });

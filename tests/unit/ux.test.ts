@@ -77,3 +77,11 @@ describe('page hook: reports empty lookups', () => {
     expect(page.events.find((e) => e.type === 'missing')?.data).toEqual({ id: '33BdipYlRY2WBvIBNk4Wmn', found: false });
   });
 });
+
+describe('translation casing', () => {
+  it('starts every line with a capital', async () => {
+    const { sentenceCase } = await import('../../src/background/text/process');
+    expect(['midnight milky way', '"the boy" ran', 'Let it be', '¿qué tal?', '123 go', ''].map(sentenceCase))
+      .toEqual(['Midnight milky way', '"The boy" ran', 'Let it be', '¿Qué tal?', '123 go', '']);
+  });
+});

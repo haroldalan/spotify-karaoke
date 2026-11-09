@@ -1,6 +1,8 @@
 import { call } from '../shared/messages';
 import { loadSettings, onSettingsChanged, saveSettings } from '../shared/settings';
-import type { FoundLyrics, Mode, TrackMeta } from '../shared/types';
+import type { FoundLyrics, Mode, Settings, TrackMeta } from '../shared/types';
+import { songScript } from '../shared/scripts';
+import type { Song } from './lineStore';
 import { Bridge } from './bridge';
 import { STYLE } from './decorate';
 import { LineStore } from './lineStore';
@@ -30,7 +32,19 @@ function lrclibUploadUrl(meta: TrackMeta): string {
 }
 
 const lyricsButton = () => document.querySelector<HTMLElement>('[data-testid="lyrics-button"]');
-const lyricsViewOpen = (b: HTMLElement | null) => !!b && (b.getAttribute('data-active') === 'true' || b.getAttribute('aria-pressed') === 'true');
+const lyricsViewOpen = (b: HTMLElement | null) =>
+  (!!b && (b.getAttribute('data-active') === 'true' || b.getAttribute('aria-pressed') === 'true')) ||
+  !!document.querySelector('[role="radiogroup"] [role="radio"][value="lyrics"][aria-checked="true"]');
+const baseLang = (l?: string | null) => (l ?? '').toLowerCase().split(/[-_]/)[0];
+
+/** Whether the switcher has anything to offer for this song: not for a song already in the target language and script. */
+function worthSwitching(song: Song | null, s: Settings): boolean {
+  if (!song) return true;
+  const script = song.script ?? songScript(song.lines, song.language);
+  if (script !== 'Latn') return true;
+  const lang = baseLang(song.language);
+  return !lang || lang !== baseLang(s.targetLang);
+}
 const nowPlayingTitle = () => document.querySelector('[data-testid="now-playing-bar"] [data-testid="context-item-link"]')?.textContent?.trim() ?? '';
 
 export async function startContent(): Promise<void> {
@@ -126,10 +140,10 @@ export async function startContent(): Promise<void> {
   const view = new View(store, settings);
   view.setWantRect(settings.showPill);
   const pill = new Pill((mode) => void saveSettings({ mode }));
-  let lastView: ViewState = { lineCount: 0, rect: null, song: null };
+  let lastView: ViewState = { lineCount: 0, anchor: null, song: null };
 
   async function searchAgain(meta: TrackMeta) {
-    notice = { id: meta.id, text: `Searching again for ${meta.name}…`, actions: [] };
+    notice = { id: meta.id, caption: 'Searching again…', actions: [] };
     render();
     const found = await call('retryLyrics', meta).catch(() => null);
     if (found) {
@@ -141,14 +155,14 @@ export async function startContent(): Promise<void> {
       // interrupts playback, so it's the listener's call.
       notice = {
         id: meta.id,
-        text: `Lyrics found for ${meta.name}. Reload Spotify to show them.`,
-        actions: [{ label: 'Reload', run: () => location.reload(), primary: true }],
+        caption: 'Lyrics found. Spotify shows them after a reload.',
+        actions: [{ label: 'Reload Spotify', run: () => location.reload(), primary: true }],
       };
     } else {
       notice = {
         id: meta.id,
-        text: `Still no lyrics for ${meta.name}`,
-        actions: [{ label: 'Add to LRCLIB', href: lrclibUploadUrl(meta), primary: true }],
+        caption: 'Still none to be found.',
+        actions: [{ label: 'Add lyrics to LRCLIB', href: lrclibUploadUrl(meta), primary: true }],
       };
     }
     render();
@@ -161,11 +175,12 @@ export async function startContent(): Promise<void> {
     const meta = [...missing.values()].reverse().find((m) => m.name === title);
     if (!meta) return null;
     if (notice?.id === meta.id) return notice;
+    // Spotify's own message already says there are no lyrics: only the ways forward here.
     return {
-      text: `No lyrics found for ${meta.name}`,
+      caption: '',
       actions: [
         { label: 'Search again', run: () => void searchAgain(meta) },
-        { label: 'Add to LRCLIB', href: lrclibUploadUrl(meta), primary: true },
+        { label: 'Add lyrics to LRCLIB', href: lrclibUploadUrl(meta), primary: true },
       ],
     };
   }
@@ -173,15 +188,18 @@ export async function startContent(): Promise<void> {
   function render() {
     const st = store.status(lastView.song);
     const translating = settings.mode === 'translated' || settings.showTranslation;
+    const caption = translating && st.translateError
+      ? /rate-limit/i.test(st.translateError) ? 'Translations paused for a few minutes' : 'Translation isn’t available right now'
+      : undefined;
     pill.update({
       mode: settings.mode,
-      visible: settings.showPill && lastView.lineCount > 0,
-      rect: lastView.rect,
+      visible: settings.showPill && lastView.lineCount > 0 && worthSwitching(lastView.song, settings),
+      anchor: lastView.anchor,
       busy: st.pending,
-      note: translating && st.translateError ? 'Translation unavailable' : undefined,
+      caption,
     });
     const n = currentNotice();
-    pill.notice(n, n ? lyricsButton()?.getBoundingClientRect() ?? null : null);
+    pill.notice(n, n ? lastView.anchor : null);
   }
 
   view.onUpdate((v) => {

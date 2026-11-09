@@ -156,7 +156,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
         note(`native ${id} ${native ? (native.aligned ? 'aligned' : 'own-timing') + ' ' + native.source : 'none/late'}`);
         if (native) {
           emit('lyrics', { id, lines: native.lines.map((x) => x.text), language: lang, source: native.source });
-          return json(buildColorLyrics(native, lang), res);
+          return json(buildColorLyrics(native, lang, raw), res);
         }
       }
       // Unsynced lyrics: a synced copy elsewhere is better, as long as it is in the same script.
@@ -165,7 +165,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
         const theirs = songScript(l.lines, l.language);
         if (found?.synced && (theirs === 'Latn' || songScript(found.lines.map((x) => x.text)) === theirs)) {
           emit('lyrics', { id, lines: found.lines.map((x) => x.text), language: l.language, source: found.source });
-          return json(buildColorLyrics(found, l.language), res);
+          return json(buildColorLyrics(found, l.language, raw), res);
         }
       }
       emit('lyrics', { id, lines: l.lines, language: l.language, source: 'spotify' });

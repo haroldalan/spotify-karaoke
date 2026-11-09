@@ -9,6 +9,9 @@ import { expectedScript, songScript } from '../../shared/scripts';
 
 const baseLang = (l?: string | null) => (l ?? '').toLowerCase().split(/[-_]/)[0];
 
+/** Every translated line starts with a capital, as Spotify's lyrics do (Google's casing varies line to line). */
+export const sentenceCase = (s: string) => s.replace(/^([\p{P}\p{Zs}]*)(\p{Ll})/u, (_, lead: string, c: string) => lead + c.toLocaleUpperCase());
+
 export interface ProcessRequest {
   lines: string[];
   language?: string | null;
@@ -17,7 +20,7 @@ export interface ProcessRequest {
 }
 
 /** Bump when romanizer output changes, so stale cached romanizations are not reused. */
-const ROMANIZER_VERSION = 3;
+const ROMANIZER_VERSION = 4;
 const ROMANIZED_TTL = 30 * 24 * 3600_000;
 const TRANSLATED_TTL = 60 * 24 * 3600_000;
 
@@ -66,7 +69,7 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
     ? once(trKey, async () => {
         const cached = await cacheGet<string[]>(trKey);
         if (cached) return cached;
-        const out = (await google(req.romanize && googleRomanizes)).translated;
+        const out = (await google(req.romanize && googleRomanizes)).translated.map(sentenceCase);
         await cacheSet(trKey, out, TRANSLATED_TTL);
         return out;
       })

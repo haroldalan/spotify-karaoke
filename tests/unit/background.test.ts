@@ -161,7 +161,7 @@ describe('processing', () => {
     const first = await processLines(req);
     expect(first.script).toBe('Kore');
     expect(first.romanized).toEqual(['saranghae', null]);
-    expect(first.translated).toEqual(['사랑해!', 'oh yeah!']);
+    expect(first.translated).toEqual(['사랑해!', 'Oh yeah!']);
     await processLines(req);
     expect(g.requests).toHaveLength(1);
     vi.unstubAllGlobals();

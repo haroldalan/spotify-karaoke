@@ -55,7 +55,7 @@ describe('page hook: lyrics Spotify does not have', () => {
     const body = await res.json();
     expect(body.lyrics.syncType).toBe('LINE_SYNCED');
     expect(body.lyrics.lines.map((l: any) => [l.startTimeMs, l.words])).toEqual([['1000', 'ずっと'], ['4000', 'そばで']]);
-    expect(body.lyrics.providerDisplayName).toBe('LRCLIB');
+    expect(body.lyrics.providerDisplayName).toBe('LRCLIB · Spotify Karaoke'); // Spotify's footer: "Lyrics provided by …"
     expect(page.calls[0]).toMatchObject({ type: 'findLyrics', data: { id: NO_LYRICS_ID, name: 'まどろみ' } });
   });
 

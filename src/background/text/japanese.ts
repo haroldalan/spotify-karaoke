@@ -82,14 +82,20 @@ function joinsPrevious(t: JapaneseToken, prev: JapaneseToken | undefined): boole
   if ((t.pos === '動詞' || t.pos === '形容詞') && t.pos_detail_1 === '非自立') {
     return isVerbLike(prev) && t.basic_form !== 'くださる';
   }
+  // Passive / potential / causative endings: ひか+れ+ない ("hikarenai").
+  if (t.pos === '動詞' && t.pos_detail_1 === '接尾') return isVerbLike(prev);
   // Suffixes: 僕+たち.
   if (t.pos === '名詞' && t.pos_detail_1 === '接尾') return prev.pos === '名詞';
   return false;
 }
 
 const tokenKana = (t: JapaneseToken) => (t.reading && t.reading !== '*' ? t.reading : t.surface_form);
+/** Long vowels as plain letters, the way lyric sites write them: "mirukii", "toukyou" (not ī, ō). */
+const LONG_VOWELS: Record<string, string> = { ā: 'aa', ī: 'ii', ū: 'uu', ē: 'ee', ō: 'ou', Ā: 'Aa', Ī: 'Ii', Ū: 'Uu', Ē: 'Ee', Ō: 'Ou' };
 const kanaToRomaji = (kana: string): string =>
-  (Kuroshiro as unknown as { Util: { kanaToRomaji(s: string, system: string): string } }).Util.kanaToRomaji(kana, 'hepburn');
+  (Kuroshiro as unknown as { Util: { kanaToRomaji(s: string, system: string): string } }).Util
+    .kanaToRomaji(kana, 'hepburn')
+    .replace(/[āīūēōĀĪŪĒŌ]/g, (c) => LONG_VOWELS[c]);
 
 /** Romanizes one tokenized line. */
 export function romanizeJapaneseTokens(tokens: JapaneseToken[]): string {

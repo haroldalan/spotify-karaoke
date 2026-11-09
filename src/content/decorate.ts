@@ -18,11 +18,14 @@ ${LINE_SELECTOR}[data-sk-sub]::after {
   white-space: pre-line;
   unicode-bidi: plaintext;
   font-size: 0.56em;
-  line-height: 1.3;
+  line-height: 1.4;
   font-weight: 600;
-  opacity: 0.8;
-  margin-top: 0.2em;
+  opacity: 0.72;
+  margin-top: 0.15em;
+  margin-bottom: 0.1em;
 }
+/* Spotify's small lyrics preview card (sidebar): the main line only, nothing beneath. */
+${LINE_SELECTOR}[data-sk-compact][data-sk-sub]::after { display: none; }
 ${LINE_SELECTOR}[data-sk-dir="ltr"] { direction: ltr; text-align: start; }
 `;
 
@@ -78,9 +81,7 @@ export function apply(el: Element, d: Decoration) {
 }
 
 export function clear(root: ParentNode = document) {
-  for (const el of root.querySelectorAll('[data-sk-main],[data-sk-sub],[data-sk-dir]')) {
-    el.removeAttribute('data-sk-main');
-    el.removeAttribute('data-sk-sub');
-    el.removeAttribute('data-sk-dir');
+  for (const el of root.querySelectorAll('[data-sk-main],[data-sk-sub],[data-sk-dir],[data-sk-compact]')) {
+    for (const a of ['data-sk-main', 'data-sk-sub', 'data-sk-dir', 'data-sk-compact']) el.removeAttribute(a);
   }
 }

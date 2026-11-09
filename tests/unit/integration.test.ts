@@ -146,3 +146,25 @@ describe('no-lyrics list', () => {
     expect(await knownNoLyrics(0)).toEqual([]);
   });
 });
+
+describe('lyrics we supply, in Spotify\'s format', () => {
+  const found = (lines: string[]) => ({ lines: lines.map((text, i) => ({ startMs: i * 1000, text })), synced: true, source: 'LRCLIB' });
+
+  it('mark dense scripts, as Spotify does, and not Latin ones', () => {
+    expect(buildColorLyrics(found(['보고 싶다']), 'ko').lyrics.isDenseTypeface).toBe(true);
+    expect(buildColorLyrics(found(['मेरा दिल']), 'hi').lyrics.isDenseTypeface).toBe(true);
+    expect(buildColorLyrics(found(['bogo sipda']), null).lyrics.isDenseTypeface).toBe(false);
+  });
+
+  it('preview real lines, not ♪ or blanks', () => {
+    expect(buildColorLyrics(found(['♪', '', 'one', 'two', 'three', 'four']), null).lyrics.previewLines.map((l) => l.words)).toEqual(['one', 'two', 'three']);
+  });
+
+  it('keep Spotify\'s album colours when replacing its response, and credit the source and us', () => {
+    const colors = { background: -2543255, text: -16777216, highlightText: -1 };
+    const built = buildColorLyrics(found(['a']), null, { colors, hasVocalRemoval: true });
+    expect(built.colors).toEqual(colors);
+    expect(built.hasVocalRemoval).toBe(true);
+    expect(built.lyrics.providerDisplayName).toBe('LRCLIB · Spotify Karaoke');
+  });
+});

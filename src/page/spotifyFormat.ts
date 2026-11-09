@@ -120,8 +120,17 @@ export function parseColorLyrics(json: { lyrics?: { lines?: RawLine[]; syncType?
   };
 }
 
-/** A color-lyrics response for lyrics we found. Spotify takes the colours from the cover itself. */
-export function buildColorLyrics(found: FoundLyrics, language: string | null) {
+/** Scripts Spotify sets isDenseTypeface for (tall glyphs, stacked marks): it gives their lines more height. */
+const DENSE_SCRIPTS = new Set(['Jpan', 'Hani', 'Kore', 'Thai', 'Laoo', 'Khmr', 'Mymr', 'Deva', 'Beng', 'Guru', 'Gujr', 'Orya', 'Taml', 'Telu', 'Knda', 'Mlym', 'Sinh']);
+
+/** Our credit in Spotify's own footer: "Lyrics provided by LRCLIB · Spotify Karaoke". */
+export const creditFor = (source: string) => `${source} · Spotify Karaoke`;
+
+/**
+ * A color-lyrics response for lyrics we supply. `replacing`: Spotify's own response when
+ * we replace it (restored script, synced upgrade), whose album colours are kept.
+ */
+export function buildColorLyrics(found: FoundLyrics, language: string | null, replacing?: { colors?: unknown; hasVocalRemoval?: unknown }) {
   const script = songScript(found.lines.map((l) => l.text));
   const lines = found.lines.map((l) => ({
     startTimeMs: String(found.synced ? l.startMs : 0),
@@ -136,17 +145,18 @@ export function buildColorLyrics(found: FoundLyrics, language: string | null) {
       lines,
       provider: 'spotify-karaoke',
       providerLyricsId: '0',
-      providerDisplayName: found.source,
+      providerDisplayName: creditFor(found.source),
       syncLyricsUri: '',
-      isDenseTypeface: false,
+      isDenseTypeface: DENSE_SCRIPTS.has(script),
       alternatives: [],
       language: language ?? '',
       isRtlLanguage: script === 'Arab' || script === 'Hebr',
       capStatus: 'NONE',
-      previewLines: lines.slice(0, 3),
+      // The sidebar's preview card shows these: lines with words, not "♪" or blanks.
+      previewLines: lines.filter((l) => /\p{L}/u.test(l.words)).slice(0, 3),
       translationLanguages: [],
     },
-    colors: { background: -11184811, text: -16777216, highlightText: -1 },
-    hasVocalRemoval: false,
+    colors: replacing?.colors ?? { background: -11184811, text: -16777216, highlightText: -1 },
+    hasVocalRemoval: replacing?.hasVocalRemoval ?? false,
   };
 }
