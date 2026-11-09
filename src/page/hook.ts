@@ -8,15 +8,21 @@ import { COLOR_LYRICS_URL, METADATA_URL, buildColorLyrics, parseColorLyrics, par
 import type { FoundLyrics, NativeResult, TrackMeta } from '../shared/types';
 import { expectedScript, songScript } from '../shared/scripts';
 
-/** How long Spotify's lyrics request may wait for our lookup (Spotify shows its spinner). */
-const LOOKUP_BUDGET_MS = 12_000;
-/** How long Spotify's unsynced lyrics may wait for a synced copy. */
-const UPGRADE_BUDGET_MS = 4_000;
-/** How long Spotify's romanized lyrics may wait for the original script. Later results
- *  still reach the display, through the content script's line aliases. */
-const NATIVE_BUDGET_MS = 5_000;
+export interface HookTiming {
+  /** How long Spotify's lyrics request may wait for our lookup (Spotify shows its spinner). */
+  lookupMs: number;
+  /** How long Spotify's unsynced lyrics may wait for a synced copy. */
+  upgradeMs: number;
+  /** How long Spotify's romanized lyrics may wait for the original script. Later results
+   *  still reach the display, through the content script's line aliases. */
+  nativeMs: number;
+  /** How long a lyrics response may wait for its track's metadata. */
+  metaWaitMs: number;
+}
 
-export function installHook(win: Window & typeof globalThis = window): void {
+export const DEFAULT_TIMING: HookTiming = { lookupMs: 12_000, upgradeMs: 4_000, nativeMs: 5_000, metaWaitMs: 1_500 };
+
+export function installHook(win: Window & typeof globalThis = window, timing: HookTiming = DEFAULT_TIMING): void {
   if ((win as unknown as { __skHook?: boolean }).__skHook) return;
   (win as unknown as { __skHook?: boolean }).__skHook = true;
 
@@ -33,7 +39,7 @@ export function installHook(win: Window & typeof globalThis = window): void {
   // Spotify sometimes asks for a track's lyrics just before its metadata (the next track's
   // prefetch, 2026-11-09): wait for the metadata a little.
   const metaWaiters = new Map<string, ((m: TrackMeta) => void)[]>();
-  const metaFor = (id: string, waitMs = 1500): Promise<TrackMeta | undefined> => {
+  const metaFor = (id: string, waitMs = timing.metaWaitMs): Promise<TrackMeta | undefined> => {
     const known = metas.get(id);
     if (known) return Promise.resolve(known);
     return new Promise((resolve) => {
@@ -112,7 +118,7 @@ export function installHook(win: Window & typeof globalThis = window): void {
         const native = (await call(
           'restoreNative',
           { meta, lines: l.lines, times: l.times, synced: l.syncType !== 'UNSYNCED' },
-          NATIVE_BUDGET_MS,
+          timing.nativeMs,
         )) as NativeResult | null;
         note(`native ${id} ${native ? (native.aligned ? 'aligned' : 'own-timing') + ' ' + native.source : 'none/late'}`);
         if (native) {
@@ -122,7 +128,7 @@ export function installHook(win: Window & typeof globalThis = window): void {
       }
       // Unsynced lyrics: a synced copy elsewhere is better, as long as it is in the same script.
       if (l.syncType === 'UNSYNCED' && config.fillMissing && meta) {
-        const found = (await call('findLyrics', meta, UPGRADE_BUDGET_MS)) as FoundLyrics | null;
+        const found = (await call('findLyrics', meta, timing.upgradeMs)) as FoundLyrics | null;
         const theirs = songScript(l.lines, l.language);
         if (found?.synced && (theirs === 'Latn' || songScript(found.lines.map((x) => x.text)) === theirs)) {
           emit('lyrics', { id, lines: found.lines.map((x) => x.text), language: l.language, source: found.source });
@@ -135,7 +141,7 @@ export function installHook(win: Window & typeof globalThis = window): void {
     if (res.status !== 404 || !config.fillMissing) return null;
     const meta = await metaFor(id);
     if (!meta) return null;
-    const found = (await call('findLyrics', meta, LOOKUP_BUDGET_MS)) as FoundLyrics | null;
+    const found = (await call('findLyrics', meta, timing.lookupMs)) as FoundLyrics | null;
     note(`missing ${id} ${found?.lines.length ? (found.synced ? 'synced ' : 'unsynced ') + found.source : 'none'}`);
     if (!found?.lines.length) return null;
     const language = meta.languages[0] ?? null;
