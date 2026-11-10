@@ -112,6 +112,18 @@ function chunks(lines: string[]): string[][] {
 
 const splitLines = (s: string) => s.replace(/\r/g, '').split('\n');
 
+/**
+ * Google's answer lined up with the lines sent: extra lines dropped, missing ones filled with
+ * the line itself (which counts as untranslated), so a merged line never shifts later chunks.
+ */
+export function alignToChunk(out: string[], chunk: string[]): string[] {
+  if (out.length === chunk.length) return out;
+  if (out.length > chunk.length) return out.slice(0, chunk.length);
+  const aligned = out.slice();
+  while (aligned.length < chunk.length) aligned.push(chunk[aligned.length]);
+  return aligned;
+}
+
 export interface GoogleResult {
   translated: string[];
   romanized: (string | null)[];
@@ -157,29 +169,19 @@ async function mainLines(
   const translated = lines.map(() => '');
   const romanized: (string | null)[] = lines.map(() => null);
   let at = 0;
+  // One request per chunk, never more. When Google merges or splits lines, the answer is lined
+  // up with what was sent (as 3.1.6 did) instead of asking again line by line: a burst of one
+  // request per line is what gets a network rate-limited.
   for (const chunk of chunks(work)) {
-    let tr: string[] | null = null;
-    let rm: (string | null)[] | null = null;
     const raw = await request(chunk.join('\n'), target, wantRomanized, fetchImpl);
-    const trLines = splitLines(raw.translated);
-    const rmLines = raw.romanized ? splitLines(raw.romanized) : null;
-    if (trLines.length === chunk.length) tr = trLines;
-    // No romanization wanted, or none sent (Google has none for this language): nothing to
-    // check. Only a romanization with the wrong number of lines means the structure was lost.
-    const rmOk = !wantRomanized || !rmLines || rmLines.length === chunk.length;
-    if (rmOk) rm = rmLines;
-    if (!tr || !rmOk) {
-      // Line structure lost: one request per line, a few at a time.
-      const single: Raw[] = [];
-      for (let i = 0; i < chunk.length; i += 6) {
-        single.push(...(await Promise.all(chunk.slice(i, i + 6).map((l) => request(l, target, wantRomanized, fetchImpl)))));
-      }
-      tr = single.map((r) => r.translated.replace(/\n/g, ' '));
-      rm = single.map((r) => r.romanized?.replace(/\n/g, ' ') ?? null);
-    }
+    const tr = alignToChunk(splitLines(raw.translated.trim()), chunk);
+    // A romanization with the wrong number of lines can't be lined up (it would put one line's
+    // reading under another): none for this chunk, and the romanizer's stopgap stands in.
+    const rmLines = raw.romanized ? splitLines(raw.romanized.trim()) : null;
+    const rm = rmLines && rmLines.length === chunk.length ? rmLines : null;
     chunk.forEach((_, k) => {
       const i = idx[at + k];
-      translated[i] = tr![k].trim();
+      translated[i] = tr[k].trim();
       romanized[i] = rm?.[k]?.trim() || null;
     });
     at += chunk.length;

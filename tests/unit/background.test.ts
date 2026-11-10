@@ -27,11 +27,20 @@ describe('Google client', () => {
     expect(g.requests).toHaveLength(1);
   });
 
-  it('falls back to one line at a time when Google merges lines', async () => {
+  it('lines up a merged answer instead of asking again line by line (3.1.6 did the same)', async () => {
+    // A burst of one request per line is what gets a network rate-limited.
     const g = googleFake({ mangle: true });
     const out = await googleLines(['one', 'two', 'three'], 'en', false, g.impl);
-    expect(out.translated).toEqual(['one!', 'two!', 'three!']);
-    expect(g.requests).toHaveLength(4);
+    expect(g.requests).toHaveLength(1);
+    // Missing lines are the line itself: shown as untranslated, never shifted onto another.
+    expect(out.translated).toHaveLength(3);
+    expect(out.translated.slice(1)).toEqual(['two', 'three']);
+  });
+
+  it('lines an answer up by dropping extra lines or filling missing ones with the line itself', async () => {
+    const { alignToChunk } = await import('../../src/background/text/google');
+    expect(alignToChunk(['a', 'b', 'c', 'd'], ['1', '2', '3'])).toEqual(['a', 'b', 'c']);
+    expect(alignToChunk(['a'], ['1', '2', '3'])).toEqual(['a', '2', '3']);
   });
 
   it('splits long songs into several requests', async () => {
