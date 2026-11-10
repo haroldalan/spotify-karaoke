@@ -6,28 +6,17 @@ import type { PageRequest, PageStatus } from '../../src/content/main';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-// ── "Saved" ──
-const saved = $('#saved');
-let savedTimer: ReturnType<typeof setTimeout> | undefined;
-async function save(patch: Partial<Settings>) {
-  await saveSettings(patch);
-  saved.classList.add('visible');
-  clearTimeout(savedTimer);
-  savedTimer = setTimeout(() => saved.classList.remove('visible'), 2000);
-}
+// ── Main line ──
+const modeInputs = [...document.querySelectorAll<HTMLInputElement>('input[name="mode"]')];
+for (const r of modeInputs) r.addEventListener('change', () => void saveSettings({ mode: r.value as Mode }));
 
-// ── Active mode ──
-const modeButtons = [...document.querySelectorAll<HTMLButtonElement>('.sly-lyrics-btn')];
-for (const b of modeButtons) b.addEventListener('click', () => void save({ mode: b.dataset.mode as Mode }));
-
-// ── Target language: common languages first, then all, searchable ──
+// ── Translate into: common languages first, then all, searchable ──
 const QUICK = ['en', 'es', 'zh-CN', 'hi', 'fr', 'de', 'ja', 'ko', 'pt', 'ru'];
-const picker = $('#picker');
 const langButton = $<HTMLButtonElement>('#lang-button');
 const langName = $('#lang-name');
 const panel = $('#lang-panel');
 const search = $<HTMLInputElement>('#lang-search');
-const list = $('#lang-list');
+const list = $<HTMLUListElement>('#lang-list');
 let current = 'en';
 let active = -1;
 
@@ -36,46 +25,38 @@ const nameOf = (code: string) => LANGUAGES.find(([c]) => c === code)?.[1] ?? cod
 function fillLanguages() {
   const f = search.value.trim().toLowerCase();
   const match = ([code, name]: [string, string]) => !f || name.toLowerCase().includes(f) || code.toLowerCase() === f;
-  const common = QUICK.map((c) => LANGUAGES.find(([code]) => code === c)!).filter(Boolean).filter(match);
+  const common = QUICK.map((c) => LANGUAGES.find(([code]) => code === c)).filter((l): l is [string, string] => !!l).filter(match);
   const rest = LANGUAGES.filter(([c]) => !QUICK.includes(c)).filter(match);
-  const groups: [string, [string, string][]][] = [['Common', common], ['All Languages', rest]];
-  const nodes: HTMLElement[] = [];
+  const nodes: HTMLLIElement[] = [];
   let i = 0;
-  for (const [label, langs] of groups) {
+  for (const [label, langs] of [['Common', common], ['All languages', rest]] as const) {
     if (!langs.length) continue;
-    const g = document.createElement('div');
-    g.className = 'sly-picker-group-label';
+    const g = document.createElement('li');
+    g.className = 'group';
+    g.role = 'presentation';
     g.textContent = label;
     nodes.push(g);
     for (const [code, name] of langs) {
-      const item = document.createElement('div');
-      item.className = `sly-picker-item${code === current ? ' selected' : ''}`;
-      item.id = `lang-${i++}`;
-      item.setAttribute('role', 'option');
-      item.setAttribute('aria-selected', String(code === current));
-      item.dataset.code = code;
-      item.textContent = name;
-      if (code === current) {
-        const check = document.createElement('span');
-        check.className = 'sly-picker-check';
-        check.textContent = '✓';
-        item.append(check);
-      }
-      nodes.push(item);
+      const li = document.createElement('li');
+      li.id = `lang-${i++}`;
+      li.role = 'option';
+      li.dataset.code = code;
+      li.textContent = name;
+      li.setAttribute('aria-selected', String(code === current));
+      nodes.push(li);
     }
   }
   if (!i) {
-    const none = document.createElement('div');
-    none.className = 'sly-picker-no-results';
+    const none = document.createElement('li');
+    none.className = 'empty';
     none.textContent = 'No languages found';
     nodes.push(none);
   }
   list.replaceChildren(...nodes);
-  const items = options();
-  setActive(f ? 0 : items.findIndex((el) => el.dataset.code === current));
+  setActive(f ? 0 : options().findIndex((el) => el.dataset.code === current));
 }
 
-const options = () => [...list.querySelectorAll<HTMLElement>('.sly-picker-item')];
+const options = () => [...list.querySelectorAll<HTMLElement>('li[role="option"]')];
 
 function setActive(i: number) {
   const items = options();
@@ -90,22 +71,20 @@ function setActive(i: number) {
 
 function openLanguages(open: boolean) {
   panel.hidden = !open;
-  langButton.classList.toggle('active', open);
   langButton.setAttribute('aria-expanded', String(open));
   if (open) {
     search.value = '';
     fillLanguages();
     search.focus();
-  }
+  } else langButton.focus();
 }
 
 function choose(code: string | undefined) {
   if (!code) return;
   current = code;
   langName.textContent = nameOf(code);
-  void save({ targetLang: code });
+  void saveSettings({ targetLang: code });
   openLanguages(false);
-  langButton.focus();
 }
 
 langButton.addEventListener('click', () => openLanguages(panel.hidden));
@@ -114,27 +93,22 @@ search.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown') setActive(active + 1);
   else if (e.key === 'ArrowUp') setActive(active - 1);
   else if (e.key === 'Enter') choose(options()[active]?.dataset.code);
-  else if (e.key === 'Escape') { openLanguages(false); langButton.focus(); }
+  else if (e.key === 'Escape') openLanguages(false);
   else return;
   e.preventDefault();
 });
-list.addEventListener('click', (e) => choose((e.target as HTMLElement).closest<HTMLElement>('.sly-picker-item')?.dataset.code));
-document.addEventListener('mousedown', (e) => { if (!panel.hidden && !picker.contains(e.target as Node)) openLanguages(false); });
+list.addEventListener('click', (e) => choose((e.target as HTMLElement).closest<HTMLElement>('li[role="option"]')?.dataset.code));
 
 // ── Switches ──
 const allLines = $<HTMLInputElement>('#all-lines');
 const showPill = $<HTMLInputElement>('#show-pill');
-const pillGroup = $('#pill-group');
+const pillRow = $('#pill-row');
 const pillDescription = $('#pill-description');
-allLines.addEventListener('change', () => void save({ allLines: allLines.checked }));
-showPill.addEventListener('change', () => void save({ showPill: showPill.checked }));
+allLines.addEventListener('change', () => void saveSettings({ allLines: allLines.checked }));
+showPill.addEventListener('change', () => void saveSettings({ showPill: showPill.checked }));
 
 function render(s: Settings) {
-  for (const b of modeButtons) {
-    const on = b.dataset.mode === s.mode;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-checked', String(on));
-  }
+  for (const r of modeInputs) r.checked = r.value === s.mode;
   current = s.targetLang;
   langName.textContent = nameOf(current);
   allLines.checked = s.allLines;
@@ -142,17 +116,11 @@ function render(s: Settings) {
   // its switch keeps its setting, greyed out, until the three lines go off again.
   showPill.checked = s.showPill;
   showPill.disabled = s.allLines;
-  pillGroup.classList.toggle('disabled', s.allLines);
-  pillDescription.textContent = s.allLines
-    ? 'Hidden while all three lines show.'
-    : 'Display the Original / Romanized / Translated switch on Spotify\u2019s lyrics.';
+  pillRow.classList.toggle('disabled', s.allLines);
+  pillDescription.textContent = s.allLines ? 'Hidden while all three lines show' : 'The Original / Romanized / Translated switch on the lyrics';
 }
 
-void loadSettings().then((s) => {
-  render(s);
-  // Settings arrive before the first paint settles: no sliding switches on open.
-  setTimeout(() => $('#container').classList.remove('no-transitions'), 50);
-});
+void loadSettings().then(render);
 onSettingsChanged(render); // a shortcut or the in-page switcher changed something
 
 // ── Status: one line; the song playing beneath it ──
@@ -284,8 +252,8 @@ async function renderStatus() {
   if (page?.pageSeenAt) renderSong(page);
 }
 
-// ── Storage usage, and Reset data ──
-const kb = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : `${(b / 1024).toFixed(1)} KB`);
+// ── Storage, Clear cache and Reset data ──
+const kb = (b: number) => (b >= 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 async function renderStorage() {
   let sync = 0;
   try {
@@ -295,22 +263,38 @@ async function renderStorage() {
       : new TextEncoder().encode(JSON.stringify(await chrome.storage.sync.get(null))).length;
   } catch { /* shown as 0 */ }
   const local = await call('storage', {}).catch(() => null);
-  $('#sync-info').textContent = `Settings: ${kb(sync)}`;
-  $('#local-info').textContent = local ? `Cache: ${kb(local.bytes)}` : 'Cache: unknown';
+  $('#storage-info').textContent = `Settings ${kb(sync)} · Cache ${local ? kb(local.bytes) : 'unknown'}`;
 }
 
-const modal = $('#modal');
-const showModal = (on: boolean) => modal.classList.toggle('visible', on);
-$('#reset').addEventListener('click', () => { showModal(true); $<HTMLButtonElement>('#modal-cancel').focus(); });
-$('#modal-cancel').addEventListener('click', () => showModal(false));
-modal.addEventListener('click', (e) => { if (e.target === modal) showModal(false); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.classList.contains('visible')) showModal(false); });
-$('#modal-confirm').addEventListener('click', async () => {
-  showModal(false);
+const clear = $<HTMLButtonElement>('#clear');
+let armed = false;
+clear.addEventListener('click', async () => {
+  if (!armed) {
+    armed = true;
+    clear.textContent = 'Click again';
+    setTimeout(() => { if (armed) { armed = false; clear.textContent = 'Clear cache'; } }, 4000);
+    return;
+  }
+  armed = false;
+  clear.disabled = true;
+  await call('clearCache', {}).catch(() => null);
+  clear.textContent = 'Cleared';
+  void renderStorage();
+  setTimeout(() => { clear.disabled = false; clear.textContent = 'Clear cache'; }, 1500);
+});
+
+const confirmBox = $('#confirm');
+const showConfirm = (on: boolean) => {
+  confirmBox.hidden = !on;
+  if (on) $<HTMLButtonElement>('#confirm-cancel').focus();
+};
+$('#reset').addEventListener('click', () => showConfirm(confirmBox.hidden));
+$('#confirm-cancel').addEventListener('click', () => { showConfirm(false); $('#reset').focus(); });
+confirmBox.addEventListener('keydown', (e) => { if (e.key === 'Escape') { showConfirm(false); $('#reset').focus(); } });
+$('#confirm-reset').addEventListener('click', async () => {
+  showConfirm(false);
   await Promise.all([resetSettings(), call('clearCache', {}).catch(() => null)]);
   render(await loadSettings());
-  saved.classList.add('visible');
-  setTimeout(() => saved.classList.remove('visible'), 2000);
   void renderStorage();
 });
 
