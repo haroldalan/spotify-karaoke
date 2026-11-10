@@ -156,3 +156,8 @@ a:focus-visible, .dropdown:focus-visible, .star:focus-visible {
 .summary[hidden] { display: none; }
 .song.with-dot { margin-top: 0; }
 .song.with-dot .title::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
+
+/* Opening: hidden, without animations, until the settings, the status and the storage line
+   are filled in (see reveal in main.ts), so nothing slides or grows into place. */
+html.loading body { visibility: hidden; }
+html.loading *, html.loading *::before, html.loading *::after { transition: none !important; }

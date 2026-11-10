@@ -139,7 +139,7 @@ function render(s: Settings) {
   if (lastPage && !song.hidden) renderSong(lastPage, lastNote);
 }
 
-void loadSettings().then(render);
+const settingsShown = loadSettings().then(render);
 onSettingsChanged(render); // a shortcut or the in-page switcher changed something
 
 // ── Status: one line; the song playing beneath it ──
@@ -335,8 +335,18 @@ $('#confirm-reset').addEventListener('click', async () => {
   void renderStorage();
 });
 
-void renderStatus();
-void renderStorage();
+// Shown whole: once the settings, the status and the storage line are in (at most 300 ms;
+// past that, whatever is still on its way arrives on screen).
+const REVEAL_MS = 300;
+void Promise.race([
+  Promise.allSettled([settingsShown, renderStatus(), renderStorage()]),
+  new Promise((r) => setTimeout(r, REVEAL_MS)),
+]).then(() => {
+  // Styles worked out with the real values, still without transitions, before turning them on:
+  // otherwise the switches would slide from their defaults.
+  void document.body.offsetHeight;
+  document.documentElement.classList.remove('loading');
+});
 
 $('#version').textContent = `v${chrome.runtime.getManifest().version}`;
 $('#shortcuts').addEventListener('click', (e) => {

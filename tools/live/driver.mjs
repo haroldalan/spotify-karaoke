@@ -91,8 +91,10 @@ const handlers = {
    * milliseconds, saved as JPEGs in `dir` (named by ms since the start). For pop-in and
    * animation checks that DOM reads can't see (e.g. during Spotify's view transitions).
    */
-  async frames({ js, click, clicks, ms = 800, dir }) {
-    const page = await spotifyPage();
+  async frames({ js, click, clicks, url, ms = 800, dir }) {
+    // url: a new tab, popup-sized, recorded while it loads ("popup": the extension's popup page).
+    const page = url ? await browser.newPage() : await spotifyPage();
+    if (url) await page.setViewport({ width: 360, height: 600 });
     const out = path.resolve(dir || path.join(root, '.live/frames'));
     fs.mkdirSync(out, { recursive: true });
     for (const f of fs.readdirSync(out)) if (f.endsWith('.jpg')) fs.unlinkSync(path.join(out, f));
@@ -108,12 +110,14 @@ const handlers = {
     t0 = Date.now();
     // A real mouse click ({x, y}), e.g. on our controls in their closed shadow root; or page js.
     // Or several ({x, y, wait}: ms to wait before that click).
-    if (clicks) for (const c of clicks) { await new Promise((r) => setTimeout(r, c.wait ?? 0)); await page.mouse.click(c.x, c.y); }
+    if (url) await page.goto(url === 'popup' ? `chrome-extension://${extId}/popup.html` : url, { waitUntil: 'load' });
+    else if (clicks) for (const c of clicks) { await new Promise((r) => setTimeout(r, c.wait ?? 0)); await page.mouse.click(c.x, c.y); }
     else if (click) await page.mouse.click(click.x, click.y);
     else await page.evaluate(js);
     await new Promise((r) => setTimeout(r, ms));
     await cdp.send('Page.stopScreencast');
     await cdp.detach();
+    if (url) await page.close();
     const files = got.filter((f) => f.at >= t0 - 50).map((f) => {
       const name = `${String(Math.round(f.at - t0)).padStart(5, '0')}.jpg`;
       fs.writeFileSync(path.join(out, name), Buffer.from(f.data, 'base64'));
