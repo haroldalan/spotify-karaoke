@@ -59,6 +59,9 @@ export interface NativeResult {
   source: string;
   /** Line i of Spotify's answer is line i of ours (same timings): the display can map text to text. */
   aligned: boolean;
+  /** How many of Spotify's lines with words were put back in their script, of how many. */
+  replaced?: number;
+  total?: number;
 }
 
 /** Processed versions of a song's lines, index-aligned with the input. null: not applicable. */

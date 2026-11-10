@@ -262,6 +262,15 @@ describe('processing', () => {
     vi.unstubAllGlobals();
   });
 
+  it('translates the English verses of a Korean song into Korean (not "already in Korean")', async () => {
+    const g = googleFake();
+    vi.stubGlobal('fetch', g.impl);
+    const { processLines } = await import('../../src/background/text/process');
+    const out = await processLines({ lines: ['보고 싶다', 'I just want you tonight'], language: 'ko', romanize: false, translateTo: 'ko' });
+    expect(out.translated?.[1]).toBe('I just want you tonight!');
+    vi.unstubAllGlobals();
+  });
+
   it('keeps romanization when translation fails, and says why', async () => {
     vi.stubGlobal('fetch', googleFake({ status: 429, widget: false }).impl);
     const { processLines } = await import('../../src/background/text/process');

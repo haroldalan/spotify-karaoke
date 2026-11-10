@@ -32,7 +32,7 @@ export interface PageStatus {
     /** An instrumental (Spotify or LRCLIB says so): there are no lyrics to find. */
     instrumental: boolean;
     /** The lyrics on screen came from us: found, restored to their own script, or a synced copy. */
-    ours: { kind: Exclude<LyricsKind, 'spotify'>; source: string } | null;
+    ours: { kind: Exclude<LyricsKind, 'spotify'>; source: string; restoredLines?: { replaced: number; total: number } } | null;
     /** The listener sent this song back to Spotify ("Wrong lyrics?"). */
     spotifyOnly: boolean;
     /** Lyrics the extension leaves as they are (see plainSong); null when it changes them or doesn't know yet. */
@@ -136,7 +136,10 @@ export async function startContent(): Promise<void> {
   /** Songs whose lyrics view came back empty this session, by id. */
   const missing = new Map<string, TrackMeta>();
   /** Where each song's lyrics on screen came from. */
-  const kinds = new Map<string, { kind: LyricsKind; source: string }>();
+  /** A restore that kept some of Spotify's lines: how many it put back in their script, of how many. */
+  const linesOf = (r: { replaced?: number; total?: number }) =>
+    r.replaced != null && r.total != null && r.replaced < r.total ? { restoredLines: { replaced: r.replaced, total: r.total } } : {};
+  const kinds = new Map<string, { kind: LyricsKind; source: string; restoredLines?: { replaced: number; total: number } }>();
   /** Track id -> its lyrics in the store (for the popup's row). */
   const songOf = new Map<string, Song>();
   const remember = (id: string, song: Song) => {
@@ -199,7 +202,7 @@ export async function startContent(): Promise<void> {
             // one with its own line breaks can't, and waits for the song's next load.
             if (kinds.get(req.meta.id)?.kind === 'spotify' && r.aligned) {
               store.addRestored(copy.shown, copy.native, copy.language);
-              kinds.set(req.meta.id, { kind: 'restored', source: r.source });
+              kinds.set(req.meta.id, { kind: 'restored', source: r.source, ...linesOf(r) });
               return r;
             }
             // In time: kept until the page says it used it (onLyrics).
@@ -224,7 +227,7 @@ export async function startContent(): Promise<void> {
       onLyrics: (l) => {
         pageSeenAt = lyricsSeenAt = Date.now();
         missing.delete(l.id);
-        kinds.set(l.id, { kind: l.kind ?? 'spotify', source: l.source });
+        kinds.set(l.id, { kind: l.kind ?? 'spotify', source: l.source, ...(l.restoredLines ? { restoredLines: l.restoredLines } : {}) });
         if (kinds.size > 300) kinds.delete(kinds.keys().next().value!);
         remember(l.id, store.addSong(l.lines, l.language));
         const r = restored.get(l.id);
@@ -431,7 +434,7 @@ export async function startContent(): Promise<void> {
             // synced copy) mean there are lyrics.
             noLyrics: (noLyrics.has(m.id) || missing.has(m.id)) && !kinds.has(m.id),
             instrumental: instrumental.has(m.id) || m.languages.includes('zxx'),
-            ours: k && k.kind !== 'spotify' ? { kind: k.kind, source: k.source } : null,
+            ours: k && k.kind !== 'spotify' ? { kind: k.kind, source: k.source, ...(k.restoredLines ? { restoredLines: k.restoredLines } : {}) } : null,
             spotifyOnly: spotifyOnly.has(m.id),
             plain: songOf.has(m.id) ? plainSong(songOf.get(m.id)!, settings.targetLang) : null,
           }

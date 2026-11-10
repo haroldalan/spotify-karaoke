@@ -159,3 +159,22 @@ describe('settings saved by 3.1.6', () => {
     expect(await loadSettings()).toMatchObject({ mode: 'romanized', targetLang: 'jw' });
   });
 });
+
+describe('decided by the lines, not the song', () => {
+  it('tells English lines from romanized ones', async () => {
+    const { isEnglishLine } = await import('../../src/shared/english');
+    expect(isEnglishLine('all night long we dance')).toBe(true);
+    expect(isEnglishLine('Baby I love you, yeah')).toBe(true);
+    expect(isEnglishLine('Mera dil tera hai, tu kahan hai yaar')).toBe(false);
+    expect(isEnglishLine('naan unnai kaadhalikkiren')).toBe(false);
+  });
+  it('a song is worth a native copy when enough lines are romanized, English and other scripts aside', async () => {
+    const { romanizedShare, hasRomanizedPart } = await import('../../src/shared/lineMix');
+    expect(hasRomanizedPart(['naan unnai kaadhalikkiren', 'चल तू खोने दे', 'all night long we dance', 'en nenjil nee mattum'])).toBe(true);
+    expect(romanizedShare(['보고 싶다 너를', 'I just want you tonight', '사랑해 매일'])).toBe(0);
+  });
+  it('a Latin-script song with English lines still translates into its own language', () => {
+    expect(plainSong(song(['te quiero tanto', 'baby I love you'], 'es'), 'es')).toBe('latin');
+    expect(plainSong(song(['te quiero tanto', 'mi corazón'], 'es'), 'es')).toBe('same');
+  });
+});

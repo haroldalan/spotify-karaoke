@@ -26,7 +26,23 @@ to sing along.
 5. **The right script (bonus).** When Spotify serves romanized lyrics for a song written
    in its own script (common for Hindi, Punjabi, Thai), restore the original script, so
    romanization and translation work from the real text. Only when the copy found
-   matches the song (duration within 3 s, about the same line count).
+   matches the song (duration within 3 s, its lines verified against Spotify's).
+
+## Lines, not songs
+
+A song is not one language in one script: Indian film songs mix Tamil, Hindi and English,
+K-pop mixes Korean and English, Spotify romanizes some lines and not others, and English
+lines belong in Latin script. So every decision about script or language is made per line,
+and a song-level question is answered from the mix of its lines:
+
+- A line is restored to its script only when Spotify's is romanized (Latin letters, not
+  English), the copy's is in the song's script, and the copy, romanized, reads like it.
+- Spotify's line is the default. A line already in another script, an English line, or a
+  line in doubt stays exactly as Spotify has it: the worst case is Spotify as it is.
+- Lines are paired by content in order (and by time when both copies are timed), never
+  trusted by position alone; the copy that improves the most lines wins.
+- "Already in Latin" and "already in the target language" count English lines.
+- The listener is told what was done ("restored on 38 of 46 lines") and can undo it.
 
 ## What "works" means
 

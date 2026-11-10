@@ -1,5 +1,6 @@
 // Romanize and/or translate a song's lines, with caching. One Google request serves both
 // when the script needs Google's romanization and a translation is wanted.
+import { isEnglishLine } from '../../shared/english';
 import type { Processed } from '../../shared/types';
 import { hash } from '../../shared/hash';
 import { cacheGet, cacheSet, once } from '../cache';
@@ -37,8 +38,11 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
   // nothing to translate. Chinese is left to Google: simplified and traditional differ.
   const target = baseLang(req.translateTo);
   const lang = baseLang(req.language);
+  // Not when some lines are English and translations go into another language: a Korean song
+  // with English verses still has lines to translate (decided by the lines, not the song).
   const sameLanguage = !!req.translateTo && target !== 'zh' && lang === target &&
-    (expectedScript([lang]) === script || (!expectedScript([lang]) && script === 'Latn'));
+    (expectedScript([lang]) === script || (!expectedScript([lang]) && script === 'Latn')) &&
+    (target === 'en' || !lines.some(isEnglishLine));
 
   // Shared Google call: translation (+ romanization when Google is the romanizer).
   let googleCall: Promise<GoogleResult> | null = null;

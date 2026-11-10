@@ -83,6 +83,25 @@ export function lineHas(line: string, script: Script): boolean {
   return false;
 }
 
+/** Share of a line's letters written in `script` (Japanese counts Han too); 0 with no letters. */
+export function scriptShare(line: string, script: Script): number {
+  let n = 0;
+  let of = 0;
+  for (const ch of line) {
+    if (!/\p{L}/u.test(ch)) continue;
+    of++;
+    const s = charScript(ch);
+    if (s === script || (script === 'Jpan' && s === 'Hani')) n++;
+  }
+  return of ? n / of : 0;
+}
+
+/** A line with letters, all of them Latin: a romanization, or a line in a Latin-script language. */
+export function isLatinLine(line: string): boolean {
+  const letters = line.match(/\p{L}/gu);
+  return !!letters && letters.every((ch) => /\p{Script=Latin}/u.test(ch));
+}
+
 /**
  * The script a language is normally written in (Spotify's language_of_performance codes),
  * for languages whose lyrics Spotify sometimes serves romanized.

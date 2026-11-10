@@ -9,6 +9,7 @@ import { buildColorLyrics, classify, harvestTracks, parseColorLyrics, parseMeta,
 import type { FoundLyrics, NativeResult, TrackMeta } from '../shared/types';
 import { expectedScript, songScript } from '../shared/scripts';
 import { isLikelyRomanizedFallback } from '../shared/romanizedDetector';
+import { hasRomanizedPart } from '../shared/lineMix';
 
 export interface HookTiming {
   /** How long Spotify's lyrics request may wait for our lookup (Spotify shows its spinner). */
@@ -167,9 +168,13 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     return json({ ...raw, has_lyrics: true }, res);
   }
 
-  /** The language whose script romanized lyrics stand in for, or null when they aren't romanized. */
+  /**
+   * The language whose script romanized lyrics stand in for, or null when they aren't romanized.
+   * Judged by the lines: enough of them romanized (Latin letters, not English) is enough; a
+   * multilingual song keeps its other lines in their own scripts and English.
+   */
   function romanizedLanguage(lines: string[], meta: TrackMeta, tag: string | null): string | null {
-    if (songScript(lines) !== 'Latn') return null;
+    if (!hasRomanizedPart(lines)) return null;
     const fromMeta = meta.languages.find((l) => expectedScript([l]));
     if (fromMeta) return fromMeta;
     // No (or a Latin) language in the metadata: judge by the words and Spotify's lyrics tag.
@@ -215,7 +220,11 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
         if (ahead) note(`native ${id} asked ahead of play`);
         note(`native ${id} ${native ? (native.aligned ? 'aligned' : 'own-timing') + ' ' + native.source : 'none/late'}`);
         if (native) {
-          emit('lyrics', { id, lines: native.lines.map((x) => x.text), language: lang, source: native.source, kind: 'restored' });
+          const partial = native.replaced != null && native.total != null && native.replaced < native.total;
+          emit('lyrics', {
+            id, lines: native.lines.map((x) => x.text), language: lang, source: native.source, kind: 'restored',
+            ...(partial ? { restoredLines: { replaced: native.replaced, total: native.total } } : {}),
+          });
           return json(buildColorLyrics(native, lang, raw), res);
         }
       }
