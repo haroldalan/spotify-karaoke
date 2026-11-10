@@ -109,10 +109,11 @@ Seamless-UI pass (2026-11-09, after a UI audit and a third-party one):
 
 UX pass (2026-11-09/10, a persona audit with the owner's decisions; docs/ux-audit-personas.md §10):
 - Finding missing lyrics and restoring the original script are always on.
-- One "All three lines" switch: off (default), the main line with the original beneath; on,
-  original, romanization and translation in every mode, and the switcher leaves the page
-  (its popup switch greys out and keeps its setting).
-- Popup: the mode, the language (Common languages first), the two switches with a description
+- "Two lines" (on by default): the original beneath the main line; off, the main line alone.
+  An update from 3.1.6 keeps its "Dual lyrics" choice.
+- "All three lines": original, romanization and translation in every mode; the switcher
+  leaves the page, and the Two lines and switcher switches grey out and keep their settings.
+- Popup: the mode, the language (Common languages first), the three switches with a description
   each, a status card with the playing song (Search again; "Wrong lyrics?" with Undo, sending
   a song back to Spotify's own lyrics; Reload now / After this song), Storage with Clear cache
   and Reset data, the Star card and the credit footer. Checked with a stubbed API.

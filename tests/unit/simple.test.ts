@@ -44,13 +44,13 @@ describe('settings', () => {
 
   it('default to two lines (the romanization, the original beneath) and the switcher on', async () => {
     const { loadSettings } = await import('../../src/shared/settings');
-    expect(await loadSettings()).toMatchObject({ mode: 'romanized', allLines: false, showPill: true });
+    expect(await loadSettings()).toMatchObject({ mode: 'romanized', twoLines: true, allLines: false, showPill: true });
   });
 
   it('drop the switches that are now always on, keeping everything else', async () => {
     await chrome.storage.sync.set({ settings: { mode: 'translated', targetLang: 'ta', fillMissing: false, restoreNative: false, showPill: false } });
     const { loadSettings } = await import('../../src/shared/settings');
-    expect(await loadSettings()).toEqual({ mode: 'translated', targetLang: 'ta', allLines: false, showPill: false });
+    expect(await loadSettings()).toEqual({ mode: 'translated', targetLang: 'ta', twoLines: true, allLines: false, showPill: false });
   });
 
   it('turn an earlier build\'s original + romanization + translation into all three lines', async () => {
@@ -135,11 +135,18 @@ describe('settings saved by 3.1.6', () => {
     sync.set('showPill', false);
     sync.set('dualLyrics', true);
     const { loadSettings } = await import('../../src/shared/settings');
-    expect(await loadSettings()).toEqual({ mode: 'translated', targetLang: 'ta', allLines: false, showPill: false });
+    expect(await loadSettings()).toEqual({ mode: 'translated', targetLang: 'ta', twoLines: true, allLines: false, showPill: false });
     // Written as ours: later loads read that, and a change made since is not undone.
     expect(sync.get('settings')).toMatchObject({ mode: 'translated', targetLang: 'ta' });
     sync.set('settings', { mode: 'original', targetLang: 'ta', allLines: false, showPill: false });
     expect((await loadSettings()).mode).toBe('original');
+  });
+
+  it('carry over "dual lyrics" switched off as one line', async () => {
+    const { sync } = installChromeStorage();
+    sync.set('dualLyrics', false);
+    const { loadSettings } = await import('../../src/shared/settings');
+    expect(await loadSettings()).toMatchObject({ twoLines: false, mode: 'romanized' });
   });
 
   it('start from the defaults when 3.1.6 saved nothing, and mend what it saved badly', async () => {

@@ -68,8 +68,8 @@ export const NONE: Decoration = { a: null, b: null, big: null, hide: false, alia
 const RTL = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
 
 /**
- * What a line should show under these settings. Pure. Two lines (the main line, the original
- * beneath; Original mode is Spotify as it is), or all three in every mode. `aliased`: Spotify's text on screen
+ * What a line should show under these settings. Pure. The main line alone, two lines (the
+ * original beneath it), or all three in every mode; Original mode alone is Spotify as it is. `aliased`: Spotify's text on screen
  * is its romanization of `original` (a restored song). In translated mode, a line whose
  * translation hasn't arrived (or can't be had) shows as in romanized mode, never bare.
  */
@@ -81,9 +81,9 @@ export function decoration(original: string, info: LineInfo | undefined, s: Sett
   const tr = differs(info?.translated?.[s.targetLang]);
   const big: 'O' | 'R' | 'T' =
     s.mode === 'translated' ? (tr ? 'T' : rom ? 'R' : 'O') : s.mode === 'romanized' && rom ? 'R' : 'O';
-  // The original is always on screen: as the main line, or beneath it. Romanization and
-  // translation join it beneath only when all three lines are on.
-  const showO = true;
+  // The original is on screen as the main line, or beneath it with two lines (or all three) on.
+  // Romanization and translation join it beneath only when all three lines are on.
+  const showO = big === 'O' || s.twoLines || s.allLines;
   // A translation equal to the romanization (a name, a number, a vocalise) is shown once: as the
   // main line when it is the main line, otherwise not beneath the romanization again.
   const same = !!tr && tr === rom;

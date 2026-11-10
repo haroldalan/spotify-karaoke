@@ -19,7 +19,7 @@
         <label title="Romanized (R)"><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
         <label title="Translated (T)"><input type="radio" name="mode" value="translated" /><span>Translated</span></label>
       </div>
-      <p class="sub hint-line">The original stays beneath the main line.<br />Press O, R or T on the lyrics · <a href="#" id="shortcuts" title="Opens your browser’s shortcut settings">Alt+Shift shortcuts</a></p>
+      <p class="sub hint-line">Press O, R or T on the lyrics · <a href="#" id="shortcuts" title="Opens your browser’s shortcut settings">Alt+Shift shortcuts</a></p>
     </section>
 
     <section>
@@ -31,6 +31,7 @@
         <input id="lang-search" type="search" placeholder="Search languages" autocomplete="off" aria-label="Search languages" aria-controls="lang-list" />
         <ul id="lang-list" role="listbox" aria-labelledby="lang-label" tabindex="-1"></ul>
       </div>
+      <label class="row" id="two-row"><span>Two lines<span class="sub" id="two-description"></span></span><input type="checkbox" role="switch" id="two-lines" /></label>
       <label class="row"><span>All three lines<span class="sub">Original, romanized and translated</span></span><input type="checkbox" role="switch" id="all-lines" /></label>
       <label class="row" id="pill-row"><span>Show the switcher<span class="sub" id="pill-description"></span></span><input type="checkbox" role="switch" id="show-pill" /></label>
     </section>

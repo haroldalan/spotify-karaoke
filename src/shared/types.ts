@@ -7,9 +7,11 @@ export interface Settings {
   /** BCP-47 primary tag Google Translate understands, e.g. 'en', 'hi', 'zh-CN'. */
   targetLang: string;
   /**
-   * Off: the main line, with the original beneath it (Original mode: Spotify as it is).
-   * On: original, romanization and translation together, in every mode.
+   * On: the original beneath the main line (Romanized, Translated). Off: the main line alone.
+   * (Original mode is Spotify as it is either way.) Kept as set while all three lines are on.
    */
+  twoLines: boolean;
+  /** On: original, romanization and translation together, in every mode. */
   allLines: boolean;
   /** Show the on-page mode switcher. Kept as set while all three lines are on (it is hidden then). */
   showPill: boolean;
@@ -19,6 +21,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   mode: 'romanized',
   targetLang: 'en',
+  twoLines: true,
   allLines: false,
   showPill: true,
 };

@@ -37,24 +37,25 @@ export function settingsFrom(stored: unknown): Settings {
   return {
     mode,
     targetLang: typeof s.targetLang === 'string' && s.targetLang ? s.targetLang : d.targetLang,
+    twoLines: typeof s.twoLines === 'boolean' ? s.twoLines : d.twoLines,
     allLines,
     showPill: typeof s.showPill === 'boolean' ? s.showPill : d.showPill,
   };
 }
 
 /** The top-level keys 3.1.6 kept its preferences under. */
-const LEGACY = ['targetLang', 'preferredMode', 'showPill'] as const;
+const LEGACY = ['targetLang', 'preferredMode', 'showPill', 'dualLyrics'] as const;
 
 /**
- * Settings 3.1.6 saved, as 4.x settings: the language, the mode and the switcher carry
- * over. (3.1.6's "dual lyrics" was the original beneath the main line, which is now always
- * on; the three-line view is new and starts off.) null: no 3.1.6 settings were saved.
+ * Settings 3.1.6 saved, as 4.x settings: the language, the mode, the switcher and "dual
+ * lyrics" (the original beneath the main line: two lines) carry over. The three-line view is
+ * new and starts off. null: no 3.1.6 settings were saved.
  */
 export function settingsFromLegacy(got: Record<string, unknown>): Settings | null {
   if (!LEGACY.some((k) => got[k] !== undefined)) return null;
   // 3.1.6 wrote Javanese as 'jv'; Google Translate says 'jw'.
   const lang = got.targetLang === 'jv' ? 'jw' : got.targetLang;
-  return settingsFrom({ mode: got.preferredMode, targetLang: lang, showPill: got.showPill });
+  return settingsFrom({ mode: got.preferredMode, targetLang: lang, showPill: got.showPill, twoLines: got.dualLyrics });
 }
 
 export async function loadSettings(): Promise<Settings> {

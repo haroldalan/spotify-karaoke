@@ -18,8 +18,8 @@ to sing along.
 2. **Understand it (translation).** Show each line translated into the listener's
    language. Equal second core feature.
 3. **See both at once.** The processed line (romanized or translated) is the main,
-   highlighted line, with the original beneath it. Optionally all three stacked:
-   original, romanized, translated.
+   highlighted line, with the original beneath it (on by default; off shows the main line
+   alone). Optionally all three stacked: original, romanized, translated.
 4. **Lyrics where Spotify has none.** When Spotify says "lyrics not available", find
    synced lyrics elsewhere (YouTube Music first, then LRCLIB) and show them in Spotify's
    lyrics view, in time with the music.
@@ -47,7 +47,7 @@ to sing along.
 - **Free and private.** No account, no API key, no sign-in, no analytics. Lyrics and
   lines are only sent to the lyrics and translation services that need them.
 - **Chrome, Edge and Firefox**, from one codebase, Manifest V3.
-- **Preferences follow the user** across devices (mode, target language, the three-line view, the switcher).
+- **Preferences follow the user** across devices (mode, target language, two lines, the three-line view, the switcher).
 
 ## Out of scope
 

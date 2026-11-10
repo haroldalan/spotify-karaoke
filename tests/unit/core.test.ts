@@ -80,6 +80,23 @@ describe('decoration', () => {
   it('translated main with the original beneath', () => {
     expect(shown('君を愛してる', info, { mode: 'translated' })).toEqual({ main: 'I love you', beneath: ['君を愛してる'] });
   });
+  it('two lines off: the main line alone (Original mode is Spotify as it is)', () => {
+    expect(shown('君を愛してる', info, { twoLines: false })).toEqual({ main: 'kimi o aishiteru', beneath: [] });
+    expect(shown('君を愛してる', info, { mode: 'translated', twoLines: false })).toEqual({ main: 'I love you', beneath: [] });
+    expect(decoration('君を愛してる', info, s({ mode: 'original', twoLines: false }))).toEqual(NONE);
+    // No translation yet: the romanization alone, not the bare original.
+    expect(shown('君を愛してる', { romanized: 'kimi o aishiteru', translated: {} }, { mode: 'translated', twoLines: false })).toEqual({ main: 'kimi o aishiteru', beneath: [] });
+    // Nothing to romanize: the original, as Spotify draws it.
+    expect(decoration('hello', { romanized: null }, s({ twoLines: false }))).toEqual(NONE);
+  });
+  it('two lines off on a restored song: Spotify\'s romanization alone, or the translation alone', () => {
+    const restored = { romanized: 'tera hai', translated: { en: 'is yours' } };
+    expect(decoration('तेरा है', restored, s({ twoLines: false }), true)).toEqual(NONE);
+    expect(shown('तेरा है', restored, { mode: 'translated', twoLines: false }, true, 'tera hai')).toEqual({ main: 'is yours', beneath: [] });
+  });
+  it('all three lines win over two lines off', () => {
+    expect(shown('君を愛してる', info, { twoLines: false, allLines: true })).toEqual({ main: 'kimi o aishiteru', beneath: ['君を愛してる', 'I love you'] });
+  });
   it('leaves a line without words (an instrumental ♪) as Spotify draws it', () => {
     const note = { romanized: '♪', translated: { en: '♫' } };
     expect(decoration('♪', note, s({ mode: 'translated' }))).toEqual(NONE);

@@ -105,6 +105,10 @@ document.addEventListener('mousedown', (e) => {
 });
 
 // ── Switches ──
+const twoLines = $<HTMLInputElement>('#two-lines');
+const twoRow = $('#two-row');
+const twoDescription = $('#two-description');
+twoLines.addEventListener('change', () => void saveSettings({ twoLines: twoLines.checked }));
 const allLines = $<HTMLInputElement>('#all-lines');
 const showPill = $<HTMLInputElement>('#show-pill');
 const pillRow = $('#pill-row');
@@ -120,6 +124,11 @@ function render(s: Settings) {
   current = s.targetLang;
   langName.textContent = nameOf(current);
   allLines.checked = s.allLines;
+  // All three lines include the original: this switch keeps its setting, greyed out, meanwhile.
+  twoLines.checked = s.twoLines;
+  twoLines.disabled = s.allLines;
+  twoRow.classList.toggle('disabled', s.allLines);
+  twoDescription.textContent = s.allLines ? 'Included in all three lines' : 'The original beneath the main line';
   // With all three lines on, every version is already on screen: the switcher is hidden and
   // its switch keeps its setting, greyed out, until the three lines go off again.
   showPill.checked = s.showPill;
