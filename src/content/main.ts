@@ -4,7 +4,7 @@ import type { FoundLyrics, Mode, TrackMeta } from '../shared/types';
 import type { LyricsKind } from '../page/channel';
 import { Bridge } from './bridge';
 import { modeForKey } from './keys';
-import { STYLE } from './decorate';
+import { STYLE, viewScroller } from './decorate';
 import { ALL_MODES, plainSong, switchFor } from './modes';
 import { LineStore, type Song } from './lineStore';
 import { Pill, type Notice } from './pill';
@@ -358,6 +358,19 @@ export async function startContent(): Promise<void> {
     });
     const n = currentNotice();
     pill.notice(n, n ? lastView.anchor : null, lastView.container);
+    holdStill(n && lastView.anchor ? viewScroller(lastView.container) : null);
+  }
+
+  /** The lyrics view held still under our notice (see data-sk-still in decorate.ts). */
+  let stilled: HTMLElement | null = null;
+  function holdStill(el: HTMLElement | null) {
+    if (el === stilled) return;
+    stilled?.removeAttribute('data-sk-still');
+    if (el) {
+      el.setAttribute('data-sk-still', '');
+      el.scrollTop = 0;
+    }
+    stilled = el;
   }
 
   view.onUpdate((v) => {

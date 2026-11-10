@@ -44,6 +44,9 @@ ${L}[data-sk-dir="ltr"] { direction: ltr; text-align: start; }
 /* The browser's own scroll anchoring holds the top visible line when ours change height; the
    line that must hold still is the one being sung (see holdLine in view.ts). */
 ${L} { overflow-anchor: none; }
+/* Spotify's "no lyrics" message in a view we opened: the box for the lines stays a full view
+   tall under it, empty, and the view scrolls into that blank. Held still while our notice shows. */
+[data-sk-still] { overflow: hidden !important; }
 `;
 
 export interface Decoration {
@@ -134,10 +137,21 @@ export function apply(el: Element, d: Decoration) {
   setAttr(el, 'data-sk-dir', d.big ? d.dir : null);
 }
 
-const ATTRS = ['data-sk-a', 'data-sk-b', 'data-sk-big', 'data-sk-hide', 'data-sk-alias', 'data-sk-dir', 'data-sk-compact'];
+const ATTRS = ['data-sk-a', 'data-sk-b', 'data-sk-big', 'data-sk-hide', 'data-sk-alias', 'data-sk-dir', 'data-sk-compact', 'data-sk-still'];
 
 export function clear(root: ParentNode = document) {
   for (const el of root.querySelectorAll(ATTRS.map((a) => `[${a}]`).join(','))) {
     for (const a of ATTRS) el.removeAttribute(a);
   }
+}
+
+/** The element that scrolls Spotify's lyrics view (inside `container`), or null. */
+export function viewScroller(container: Element | null): HTMLElement | null {
+  if (!container) return null;
+  const win = container.ownerDocument.defaultView ?? window;
+  for (const el of container.querySelectorAll<HTMLElement>('*')) {
+    const o = win.getComputedStyle(el).overflowY;
+    if ((o === 'auto' || o === 'scroll' || el.hasAttribute('data-sk-still')) && el.clientHeight > 50) return el;
+  }
+  return null;
 }

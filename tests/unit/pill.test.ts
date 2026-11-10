@@ -60,3 +60,16 @@ describe('the no-lyrics notice', () => {
     expect(pill.debugState().noticeMaxWidth).toBe('1336px');
   });
 });
+
+describe('Spotify\'s empty lyrics view under the notice', () => {
+  it('finds the element that scrolls the view, and the hold is undone by clear()', async () => {
+    const { viewScroller, clear } = await import('../../src/content/decorate');
+    document.body.innerHTML = '<div id="view"><div id="sc" style="overflow-y: scroll; height: 600px"><div style="height: 1300px"></div></div></div>';
+    const sc = document.getElementById('sc')!;
+    Object.defineProperty(sc, 'clientHeight', { value: 600 });
+    expect(viewScroller(document.getElementById('view'))).toBe(sc);
+    sc.setAttribute('data-sk-still', '');
+    clear();
+    expect(sc.hasAttribute('data-sk-still')).toBe(false);
+  });
+});
