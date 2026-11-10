@@ -1,4 +1,5 @@
-// Google Translate's public web endpoint (client=gtx): translation and romanization.
+// Google Translate's public endpoint, asked as Google Translate's Android app (client=at, and
+// the app's User-Agent from the header rules in net.ts): translation and romanization.
 // Lines are sent joined by newlines. The answer comes as sentences, each with the source
 // text it translates (orig), so every translation is put back on its own line even when
 // Google moves the line breaks in its translation. Never one request per line: a burst like
@@ -69,9 +70,9 @@ async function request(text: string, target: string, wantRomanized: boolean, fet
 }
 
 async function send(text: string, target: string, wantRomanized: boolean, fetchImpl: typeof fetch, source: string): Promise<Raw> {
-  // The header rules (net.ts: this request leaves out the extension's Origin and Referer).
+  // The header rules (net.ts): the Translate app's User-Agent; no Origin or Referer.
   if (typeof chrome !== 'undefined' && fetchImpl === fetch) await ensureHeaderRules();
-  const params = new URLSearchParams({ client: 'gtx', sl: source, tl: target, dj: '1' });
+  const params = new URLSearchParams({ client: 'at', sl: source, tl: target, dj: '1' });
   params.append('dt', 't');
   if (wantRomanized) params.append('dt', 'rm');
   const res = await fetchImpl(`${ENDPOINT}?${params}`, {

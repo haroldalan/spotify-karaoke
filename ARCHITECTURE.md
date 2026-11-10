@@ -85,8 +85,10 @@ page (MAIN world, document_start)        content (isolated world)            bac
   Spotify opens and closes that view with a view transition that draws it as one layer above
   the page; on body, the switcher showed only once the animation ended (2026-11-10).
 - If something we depend on is missing, do nothing and report it; never break Spotify.
-- YouTube Music is the one exception to plain requests: it serves timed lyrics only to its
-  Android app, and refuses an extension's Origin. Its requests are made as that client, with
-  header rules limited to this extension's own background requests (`tabIds: [none]`,
-  `initiatorDomains: [this extension]`). Kept by the owner's decision (2026-11-09). No
+- YouTube Music and Google Translate's main endpoint are the exceptions to plain requests.
+  YouTube Music serves timed lyrics only to its Android app, and refuses an extension's
+  Origin; Google Translate is asked as its Android app (`client=at`, the app's User-Agent;
+  the owner's decision, 2026-11-10). Both are made as that client, with header rules limited
+  to this extension's own background requests (`tabIds: [none]`, `initiatorDomains: [this
+  extension]`). YouTube Music kept by the owner's decision (2026-11-09). No
   captchas or sign-ins are worked around anywhere.

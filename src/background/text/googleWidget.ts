@@ -1,6 +1,6 @@
 // Backup translation: the endpoint behind Google's "translate this website" widget
 // (translate-pa.googleapis.com/v1/translateHtml), as Traduzir Páginas Web uses it. Used only
-// while the main endpoint (google.ts, client=gtx) is paused. Translation only: it has no
+// while the main endpoint (google.ts) is paused. Translation only: it has no
 // romanization.
 //
 // The widget's API key is public: Google's widget script carries it for every website that

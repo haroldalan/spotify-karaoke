@@ -2,15 +2,17 @@
 //
 // Browsers attach the extension's Origin/Referer to background fetch requests. YouTube Music
 // refuses them, and its Android client (the one that serves timed lyrics) expects that app's
-// User-Agent (the owner's decision, 2026-11-09). LRCLIB doesn't need them (it is told who we
+// User-Agent (the owner's decision, 2026-11-09). Google Translate is asked the same way, as its
+// Android app (below). LRCLIB doesn't need them (it is told who we
 // are by its Lrclib-Client header).
 //
-// Google Translate (translate.googleapis.com): the extension's Origin and Referer are left
-// out, as for LRCLIB, on privacy grounds. Chrome adds Origin (chrome-extension://<our id>) to
-// every cross-origin POST; the endpoint doesn't need it (host permission: no CORS; no
-// credentials ride on these requests) and it tells Google, on every request, that this
-// address runs this extension. Nothing else changes: the User-Agent stays the browser's, the
-// request never claims to be another client, and the backup endpoint is not touched.
+// Google Translate (translate.googleapis.com/translate_a/): asked as Google Translate's
+// Android app, like YouTube Music's Android client: the app's User-Agent here, its client
+// name (client=at) in the request (google.ts). The extension's Origin and Referer are left
+// out: Chrome adds Origin (chrome-extension://<our id>) to every cross-origin POST, which
+// tells Google on every request that this address runs this extension. The owner's
+// decision, 2026-11-10 (replacing the earlier "never claims to be another client"). The
+// backup endpoint (googleWidget.ts) is not touched.
 //
 // All rules are strictly scoped to:
 //   - Background requests (tabIds: [-1], never touching user tabs)
@@ -19,6 +21,8 @@
 
 export const ANDROID_UA = 'com.google.android.apps.youtube.music/7.21.50 (Linux; U; Android 12; en_US; Pixel 6) gzip';
 export const ANDROID_MARK = 'sk_client=android';
+/** Google Translate's Android app. */
+export const TRANSLATE_ANDROID_UA = 'AndroidTranslate/5.3.0.RC02.130475354-53000263 5.1 phone TRANSLATE_OPM5_TEST_1';
 
 export const RULE_IDS = {
   YTM_WEB: 101,
@@ -72,7 +76,7 @@ export async function installHeaderRules(): Promise<void> {
         },
         condition: { urlFilter: `||music.youtube.com/youtubei/*${ANDROID_MARK}`, tabIds: noTab, initiatorDomains: ours, resourceTypes: types },
       },
-      // 103: Google Translate (translate.googleapis.com) - remove Origin/Referer only
+      // 103: Google Translate (translate.googleapis.com) - remove Origin/Referer and set the Translate app's UA
       {
         id: RULE_IDS.GOOGLE_TRANSLATE,
         priority: 1,
@@ -81,6 +85,7 @@ export async function installHeaderRules(): Promise<void> {
           requestHeaders: [
             { header: 'origin', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
             { header: 'referer', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
+            { header: 'user-agent', operation: 'set' as chrome.declarativeNetRequest.HeaderOperation, value: TRANSLATE_ANDROID_UA },
           ],
         },
         condition: { urlFilter: '||translate.googleapis.com/translate_a/', tabIds: noTab, initiatorDomains: ours, resourceTypes: types },

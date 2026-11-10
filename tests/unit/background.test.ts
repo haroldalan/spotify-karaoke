@@ -6,16 +6,20 @@ import { parseLyricsBrowse, parseSearch, ytm } from '../../src/background/lyrics
 import type { TrackMeta } from '../../src/shared/types';
 
 /**
- * A Google gtx dj=1 response translating each line as "<line>!" (and romanizing as
+ * A Google dj=1 response translating each line as "<line>!" (and romanizing as
  * "r(<line>)"). As Google does, each sentence's orig keeps its source line break.
  * mangle: the translations lose their line breaks. merge: lines 0 and 1 come back as one
  * sentence. rmLost: the romanization loses a line break. widget: the backup's answers
  * ("<line>?"), or false for a backup that fails.
  */
-function googleFake(opts: { status?: number; mangle?: boolean; merge?: boolean; rmLost?: boolean; widget?: boolean } = {}) {
+function googleFake(opts: { status?: number; mangle?: boolean; merge?: boolean; rmLost?: boolean; widget?: boolean; mark?: string } = {}) {
+  /** What a "translation" adds to its line: "!" by default; a word where a test needs a real change. */
+  const mark = opts.mark ?? '!';
   const requests: string[] = [];
+  const urls: string[] = [];
   const widget: string[][] = [];
   const impl = (async (url: string, init?: RequestInit) => {
+    urls.push(url);
     if (url.includes('translate_http')) return new Response(`x={"X-Goog-Api-Key":"${'k'.repeat(39)}"}`);
     if (url.includes('translate-pa')) {
       if (opts.widget === false) return new Response('', { status: 500 });
@@ -28,12 +32,12 @@ function googleFake(opts: { status?: number; mangle?: boolean; merge?: boolean; 
     if (opts.status) return new Response('', { status: opts.status });
     const lines = q.split('\n');
     const nl = (i: number) => (i < lines.length - 1 ? '\n' : '');
-    let sentences = lines.map((l, i) => ({ trans: `${l}!${opts.mangle ? '' : nl(i)}`, orig: `${l}${nl(i)}` }));
+    let sentences = lines.map((l, i) => ({ trans: `${l}${mark}${opts.mangle ? '' : nl(i)}`, orig: `${l}${nl(i)}` }));
     if (opts.merge && lines.length > 2) sentences = [{ trans: `${lines[0]} ${lines[1]}!\n`, orig: `${lines[0]}\n${lines[1]}\n` }, ...sentences.slice(2)];
     const rm = lines.map((l) => `r(${l})`).join(opts.rmLost ? ' ' : '\n');
     return new Response(JSON.stringify({ sentences: [...sentences, { src_translit: rm }] }));
   }) as typeof fetch;
-  return { impl, requests, widget };
+  return { impl, requests, urls, widget };
 }
 
 describe('Google client', () => {
@@ -43,6 +47,14 @@ describe('Google client', () => {
     expect(out.translated).toEqual(['one!', '', 'two!']);
     expect(out.romanized).toEqual(['r(one)', null, 'r(two)']);
     expect(g.requests).toHaveLength(1);
+  });
+
+  it('asks as Google Translate\'s Android app (client=at)', async () => {
+    const g = googleFake();
+    await googleLines(['one'], 'en', true, g.impl);
+    const main = g.urls.filter((u) => u.includes('translate_a/single'));
+    expect(main).toHaveLength(1);
+    expect(new URL(main[0]).searchParams.get('client')).toBe('at');
   });
 
   it('puts translations back on their lines by Google\'s sentences when it moves the line breaks: one request', async () => {
@@ -242,23 +254,29 @@ describe('Background network header rules', () => {
     done();
   });
 
-  it('leave out only Origin and Referer on Google Translate\'s main endpoint: no User-Agent, nothing else', async () => {
+  it('Google Translate\'s main endpoint: Origin and Referer left out, the Translate app\'s User-Agent, nothing else', async () => {
     const { rules, net } = await install();
     const gt = rules.find((r) => r.id === net.RULE_IDS.GOOGLE_TRANSLATE);
     expect(gt.condition.urlFilter).toBe('||translate.googleapis.com/translate_a/');
     expect(gt.action).toEqual({
       type: 'modifyHeaders',
-      requestHeaders: [{ header: 'origin', operation: 'remove' }, { header: 'referer', operation: 'remove' }],
+      requestHeaders: [
+        { header: 'origin', operation: 'remove' },
+        { header: 'referer', operation: 'remove' },
+        { header: 'user-agent', operation: 'set', value: net.TRANSLATE_ANDROID_UA },
+      ],
     });
+    expect(net.TRANSLATE_ANDROID_UA).toMatch(/^AndroidTranslate\//);
     done();
   });
 
-  it('never touch the backup endpoint, and set a User-Agent only for YouTube Music\'s Android client', async () => {
+  it('never touch the backup endpoint, and set a User-Agent only for the Android clients (YouTube Music, Google Translate)', async () => {
     const { rules, net } = await install();
     expect(rules.some((r) => /translate-pa|translate_http/.test(r.condition.urlFilter))).toBe(false);
     const setsUa = rules.filter((r) => r.action.requestHeaders.some((h: any) => h.header === 'user-agent'));
-    expect(setsUa.map((r) => r.id)).toEqual([net.RULE_IDS.YTM_ANDROID]);
+    expect(setsUa.map((r) => r.id)).toEqual([net.RULE_IDS.YTM_ANDROID, net.RULE_IDS.GOOGLE_TRANSLATE]);
     expect(setsUa[0].condition.urlFilter).toContain('music.youtube.com');
+    expect(setsUa[1].condition.urlFilter).toBe('||translate.googleapis.com/translate_a/');
     done();
   });
 
