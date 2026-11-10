@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Privacy policy
+    url: https://haroldalan.github.io/spotify-karaoke/PRIVACY_POLICY.html
+    about: What the extension reads, stores and sends where.
+  - name: Ask on Discord
+    url: https://discord.com/users/370486976643727360
+    about: Questions and chat.

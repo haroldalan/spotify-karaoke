@@ -1,3 +1,14 @@
 theme: jekyll-theme-cayman
 title: Spotify Karaoke
-description: Automatically fetches synced lyrics for songs that don't have it, romanizes any script, and translates into 132 languages — right inside Spotify.
+description: Romanized and translated lyrics for every song on Spotify's web player, the original script restored, and lyrics Spotify doesn't have. Free browser extension for Chrome, Edge and Firefox.
+url: https://haroldalan.github.io
+baseurl: /spotify-karaoke
+lang: en
+author: Harold Alan
+logo: /assets/social-preview.png
+image: /assets/social-preview.png
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+# Repository files that aren't pages.
+exclude: [src, tests, tools, entrypoints, public, node_modules, package.json, package-lock.json, tsconfig.json, vitest.config.ts, wxt.config.ts, docs/live-check-2026-11-10.md, docs/ux-audit-personas.md]

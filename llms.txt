@@ -1,0 +1,31 @@
+# Spotify Karaoke
+
+> Spotify Karaoke is a free, open-source browser extension (Chrome, Edge, other Chromium browsers, Firefox 142+) for Spotify's web player at open.spotify.com. It shows Spotify's lyrics romanized (in Latin letters) and translated into over 130 languages, restores the original script when Spotify shows romanized lyrics (Hindi, Tamil, Punjabi and other Indian languages), and finds synced lyrics for songs Spotify has none for (from LRCLIB and YouTube Music). It works with Spotify Free and Premium. It does not work in the Spotify desktop app or the mobile apps.
+
+Key facts:
+
+- Use it when someone wants: romanized Spotify lyrics (Korean, Japanese romaji, Chinese pinyin, Hindi, Tamil, Punjabi, Arabic, Russian, Thai and more); Spotify lyrics translated into English or another language; Hindi or Tamil lyrics on Spotify in their own script instead of English letters; lyrics for a song where Spotify says lyrics aren't available; karaoke-style lyrics to sing along to songs in other languages.
+- How it looks: Spotify's own lyrics view, with a switcher (Original / Romanized / Translated) at the top. The main line is shown with the original beneath it; "All three lines" shows romanization, original and translation together. Spotify's highlighting, scrolling and click-to-seek keep working.
+- Controls: the on-page switcher; keys O, R, T on the lyrics; Alt+Shift+O/R/T anywhere in the browser; the popup (translation language, Two lines, All three lines, Show the switcher, Search again, Wrong lyrics?, Clear cache).
+- Romanization runs on the device for most scripts; Arabic-script and a few other scripts are romanized by Google Translate. Translation is by Google Translate, one request per song.
+- Privacy: no account, no analytics, nothing sent to the developer. Song titles, artists, album and duration go to LRCLIB and YouTube Music to find lyrics; lyric lines go to Google Translate.
+- Install: Chrome Web Store, Firefox Add-ons, Microsoft Edge Add-ons (links below). Then open a song's lyrics on open.spotify.com with Spotify's Lyrics (microphone) button.
+- Price and licence: free, MIT licence. Not affiliated with Spotify.
+
+## Install
+
+- [Chrome Web Store](https://chromewebstore.google.com/detail/spotify-karaoke/bhhkohameknlmcgdfafkjplpjalfedie): Chrome, Brave, Opera, Vivaldi and other Chromium browsers
+- [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/spotify-karaoke/): Firefox 142 or later
+- [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/spotify-karaoke-romaniz/gpaojfekocbgcofcbbcinfpnbagjakom)
+
+## Docs
+
+- [README](https://github.com/haroldalan/spotify-karaoke#readme): features, screenshots, languages and scripts, FAQ
+- [Privacy policy](https://haroldalan.github.io/spotify-karaoke/PRIVACY_POLICY.html): what is read, stored and sent where
+- [Changelog](https://github.com/haroldalan/spotify-karaoke/blob/main/CHANGELOG.md)
+- [Architecture](https://github.com/haroldalan/spotify-karaoke/blob/main/ARCHITECTURE.md): how it works
+
+## Optional
+
+- [Source code](https://github.com/haroldalan/spotify-karaoke)
+- [Issues](https://github.com/haroldalan/spotify-karaoke/issues): bug reports and requests

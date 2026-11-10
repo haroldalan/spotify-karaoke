@@ -1,0 +1,15 @@
+name: Idea
+description: Something the extension could do better, or a script or language it could support
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: When would you use it?
+      placeholder: "I listen to a lot of Telugu songs and…"

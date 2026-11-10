@@ -1,0 +1,30 @@
+name: Lyrics problem
+description: Wrong lyrics, missing lyrics, or a romanization or translation that reads badly
+labels: [lyrics]
+body:
+  - type: input
+    id: song
+    attributes:
+      label: The song (title and artist, or its Spotify link)
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What's wrong?
+      options:
+        - Lyrics for another song
+        - No lyrics, but they exist somewhere (LRCLIB, YouTube Music)
+        - Shown in Latin letters, not the song's own script
+        - Romanization spelled badly
+        - Translation wrong or missing
+        - Out of sync
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Which lines, and how should they read?
+      placeholder: |
+        Shown: saੱjna
+        Should be: sajjna

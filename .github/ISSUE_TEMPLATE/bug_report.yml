@@ -1,0 +1,42 @@
+name: Something isn't working
+description: The extension does something wrong, or nothing at all
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      placeholder: "In Translated mode, every line shows twice…"
+    validations:
+      required: true
+  - type: input
+    id: song
+    attributes:
+      label: The song (title and artist, or its Spotify link)
+      placeholder: "Tum Hi Ho · Arijit Singh — https://open.spotify.com/track/…"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options: [Original, Romanized, Translated, All three lines]
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and its version
+      placeholder: "Chrome 157 / Firefox 159 / Edge 157"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version (bottom of the popup)
+      placeholder: "4.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: more
+    attributes:
+      label: Screenshot or anything else
+      description: A screenshot of the lyrics view helps most. Please crop out anything personal.
