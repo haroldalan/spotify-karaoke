@@ -139,13 +139,16 @@ export async function searchNative(req: NativeRequest, sources: NativeSources): 
   const script = expectedScript(req.meta.languages);
   if (!script || songScript(req.lines) !== 'Latn') return { result: null, complete: true };
   let complete = true;
-  // YouTube Music first (licensed), then LRCLIB copies whose duration is known.
-  const yt = sources.ytm ? await sources.ytm(req.meta).catch(() => { complete = false; return null; }) : null;
+  // Both sources are asked at once (a song's first play has seconds, not minutes); YouTube
+  // Music's copy (licensed) is tried first, then LRCLIB copies whose duration is known.
+  const ytP = sources.ytm ? sources.ytm(req.meta).catch(() => { complete = false; return null; }) : Promise.resolve(null);
+  const lrP = sources.lrclib(req.meta).catch(() => { complete = false; return []; });
+  const yt = await ytP;
   if (yt) {
     const r = await fit(req, yt, script, sources.romanize);
     if (r) return { result: r, complete };
   }
-  const lr = (await sources.lrclib(req.meta).catch(() => { complete = false; return []; })).filter((c) => c.durationKnown);
+  const lr = (await lrP).filter((c) => c.durationKnown);
   // Synced copies first.
   lr.sort((a, b) => Number(b.synced) - Number(a.synced));
   for (const c of lr) {

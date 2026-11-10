@@ -109,6 +109,42 @@ describe('page hook: lyrics Spotify has', () => {
     expect(page.calls[0].data.lines[0]).toBe('Mera dil tera hai, tu kahan hai yaar');
   });
 
+  it('gives a song that is not playing yet (Spotify\'s prefetch) longer to find its original script', async () => {
+    const roman = fixture('color-lyrics-romanized-hindi.json');
+    const page = fakePage({
+      routes: { 'metadata/4': () => json(fixture('metadata-hindi.json')), 'color-lyrics': () => json(roman) },
+      playing: 'Some other song',
+      // Slower than nativeMs (200), within nativeAheadMs (600).
+      answer: async (type, data: any) => {
+        await tick(400);
+        return { lines: data.lines.map((t: string, i: number) => ({ startMs: data.times[i], text: t ? `देवनागरी ${i}` : '' })), synced: true, source: 'LRCLIB', aligned: true };
+      },
+    });
+    await page.fetch(HINDI_META);
+    const body = await (await page.fetch(lyricsUrl(HINDI_ID))).json();
+    expect(body.lyrics.lines[0].words).toBe('देवनागरी 0');
+  });
+
+  it('keeps the short wait for the song playing, and once a prefetched song starts', async () => {
+    const roman = fixture('color-lyrics-romanized-hindi.json');
+    const meta = fixture('metadata-hindi.json');
+    const slow = async (_t: string, data: any) => {
+      await tick(500);
+      return { lines: data.lines.map((t: string, i: number) => ({ startMs: data.times[i], text: 'देवनागरी' })), synced: true, source: 'LRCLIB', aligned: true };
+    };
+    // Playing: 200 ms, then Spotify's own lines.
+    const now = fakePage({ routes: { 'metadata/4': () => json(meta), 'color-lyrics': () => json(roman) }, playing: meta.name, answer: slow });
+    await now.fetch(HINDI_META);
+    expect(await (await now.fetch(lyricsUrl(HINDI_ID))).json()).toEqual(roman);
+    // Prefetched, then it starts playing: no more than 200 ms after that.
+    const ahead = fakePage({ routes: { 'metadata/4': () => json(meta), 'color-lyrics': () => json(roman) }, playing: 'Some other song', answer: slow });
+    await ahead.fetch(HINDI_META);
+    const pending = ahead.fetch(lyricsUrl(HINDI_ID));
+    await tick(50);
+    ahead.play(meta.name);
+    expect(await (await pending).json()).toEqual(roman);
+  });
+
   it('leaves a song the listener sent back to Spotify exactly as Spotify has it', async () => {
     const roman = fixture('color-lyrics-romanized-hindi.json');
     const page = fakePage({

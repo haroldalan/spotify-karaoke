@@ -18,6 +18,10 @@ export interface HookTiming {
   /** How long Spotify's romanized lyrics may wait for the original script. A later result
    *  is used the next time the song loads. */
   nativeMs: number;
+  /** The same wait for a song that isn't playing yet (Spotify's prefetch of the next one):
+   *  nobody is reading it, so the search may take its time. Once the song starts, at most
+   *  nativeMs more. */
+  nativeAheadMs: number;
   /** How long a lyrics response may wait for its track's metadata. */
   metaWaitMs: number;
   /** How long, once per page load, a response may wait for the extension's settings. */
@@ -26,9 +30,20 @@ export interface HookTiming {
 
 // Spotify's own lyrics wait at most 1.5 s for a better copy; one that comes later is used the
 // next time the song loads (from cache), never dropped onto lines already being read.
-export const DEFAULT_TIMING: HookTiming = { lookupMs: 12_000, upgradeMs: 1_500, nativeMs: 1_500, metaWaitMs: 1_500, configWaitMs: 800 };
+export const DEFAULT_TIMING: HookTiming = { lookupMs: 12_000, upgradeMs: 1_500, nativeMs: 1_500, nativeAheadMs: 12_000, metaWaitMs: 1_500, configWaitMs: 800 };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Whether the player bar shows this song. Unknown (no player bar yet, at page load) counts as
+ * playing: the short wait is the safe one.
+ */
+export function playingNow(doc: Document | undefined, meta: TrackMeta): boolean {
+  if (!doc) return true;
+  const bar = doc.querySelector('[data-testid="now-playing-widget"]') ?? doc.querySelector('[data-testid="now-playing-bar"]');
+  const title = bar?.querySelector('[data-testid="context-item-link"]')?.textContent?.trim();
+  return !title || title === meta.name;
+}
 
 export function installHook(win: Window & typeof globalThis = window, timing: HookTiming = DEFAULT_TIMING): void {
   if ((win as unknown as { __skHook?: boolean }).__skHook) return;
@@ -140,6 +155,22 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     return verdict.romanized && verdict.lang && expectedScript([verdict.lang]) ? verdict.lang : null;
   }
 
+  /**
+   * Waits for a native-script copy: nativeMs for the song playing; for one not playing yet,
+   * until it starts playing (then nativeMs more) or nativeAheadMs pass.
+   */
+  function nativeWithin(search: Promise<unknown>, meta: TrackMeta, ahead: boolean): Promise<unknown> {
+    if (!ahead) return Promise.race([search, sleep(timing.nativeMs).then(() => null)]);
+    return new Promise((resolve) => {
+      const poll = setInterval(() => {
+        if (!playingNow(win.document, meta)) return;
+        clearInterval(poll);
+        sleep(timing.nativeMs).then(() => resolve(null));
+      }, 250);
+      search.then((v) => { clearInterval(poll); resolve(v); });
+    });
+  }
+
   async function onColorLyrics(res: Response, id: string): Promise<Response | null> {
     if (res.ok) {
       const raw = await res.clone().json();
@@ -153,11 +184,13 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
       const ours = !spotifyOnly.has(id);
       const lang = ours && meta ? romanizedLanguage(l.lines, meta, l.language) : null;
       if (meta && lang) {
-        const native = (await call(
-          'restoreNative',
-          { meta: { ...meta, languages: [lang] }, lines: l.lines, times: l.times, synced: l.syncType !== 'UNSYNCED' },
-          timing.nativeMs,
+        const ahead = !playingNow(win.document, meta);
+        const native = (await nativeWithin(
+          call('restoreNative', { meta: { ...meta, languages: [lang] }, lines: l.lines, times: l.times, synced: l.syncType !== 'UNSYNCED' }, timing.nativeAheadMs),
+          meta,
+          ahead,
         )) as NativeResult | null;
+        if (ahead) note(`native ${id} asked ahead of play`);
         note(`native ${id} ${native ? (native.aligned ? 'aligned' : 'own-timing') + ' ' + native.source : 'none/late'}`);
         if (native) {
           emit('lyrics', { id, lines: native.lines.map((x) => x.text), language: lang, source: native.source, kind: 'restored' });

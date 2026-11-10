@@ -79,6 +79,13 @@ describe('searchNative', () => {
     const ytm = async () => ({ lines: nativeHindi.map((text) => ({ startMs: 0, text })), synced: false, source: 'LyricFind via YouTube Music' });
     expect((await searchNative(req(spotifyHindi), { ...sources([good]), ytm })).result?.source).toBe('LyricFind via YouTube Music');
   });
+  it('asks both sources at once: a first play has seconds, not minutes', async () => {
+    const order: string[] = [];
+    const ytm = async () => { order.push('ytm start'); await new Promise((r) => setTimeout(r, 30)); order.push('ytm end'); return null; };
+    const lrclib = async () => { order.push('lrclib start'); return [good]; };
+    expect((await searchNative(req(spotifyHindi), { lrclib, ytm, romanize })).result?.aligned).toBe(true);
+    expect(order.indexOf('lrclib start')).toBeLessThan(order.indexOf('ytm end'));
+  });
   it('says the search was incomplete when YouTube Music fails, so "none" is not final', async () => {
     const ytm = async () => { throw new Error('YouTube Music HTTP 503'); };
     const other = { ...good, lines: [{ startMs: 0, text: 'कोई और गाना' }] };

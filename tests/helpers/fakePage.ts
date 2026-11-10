@@ -14,9 +14,11 @@ export interface FakePageOptions {
   /** Start with the content script not listening yet (it says ready later via page.connect()). */
   contentLate?: boolean;
   timing?: Partial<HookTiming>;
+  /** The title in Spotify's player bar; undefined: no player bar. */
+  playing?: string;
 }
 
-export const FAST: HookTiming = { lookupMs: 200, upgradeMs: 200, nativeMs: 200, metaWaitMs: 100, configWaitMs: 100 };
+export const FAST: HookTiming = { lookupMs: 200, upgradeMs: 200, nativeMs: 200, nativeAheadMs: 600, metaWaitMs: 100, configWaitMs: 100 };
 
 export function fakePage(o: FakePageOptions) {
   const listeners: ((e: { source: unknown; data: unknown }) => void)[] = [];
@@ -24,9 +26,12 @@ export function fakePage(o: FakePageOptions) {
   const calls: { type: string; data: any }[] = [];
   const config: PageConfig = { noLyrics: [], spotifyOnly: [], ...o.config };
   let contentListening = !o.contentLate;
+  let playing = o.playing;
+  const bar = { querySelector: () => ({ textContent: playing }) };
 
   const win: any = {
     location: { origin: 'https://open.spotify.com' },
+    document: { querySelector: (sel: string) => (playing !== undefined && sel.includes('now-playing') ? bar : null) },
     addEventListener: (type: string, fn: any) => { if (type === 'message') listeners.push(fn); },
     postMessage: (data: unknown) => {
       queueMicrotask(() => { for (const fn of [...listeners]) fn({ source: win, data }); });
@@ -67,6 +72,10 @@ export function fakePage(o: FakePageOptions) {
       send({ tag: TAG, dir: 'down', kind: 'ready', data: config });
     },
     log: () => win.__skLog as string[],
+    /** Spotify's player bar now shows this song. */
+    play(title: string) {
+      playing = title;
+    },
   };
 }
 
