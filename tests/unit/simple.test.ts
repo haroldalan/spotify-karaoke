@@ -1,4 +1,4 @@
-// The decided UX (docs/ux-audit-personas.md §10): fewer, better choices; the listener still
+// The decided UX: fewer, better choices; the listener still
 // decides what is on their screen.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { installChromeStorage } from '../helpers/chrome';

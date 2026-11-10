@@ -13,4 +13,4 @@ plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
 # Repository files that aren't pages.
-exclude: [src, tests, tools, entrypoints, public, node_modules, package.json, package-lock.json, tsconfig.json, vitest.config.ts, wxt.config.ts, docs/live-check-2026-11-10.md, docs/ux-audit-personas.md]
+exclude: [src, tests, tools, entrypoints, public, node_modules, package.json, package-lock.json, tsconfig.json, vitest.config.ts, wxt.config.ts]
