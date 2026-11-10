@@ -115,6 +115,11 @@ describe('decoration', () => {
     expect(decoration('♪', note, s({ mode: 'translated' }))).toEqual(NONE);
     expect(decoration('♪', note, s({ mode: 'romanized', allLines: true }))).toEqual(NONE);
   });
+  it('a translation that is the line again (case or punctuation aside) is not shown, even from an older cache', () => {
+    const echoed = { romanized: null, translated: { en: 'Aaja teriyaan duaavaan laggi aan.' } };
+    expect(decoration('aaja teriyaan duaavaan laggi aan', echoed, s({ mode: 'translated' }))).toEqual(NONE);
+    expect(decoration('aaja teriyaan duaavaan laggi aan', echoed, s({ mode: 'translated', allLines: true }))).toEqual(NONE);
+  });
   it('original mode is Spotify as it is', () => {
     expect(decoration('君を愛してる', info, s({ mode: 'original' }))).toEqual(NONE);
   });

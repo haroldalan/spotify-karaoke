@@ -1,7 +1,7 @@
 // Which modes the switcher offers for a song.
 import type { Mode, Settings } from '../shared/types';
 import { songScript } from '../shared/scripts';
-import { isEnglishLine } from '../shared/english';
+import { hasEnglishVerses } from '../shared/lineMix';
 import type { Song } from './lineStore';
 
 export const ALL_MODES: Mode[] = ['original', 'romanized', 'translated'];
@@ -33,6 +33,6 @@ export function plainSong(song: Song, targetLang: string): 'latin' | 'same' | nu
   if ((song.script ?? songScript(song.lines, song.language)) !== 'Latn') return null;
   const lang = baseLang(song.language);
   // English lines in a song in another Latin-script language still translate into it.
-  const english = baseLang(targetLang) !== 'en' && song.lines.some(isEnglishLine);
+  const english = baseLang(targetLang) !== 'en' && hasEnglishVerses(song.lines);
   return lang && lang === baseLang(targetLang) && !english ? 'same' : 'latin';
 }

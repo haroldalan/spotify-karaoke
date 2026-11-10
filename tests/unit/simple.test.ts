@@ -22,6 +22,16 @@ describe('the switcher offers what changes something', () => {
   it('nothing for a song already in the language translations go into', () => {
     expect(switchFor(song(['I walk alone'], 'en'), s())).toBeNull();
   });
+  // Made-up lines in the shape of Latin-script songs.
+  it('nothing for a Spanish song for a Spanish listener, though one short line reads as English', () => {
+    const spanish = ['te quiero tanto', 'no, no, no', 'bailamos hasta el amanecer', 'tu corazón es mío', 'la noche es nuestra'];
+    expect(switchFor(song(spanish, 'es'), s({ targetLang: 'es' }))).toBeNull();
+    expect(plainSong(song(spanish, 'es'), 'es')).toBe('same');
+  });
+  it('Original and Translated for a song in the listener\'s language with English verses', () => {
+    const bilingual = ['te quiero tanto', 'I just want you tonight', 'bailamos hasta el amanecer', 'baby you are my love'];
+    expect(switchFor(song(bilingual, 'es'), s({ targetLang: 'es' }))?.modes).toEqual(['original', 'translated']);
+  });
   it('nothing with all three lines on: every version is on screen already', () => {
     expect(switchFor(song(['보고 싶다'], 'ko'), s({ allLines: true }))).toBeNull();
   });

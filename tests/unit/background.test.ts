@@ -341,25 +341,53 @@ describe('processing', () => {
   });
 
   it('romanizes locally, translates through Google once, then answers from cache', async () => {
-    const g = googleFake();
+    const g = googleFake({ mark: ' tr' });
     vi.stubGlobal('fetch', g.impl);
     const { processLines } = await import('../../src/background/text/process');
     const req = { lines: ['사랑해', 'oh yeah'], language: 'ko', romanize: true, translateTo: 'en' };
     const first = await processLines(req);
     expect(first.script).toBe('Kore');
     expect(first.romanized).toEqual(['saranghae', null]);
-    expect(first.translated).toEqual(['사랑해!', 'Oh yeah!']);
+    expect(first.translated).toEqual(['사랑해 tr', 'Oh yeah tr']);
     await processLines(req);
     expect(g.requests).toHaveLength(1);
     vi.unstubAllGlobals();
   });
 
-  it('translates the English verses of a Korean song into Korean (not "already in Korean")', async () => {
+  it('a line Google sends back unchanged (bar case or punctuation) has no translation', async () => {
     const g = googleFake();
     vi.stubGlobal('fetch', g.impl);
     const { processLines } = await import('../../src/background/text/process');
+    const out = await processLines({ lines: ['aaja teriyaan duaavaan', 'saadi gali aaja'], language: 'pa', romanize: false, translateTo: 'en' });
+    expect(out.translated).toEqual([null, null]); // "Aaja teriyaan duaavaan!" is the line again
+    vi.unstubAllGlobals();
+  });
+
+  it('translates the English verses of a Korean song into Korean (not "already in Korean")', async () => {
+    const g = googleFake({ mark: ' tr' });
+    vi.stubGlobal('fetch', g.impl);
+    const { processLines } = await import('../../src/background/text/process');
     const out = await processLines({ lines: ['보고 싶다', 'I just want you tonight'], language: 'ko', romanize: false, translateTo: 'ko' });
-    expect(out.translated?.[1]).toBe('I just want you tonight!');
+    expect(out.translated?.[1]).toBe('I just want you tonight tr');
+    vi.unstubAllGlobals();
+  });
+
+  it('never asks again for lines already in the language translations go into (one request)', async () => {
+    const g = googleFake({ mark: '' }); // Google sends the Korean lines back as they are
+    vi.stubGlobal('fetch', g.impl);
+    const { processLines } = await import('../../src/background/text/process');
+    await processLines({ lines: ['보고 싶다', '사랑해 매일', 'I just want you tonight'], language: 'ko', romanize: false, translateTo: 'ko' });
+    expect(g.requests).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('asks nothing for a Spanish song translated into Spanish, though one short line reads as English', async () => {
+    const g = googleFake();
+    vi.stubGlobal('fetch', g.impl);
+    const { processLines } = await import('../../src/background/text/process');
+    const out = await processLines({ lines: ['te quiero tanto', 'no, no, no', 'bailamos hasta el amanecer', 'la noche es nuestra', 'tu corazón es mío', 'ven conmigo esta noche'], language: 'es', romanize: false, translateTo: 'es' });
+    expect(g.requests).toHaveLength(0);
+    expect(out.translated).toBeNull();
     vi.unstubAllGlobals();
   });
 

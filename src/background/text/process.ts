@@ -1,6 +1,6 @@
 // Romanize and/or translate a song's lines, with caching. One Google request serves both
 // when the script needs Google's romanization and a translation is wanted.
-import { isEnglishLine } from '../../shared/english';
+import { hasEnglishVerses, sameWords } from '../../shared/lineMix';
 import type { Processed } from '../../shared/types';
 import { hash } from '../../shared/hash';
 import { cacheGet, cacheSet, once } from '../cache';
@@ -46,7 +46,7 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
   // with English verses still has lines to translate (decided by the lines, not the song).
   const sameLanguage = !!req.translateTo && target !== 'zh' && lang === target &&
     (expectedScript([lang]) === script || (!expectedScript([lang]) && script === 'Latn')) &&
-    (target === 'en' || !lines.some(isEnglishLine));
+    (target === 'en' || !hasEnglishVerses(lines));
 
   // Shared Google call: translation (+ romanization when Google is the romanizer).
   let googleCall: Promise<GoogleResult> | null = null;
@@ -111,7 +111,8 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
   /** 'done': asked (whether or not anything changed); 'failed': not asked, worth another try. */
   const repair = async (tr: string[]): Promise<'none' | 'done' | 'failed'> => {
     const unchanged = unchangedIn(tr);
-    if (!unchanged.length || !lang) return 'none';
+    // Lines already in the language translations go into came back as they are: nothing to ask.
+    if (!unchanged.length || !lang || lang === target) return 'none';
     try {
       const more = await googleLines(unchanged.map((i) => lines[i]), req.translateTo ?? 'en', false, fetch, { source: lang });
       if (more.incomplete) return 'failed';
@@ -158,7 +159,8 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
     romanized: r.status === 'fulfilled' ? r.value?.out ?? null : null,
     // A stopgap romanization (Google unreachable, an unread kanji): the page asks again later.
     ...(r.status === 'fulfilled' && r.value?.incomplete ? { incomplete: true } : {}),
-    translated: t.status === 'fulfilled' ? t.value?.map((x, i) => (x && x !== lines[i].trim() ? x : null)) ?? null : null,
+    // A line Google sent back unchanged (bar its case or punctuation) has no translation.
+    translated: t.status === 'fulfilled' ? t.value?.map((x, i) => (x && !sameWords(x, lines[i]) ? x : null)) ?? null : null,
     ...(t.status === 'rejected' ? { translateError: String((t.reason as Error)?.message || t.reason) } : {}),
   };
 }

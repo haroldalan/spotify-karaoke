@@ -8,6 +8,7 @@
 // then whatever is shown beneath in one fixed order: original, romanization, translation.
 import type { Settings } from '../shared/types';
 import type { LineInfo } from './lineStore';
+import { sameWords } from '../shared/lineMix';
 
 export const LINE_SELECTOR = '[data-testid="lyrics-line"]';
 const L = LINE_SELECTOR;
@@ -81,7 +82,10 @@ export function decoration(original: string, info: LineInfo | undefined, s: Sett
   if (!/\p{L}/u.test(original)) return NONE;
   const differs = (x: string | null | undefined) => (x && x !== original ? x : null);
   const rom = differs(info?.romanized);
-  const tr = differs(info?.translated?.[s.targetLang]);
+  // A translation that is the original again (Google sent it back; only its case or
+  // punctuation differs, e.g. from a translation cached before 4.0.0) is no translation.
+  const translated = info?.translated?.[s.targetLang];
+  const tr = translated && !sameWords(translated, original) ? translated : null;
   const big: 'O' | 'R' | 'T' =
     s.mode === 'translated' ? (tr ? 'T' : rom ? 'R' : 'O') : s.mode === 'romanized' && rom ? 'R' : 'O';
   // The original is on screen as the main line, or beneath it with two lines (or all three) on.
@@ -89,7 +93,7 @@ export function decoration(original: string, info: LineInfo | undefined, s: Sett
   const showO = big === 'O' || s.twoLines || s.allLines;
   // A translation equal to the romanization (a name, a number, a vocalise) is shown once: as the
   // main line when it is the main line, otherwise not beneath the romanization again.
-  const same = !!tr && tr === rom;
+  const same = !!tr && !!rom && sameWords(tr, rom);
   const showR = !!rom && (big === 'R' || (s.allLines && !(big === 'T' && same)));
   const showT = !!tr && (big === 'T' || (s.allLines && !same));
   const bigText = big === 'R' ? rom! : big === 'T' ? tr! : original;
