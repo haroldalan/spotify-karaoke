@@ -83,8 +83,14 @@ the R key): Gurmukhi, Korean, Japanese, Cyrillic (a song Spotify has no lyrics f
 target language; no lyrics anywhere (notice, Search again); Wrong lyrics? and Undo; a
 script restored on a first play; song changes; the sidebar card; an extension reload.
 
-Not run live: Firefox; the popup page itself (its actions ran through the dev kit); the
-Alt+Shift commands; the mini player (Premium). Open owner decisions: see
+Firefox 159 (production add-on, `SK_BROWSER=firefox node tools/live/driver.mjs`, its own test
+profile, as a remote of a Chrome player): the page hook; Devanagari restored from LRCLIB and,
+with the Android header rule, from YouTube Music; romanized ("kuchh"), translated through
+Google; the switcher; the credit line. Not seen in Firefox: a song Spotify has no lyrics for,
+the no-lyrics notice, playback in Firefox itself (Spotify's device sync didn't follow an
+automated Firefox). The popup page renders in the production build (test Chrome).
+
+Not run live: the Alt+Shift commands; the mini player (Premium). Open owner decisions: see
 docs/live-check-2026-11-10.md ("Owner decisions").
 
 Earlier passes, kept for reference (2026-11-09/10). Verified live in Chrome 156:

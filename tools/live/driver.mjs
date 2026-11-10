@@ -9,27 +9,46 @@
 //
 // Sign-in: Spotify refuses a remote-controlled browser at login, so sign the profile in
 // once with plain Chrome:  open -na "Google Chrome" --args --user-data-dir=$PWD/.live/chrome-profile
+//
+// Firefox: SK_BROWSER=firefox node tools/live/driver.mjs [extensionDir]  (default:
+// .output/firefox-mv3). WebDriver BiDi instead of CDP: the add-on is installed as a temporary
+// add-on; eval, shot, click, clickAt, key, goto, reload, logs work; the CDP-only commands
+// (sw, frames, swNetwork, shotTab "popup") don't. Its profile is .live/firefox-profile; sign
+// it in once with plain Firefox:
+//   /Applications/Firefox.app/Contents/MacOS/firefox -no-remote -profile $PWD/.live/firefox-profile
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const extDir = path.resolve(root, process.argv[2] || '.output/chrome-mv3');
+const FIREFOX = process.env.SK_BROWSER === 'firefox';
+const extDir = path.resolve(root, process.argv[2] || (FIREFOX ? '.output/firefox-mv3' : '.output/chrome-mv3'));
 const PORT = 9444;
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  userDataDir: path.join(root, '.live/chrome-profile'),
-  headless: false,
-  pipe: true,
-  enableExtensions: true,
-  defaultViewport: null,
-  args: [
-    '--no-first-run', '--no-default-browser-check', '--window-size=1400,950', '--autoplay-policy=no-user-gesture-required',
-  ],
-});
+const browser = FIREFOX
+  ? await puppeteer.launch({
+      browser: 'firefox',
+      executablePath: '/Applications/Firefox.app/Contents/MacOS/firefox',
+      userDataDir: path.join(root, '.live/firefox-profile'),
+      headless: false,
+      defaultViewport: null,
+      args: ['-width', '1400', '-height', '950'],
+      // Spotify plays through Widevine, which Firefox fetches on its own; autoplay for the test player.
+      extraPrefsFirefox: { 'media.eme.enabled': true, 'media.gmp-widevinecdm.enabled': true, 'media.autoplay.default': 0 },
+    })
+  : await puppeteer.launch({
+      executablePath: CHROME,
+      userDataDir: path.join(root, '.live/chrome-profile'),
+      headless: false,
+      pipe: true,
+      enableExtensions: true,
+      defaultViewport: null,
+      args: [
+        '--no-first-run', '--no-default-browser-check', '--window-size=1400,950', '--autoplay-policy=no-user-gesture-required',
+      ],
+    });
 
 let extId = null;
 async function install() {
