@@ -23,6 +23,12 @@ export interface ViewState {
   lineCount: number;
   /** The full lyrics view's switcher spot, when one is on screen. */
   anchor: Anchor | null;
+  /**
+   * The element holding the lyrics view (its header and its lines), when found: the switcher
+   * goes inside it, so it is drawn and animated with the view. Spotify opens the view with a
+   * view transition in which the view is a layer above the rest of the page.
+   */
+  container: Element | null;
   /** The song of the visible lyrics list, when known. */
   song: Song | null;
 }
@@ -152,8 +158,8 @@ export class View {
       });
       settle?.();
     }
-    const anchor = !this.wantAnchor ? null : main ? this.anchorFor(main.line) : this.emptyViewAnchor();
-    for (const fn of this.listeners) fn({ lineCount, anchor, song: main?.song ?? null });
+    const spot = !this.wantAnchor ? null : main ? this.anchorFor(main.line) : this.emptyViewAnchor();
+    for (const fn of this.listeners) fn({ lineCount, anchor: spot?.anchor ?? null, container: spot?.container ?? null, song: main?.song ?? null });
   }
 
   /**
@@ -161,7 +167,7 @@ export class View {
    * centred on the view. The header is the part of the view holding Spotify's media switch
    * (role=radiogroup with a value=lyrics radio); without one, the top of the lyrics box.
    */
-  private anchorFor(line: Element): Anchor | null {
+  private anchorFor(line: Element): { anchor: Anchor; container: Element | null } | null {
     const box = scrollBox(line);
     if (!box) return null;
     this.observe(box);
@@ -175,17 +181,17 @@ export class View {
       if (header && view) {
         const h = header.getBoundingClientRect();
         const v = view.getBoundingClientRect();
-        return { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: boxRect.width, height: boxRect.height };
+        return { anchor: { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: boxRect.width, height: boxRect.height }, container: view };
       }
     }
-    return { top: boxRect.top + ANCHOR_GAP, centerX: boxRect.left + boxRect.width / 2, width: boxRect.width, height: boxRect.height };
+    return { anchor: { top: boxRect.top + ANCHOR_GAP, centerX: boxRect.left + boxRect.width / 2, width: boxRect.width, height: boxRect.height }, container: null };
   }
 
   /**
    * The spot under the header when Spotify's lyrics view is open with no lines (its "no
    * lyrics" message): the media switch says lyrics, and the header's view gives the box.
    */
-  private emptyViewAnchor(): Anchor | null {
+  private emptyViewAnchor(): { anchor: Anchor; container: Element | null } | null {
     const radio = this.doc.querySelector('[role="radiogroup"] [role="radio"][value="lyrics"][aria-checked="true"]');
     if (!radio) return null;
     let header: Element | null = radio;
@@ -195,7 +201,7 @@ export class View {
     if (!header || !view) return null;
     const h = header.getBoundingClientRect();
     const v = view.getBoundingClientRect();
-    return { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: v.width, height: v.height };
+    return { anchor: { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: v.width, height: v.height }, container: view };
   }
 
   private observe(box: Element) {

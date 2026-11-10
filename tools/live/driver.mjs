@@ -86,6 +86,37 @@ const handlers = {
     } else await page.screenshot({ path: out });
     return out;
   },
+  /**
+   * Records what the screen shows while `js` runs in the page: CDP screencast frames for `ms`
+   * milliseconds, saved as JPEGs in `dir` (named by ms since the start). For pop-in and
+   * animation checks that DOM reads can't see (e.g. during Spotify's view transitions).
+   */
+  async frames({ js, ms = 800, dir }) {
+    const page = await spotifyPage();
+    const out = path.resolve(dir || path.join(root, '.live/frames'));
+    fs.mkdirSync(out, { recursive: true });
+    for (const f of fs.readdirSync(out)) if (f.endsWith('.jpg')) fs.unlinkSync(path.join(out, f));
+    const cdp = await page.createCDPSession();
+    const got = [];
+    let t0 = 0;
+    cdp.on('Page.screencastFrame', (f) => {
+      got.push({ at: f.metadata.timestamp * 1000, data: f.data });
+      void cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+    });
+    await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: 1400, everyNthFrame: 1 });
+    await new Promise((r) => setTimeout(r, 300));
+    t0 = Date.now();
+    await page.evaluate(js);
+    await new Promise((r) => setTimeout(r, ms));
+    await cdp.send('Page.stopScreencast');
+    await cdp.detach();
+    const files = got.filter((f) => f.at >= t0 - 50).map((f) => {
+      const name = `${String(Math.round(f.at - t0)).padStart(5, '0')}.jpg`;
+      fs.writeFileSync(path.join(out, name), Buffer.from(f.data, 'base64'));
+      return name;
+    });
+    return { dir: out, files };
+  },
   async click({ selector }) {
     const page = await spotifyPage();
     await page.click(selector);

@@ -246,7 +246,7 @@ export async function startContent(): Promise<void> {
   (document.head ?? document.documentElement).append(style);
 
   const view = new View(store, settings);
-  let lastView: ViewState = { lineCount: 0, anchor: null, song: null };
+  let lastView: ViewState = { lineCount: 0, anchor: null, container: null, song: null };
 
   /** A mode picked on the page (switcher or key). */
   function pick(mode: Mode) {
@@ -350,17 +350,16 @@ export async function startContent(): Promise<void> {
       modes: sw?.modes ?? ALL_MODES,
       visible: settings.showPill && !!sw && lastView.lineCount > 0 && lyricsViewOpen(),
       anchor: lastView.anchor,
+      container: lastView.container,
       busy: st.pending,
       caption,
     });
     const n = currentNotice();
-    if (n) pill.mount();
-    pill.notice(n, n ? lastView.anchor : null);
+    pill.notice(n, n ? lastView.anchor : null, lastView.container);
   }
 
   view.onUpdate((v) => {
     lastView = v;
-    if (v.lineCount) pill.mount();
     render();
   });
   store.onChange(render);
@@ -474,6 +473,7 @@ export async function startContent(): Promise<void> {
           reload,
           view: { lineCount: lastView.lineCount, anchor: lastView.anchor, song: lastView.song?.key ?? null },
           lyricsViewOpen: lyricsViewOpen(),
+          pill: pill.debugState(),
           songs: store.summary(),
         };
       },

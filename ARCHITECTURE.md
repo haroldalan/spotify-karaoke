@@ -80,6 +80,10 @@ page (MAIN world, document_start)        content (isolated world)            bac
 - One identity for a song: Spotify's base62 track id. One identity for a line: its text.
 - No timers that guess at timing. No polling loops.
 - No node that React owns is ever created, moved or removed by us.
+  Our one node in Spotify's tree is the switcher's host, appended to the element holding
+  the lyrics view: zero-size and absolutely placed, so it takes no part in the view's layout.
+  Spotify opens and closes that view with a view transition that draws it as one layer above
+  the page; on body, the switcher showed only once the animation ended (2026-11-10).
 - If something we depend on is missing, do nothing and report it; never break Spotify.
 - YouTube Music is the one exception to plain requests: it serves timed lyrics only to its
   Android app, and refuses an extension's Origin. Its requests are made as that client, with

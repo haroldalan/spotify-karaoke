@@ -1,4 +1,8 @@
-// The on-page controls, in their own shadow root on <body>, outside React's tree:
+// The on-page controls, in their own shadow root. The host goes inside the element holding
+// Spotify's lyrics view (body when there is none), as a zero-size, absolutely placed box that
+// takes no part in the view's layout: Spotify opens the view with a view transition that
+// draws the view as one layer above the rest of the page, so controls outside it would show
+// only once the animation ends. Inside, they arrive (and leave) with the view.
 // - the mode switcher (Original / Romanized / Translated): 3.1.6's capsule, centred 12 px
 //   under Spotify's lyrics header, shown only while the lyrics view is open, offering only
 //   the modes that change something for the song;
@@ -11,9 +15,9 @@ import type { Anchor } from './view';
 const FONT = `SpotifyMixUI, CircularSp, "Circular Std", system-ui, -apple-system, "Segoe UI", sans-serif`;
 
 const CSS = `
-:host { all: initial; }
+:host { all: initial; position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483000; }
 .slot {
-  position: fixed; z-index: 2147483000; transform: translateX(-50%);
+  position: absolute; z-index: 2147483000; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   font-family: ${FONT}; pointer-events: none;
 }
@@ -94,8 +98,16 @@ export class Pill {
     shadow.append(style, this.switcher, this.noticeSlot);
   }
 
-  mount() {
-    if (!this.host.isConnected) document.body.append(this.host);
+  /** Where the switcher and the notice are (dev kit). */
+  debugState() {
+    const at = (el: HTMLElement) => (el.hidden ? null : { top: el.style.top, left: el.style.left });
+    return { mounted: this.host.isConnected, switcher: at(this.switcher), notice: at(this.noticeSlot) };
+  }
+
+  /** Puts the controls in `container` (the lyrics view), or on body. */
+  mount(container: Element | null = null) {
+    const target = container ?? document.body;
+    if (this.host.parentNode !== target) target.append(this.host);
   }
 
   remove() {
@@ -106,7 +118,7 @@ export class Pill {
    * `mode` is the mode in effect for this song, `modes` the ones that change something for
    * it (a Latin-script song has nothing to romanize: Original and Translated only).
    */
-  update(o: { mode: Mode; modes: Mode[]; visible: boolean; anchor: Anchor | null; busy: boolean; caption?: string }) {
+  update(o: { mode: Mode; modes: Mode[]; visible: boolean; anchor: Anchor | null; container?: Element | null; busy: boolean; caption?: string }) {
     for (const [m, b] of this.buttons) {
       b.setAttribute('aria-pressed', String(m === o.mode));
       b.hidden = !o.modes.includes(m);
@@ -114,17 +126,20 @@ export class Pill {
     this.switcherCapsule.classList.toggle('busy', o.busy);
     this.switcherCaption.textContent = o.caption ?? '';
     const show = o.visible && !!o.anchor && isFullView(o.anchor);
+    if (show) {
+      this.mount(o.container ?? null);
+      place(this.switcher, o.anchor!, this.host);
+    }
     this.switcher.hidden = !show;
-    if (show) place(this.switcher, o.anchor!);
   }
 
   /** Actions in the switcher's spot when the lyrics view is open but empty; null hides them. */
-  notice(n: Notice | null, anchor: Anchor | null) {
+  notice(n: Notice | null, anchor: Anchor | null, container: Element | null = null) {
     if (!n || !anchor) {
       this.noticeSlot.hidden = true;
       return;
     }
-    this.mount();
+    this.mount(container);
     const key = noticeIdentity(n);
     if (key !== this.noticeKey) {
       this.noticeKey = key;
@@ -145,8 +160,8 @@ export class Pill {
       this.noticeCapsule.hidden = n.actions.length === 0;
       this.noticeCaption.textContent = n.caption;
     }
+    place(this.noticeSlot, anchor, this.host);
     this.noticeSlot.hidden = false;
-    place(this.noticeSlot, anchor);
   }
 }
 
@@ -164,7 +179,9 @@ function slot(label: string): [HTMLDivElement, HTMLDivElement, HTMLDivElement] {
   return [outer, capsule, caption];
 }
 
-function place(el: HTMLElement, a: Anchor) {
-  el.style.top = `${Math.round(a.top)}px`;
-  el.style.left = `${Math.round(a.centerX)}px`;
+/** Puts a slot at the anchor's viewport spot, measured from where the host sits. */
+function place(el: HTMLElement, a: Anchor, host: Element) {
+  const r = host.getBoundingClientRect();
+  el.style.top = `${Math.round(a.top - r.top)}px`;
+  el.style.left = `${Math.round(a.centerX - r.left)}px`;
 }
