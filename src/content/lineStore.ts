@@ -105,6 +105,21 @@ export class LineStore {
     return song;
   }
 
+  /** The songs known, most recent last, in brief (dev kit). */
+  summary() {
+    return [...this.songs.values()].map((s) => ({
+      key: s.key,
+      language: s.language,
+      script: s.script ?? null,
+      lines: s.lines.length,
+      first: s.lines.find((l) => /\p{L}/u.test(l)) ?? '',
+      restored: !!s.shown,
+      romanize: s.romanizeState,
+      translate: s.translateState,
+      translateError: s.translateError ?? null,
+    }));
+  }
+
   /** Marks a song as just seen on screen. */
   touch(song: Song) {
     this.songs.delete(song.key);

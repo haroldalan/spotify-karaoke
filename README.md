@@ -20,7 +20,12 @@ npm run zip && npm run zip:firefox && npm run zip:edge   # store zips + Firefox 
 npm test
 npm run typecheck
 npm run dev            # .output/chrome-mv3-dev, rebuilt and reloaded on every change
+npm run build:devkit   # .output/chrome-mv3-devkit, standalone, with the dev kit
 ```
+
+Dev builds carry a dev kit: `__skDev` in the Spotify page's console reads the extension's
+state, changes settings, runs the popup's actions, forgets cached results and reloads the
+extension. See [docs/devkit.md](docs/devkit.md).
 
 Load `.output/chrome-mv3` at `chrome://extensions` (Developer mode → Load unpacked).
 

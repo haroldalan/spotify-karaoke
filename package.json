@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
+    "build:devkit": "wxt build --mode devkit",
     "build:firefox": "wxt build -b firefox --mv3",
     "zip": "wxt zip",
     "test": "vitest run",

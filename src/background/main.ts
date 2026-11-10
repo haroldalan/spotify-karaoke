@@ -9,6 +9,8 @@ import { japaneseAnalyzer } from './text/japanese';
 import { restoreNative } from './lyrics/native';
 import { processLines } from './text/process';
 import { ytmHeaderRules } from './lyrics/ytm';
+import { DEVKIT } from '../devkit/protocol';
+import { logged, serveDevkitBackground } from '../devkit/background';
 
 const SPOTIFY_TABS = 'https://open.spotify.com/*';
 
@@ -44,7 +46,7 @@ export function startBackground(): void {
       console.warn('[spotify-karaoke] header rules:', e);
     },
   );
-  serve({
+  const handlers: Parameters<typeof serve>[0] = {
     findLyrics,
     knownNoLyrics: () => knownNoLyrics(),
     retryLyrics: (meta) => retryLyrics(meta),
@@ -58,7 +60,14 @@ export function startBackground(): void {
       return true as const;
     },
     status: () => ({ version: chrome.runtime.getManifest().version }),
-  });
+  };
+  serve(DEVKIT ? logged(handlers) : handlers);
+  if (DEVKIT) {
+    serveDevkitBackground({
+      health: async () => ({ sources: await getHealth(), googleBlockedUntil: googleBlockedUntil(), headerRules: (globalThis as { __skRules?: string }).__skRules ?? 'pending' }),
+      storage: async () => ({ bytes: await cacheBytes() }),
+    });
+  }
 
   chrome.runtime.onInstalled.addListener(({ reason }) => {
     if (reason === 'install' || reason === 'update') void addToOpenTabs();

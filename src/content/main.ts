@@ -8,6 +8,8 @@ import { ALL_MODES, switchFor } from './modes';
 import { LineStore } from './lineStore';
 import { Pill, type Notice } from './pill';
 import { View, type ViewState } from './view';
+import { DEVKIT } from '../devkit/protocol';
+import { serveDevkit, toBackground } from '../devkit/content';
 
 /**
  * A reload Spotify needs before it shows a change: lyrics found by Search again, or the
@@ -45,7 +47,7 @@ export type PageRequest =
   | { sk: 'reload'; when: 'now' | 'after-song' | 'cancel' }
   | { sk: 'not-this-song'; on: boolean };
 
-const BUILD = `${chrome.runtime.getManifest().version}${import.meta.env.DEV ? '-dev' : ''}`;
+const BUILD = `${chrome.runtime.getManifest().version}${import.meta.env.MODE === 'production' ? '' : `-${import.meta.env.MODE}`}`;
 
 /**
  * A newer copy of this script, added to an open tab on install or update, announces itself
@@ -412,6 +414,58 @@ export async function startContent(): Promise<void> {
     return false;
   };
   chrome.runtime.onMessage.addListener(onMessage);
+
+  if (DEVKIT) {
+    /** The popup's request, answered here as the popup would get it. */
+    const asPopup = (req: unknown) =>
+      new Promise((resolve) => {
+        let answered = false;
+        const kept = onMessage(req, {} as chrome.runtime.MessageSender, (v) => { answered = true; resolve(v); });
+        if (!kept && !answered) resolve(null);
+      });
+    serveDevkit({
+      page: asPopup,
+      status: async () => ({
+        build: BUILD,
+        page: await asPopup({ sk: 'page-status' }),
+        settings,
+        health: await call('health', {}).catch((e) => String(e)),
+        storage: await call('storage', {}).catch((e) => String(e)),
+      }),
+      state: () => {
+        const m = currentMeta();
+        return {
+          build: BUILD,
+          playing: m,
+          kinds: Object.fromEntries(kinds),
+          restoredWaiting: [...restored.keys()],
+          noLyrics: [...noLyrics],
+          missing: [...missing.keys()],
+          spotifyOnly: [...spotifyOnly],
+          notice,
+          reload,
+          view: { lineCount: lastView.lineCount, anchor: lastView.anchor, song: lastView.song?.key ?? null },
+          lyricsViewOpen: lyricsViewOpen(),
+          songs: store.summary(),
+        };
+      },
+      settings: async (patch) => {
+        if (patch && typeof patch === 'object') await saveSettings(patch as Partial<typeof settings>);
+        return loadSettings();
+      },
+      forget: async (args) => {
+        const id = (args as { id?: string } | undefined)?.id ?? currentMeta()?.id;
+        if (!id) throw new Error('forget: no track playing; pass an id');
+        noLyrics.delete(id);
+        missing.delete(id);
+        finding.delete(id);
+        restored.delete(id);
+        kinds.delete(id);
+        bridge.setConfig(pageConfig());
+        return toBackground('forget', { id });
+      },
+    }, signal);
+  }
 
   // Spotify's mini player (Document Picture-in-Picture) is a window of its own: decorate it too.
   const pip = (window as unknown as { documentPictureInPicture?: EventTarget & { window: Window | null } }).documentPictureInPicture;

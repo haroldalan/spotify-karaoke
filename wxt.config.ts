@@ -10,8 +10,9 @@ export default defineConfig({
     excludeSources: ['.live/**', '.output/**', 'tools/probe/**', '.env*'],
   },
   // Same names as the published listings, so updates land on them.
-  manifest: ({ browser }) => ({
-    name: browser === 'firefox' ? 'Spotify Karaoke' : 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Songs',
+  manifest: ({ browser, mode }) => ({
+    // Dev kit builds say so in chrome://extensions (see src/devkit/protocol.ts).
+    name: (browser === 'firefox' ? 'Spotify Karaoke' : 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Songs') + (mode === 'production' ? '' : ` (${mode})`),
     description: 'Romanizes and translates Spotify lyrics as they play, restores their original script, and finds lyrics Spotify doesn’t have.',
     permissions: ['storage', 'unlimitedStorage', 'declarativeNetRequestWithHostAccess', 'scripting'],
     host_permissions: [
