@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deleteSchwas, romanizeIndic } from '../../src/background/text/indic';
 import { lineScript, romanizeLines } from '../../src/background/text/romanize';
-import { lineHas, songScript } from '../../src/shared/scripts';
+import { lineHas, songScript, type Script } from '../../src/shared/scripts';
 
 const noGoogle = { google: async () => null };
 
@@ -79,6 +79,22 @@ describe('Indic romanization', () => {
     expect(romanizeIndic('ഞാൻ നിന്നെ', 'Mlym')).toBe('njan ninne');
     expect(romanizeIndic('അവൾ', 'Mlym')).toBe('aval');
     expect(romanizeIndic('ഇവർ', 'Mlym')).toBe('ivar');
+  });
+  // Common lyric words, written the way listeners write them. Every one of these must come out
+  // as plain ASCII: a letter the converter doesn't know shows as a broken glyph on Spotify.
+  it('writes common Hindi and Punjabi lyric words as listeners write them', () => {
+    const cases: [string, Script, string][] = [
+      ['कुछ', 'Deva', 'kuchh'], ['अच्छा', 'Deva', 'achchha'], ['छुपा', 'Deva', 'chhupa'], ['पीछे', 'Deva', 'peechhe'],
+      ['बच्चा', 'Deva', 'bachcha'], ['चाँद', 'Deva', 'chaand'], ['चल', 'Deva', 'chal'], ['सच', 'Deva', 'sach'],
+      ['ਸੱਜਣਾ', 'Guru', 'sajjna'], ['ਅੱਜ', 'Guru', 'ajj'], ['ਇੱਕ', 'Guru', 'ikk'], ['ਗੱਲ', 'Guru', 'gall'],
+      ['ਪੱਕਾ', 'Guru', 'pakka'], ['ਚੱਕ', 'Guru', 'chakk'], ['ਛੁਪਾ', 'Guru', 'chhupa'], ['ਮੈਨੂੰ', 'Guru', 'mainoon'],
+      ['ਮੇਰਾ ਦਿਲ', 'Guru', 'mera dil'], ['આછે', 'Gujr', 'aachhe'],
+    ];
+    for (const [word, script, want] of cases) {
+      const got = romanizeIndic(word, script);
+      expect(got, word).toBe(want);
+      expect(/^[\x00-\x7f]*$/.test(got), `${word} -> ${got} is ASCII`).toBe(true);
+    }
   });
   it('writes Bengali with b and ng, and short vowels', () => {
     expect(romanizeIndic('ভালোবাসি বাংলা', 'Beng')).toBe('bhalobasi bangla');

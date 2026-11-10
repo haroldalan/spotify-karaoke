@@ -20,8 +20,12 @@ export interface ProcessRequest {
   translateTo: string | null;
 }
 
-/** Bump when romanizer output changes, so stale cached romanizations are not reused. */
-const ROMANIZER_VERSION = 5;
+/**
+ * Bump when romanizer output changes, so stale cached romanizations are not reused.
+ * tests/unit/romanizerVersion.test.ts fails when the output changes and this doesn't.
+ * 6: each script in a line by its own engine; "chh" (not "chhh"); Gurmukhi addak doubles.
+ */
+export const ROMANIZER_VERSION = 6;
 const ROMANIZED_TTL = 30 * 24 * 3600_000;
 const TRANSLATED_TTL = 60 * 24 * 3600_000;
 

@@ -103,7 +103,12 @@ export function iastToAscii(s: string, script: Script): string {
     if (script === 'Deva') t = t.replace(/eṃ(?=$|[^\p{L}])/gu, 'ein');
     t = t.replace(/ā(?=[\p{L}\p{M}])/gu, 'aa').replace(/ī(?=[\p{L}\p{M}])/gu, 'ee').replace(/ū(?=[\p{L}\p{M}])/gu, 'oo');
   }
-  t = t.replace(/ch/g, 'chh').replace(/c/g, 'ch');
+  // IAST c / ch (च / छ) -> ch / chh, in one pass: a second pass would read the "ch" it just
+  // wrote as c ("kuchh" became "kuchhh").
+  t = t.replace(/ch|c/g, (m) => (m === 'ch' ? 'chh' : 'ch'));
+  // Gurmukhi addak (ੱ) doubles the consonant after it ("ਸੱਜਣਾ" -> "sajjna"); sanscript leaves it
+  // as it is. Before a vowel or at the end of a word it has nothing to double.
+  if (script === 'Guru') t = t.replace(/\u0A71([a-z])/g, '$1$1').replace(/\u0A71/g, '');
   const map: Record<string, string> = {
     ā: 'a', ī: 'i', ū: 'u', ṛ: 'ri', ṝ: 'ri', ḷ: 'l', ḹ: 'l', ē: 'e', ō: 'o', è: 'e', ò: 'o',
     ṅ: 'n', ñ: 'n', ṭ: 't', ḍ: 'd', ṇ: 'n', ś: 'sh', ṣ: 'sh', ṃ: 'n', ḥ: 'h', 'm̐': 'n',
