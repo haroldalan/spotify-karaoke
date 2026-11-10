@@ -1,4 +1,6 @@
-// Romanization, routed by script, line by line. Local engines first (instant, offline);
+// Romanization, routed by script run: a line is cut only where one non-Latin script meets
+// another (a Devanagari phrase in a Tamil line), each run goes to its script's engine, and
+// Latin words (English, mostly) stay inside their run, as written. Local engines first (instant, offline);
 // Google's romanization for scripts without a good local engine (Arabic-script languages,
 // Hebrew, ...), and for Japanese lines the dictionary can't read. Generic transliteration
 // is the last resort.
@@ -128,24 +130,89 @@ export async function romanizeLines(lines: string[], songScript: Script, deps: R
   return (await romanizeLinesDetailed(lines, songScript, deps)).lines;
 }
 
+/** A stretch of a line in one non-Latin script (Latin words, digits and punctuation inside it). */
+export interface Run {
+  text: string;
+  /** The script it is romanized as; null for a line with no non-Latin letters. */
+  script: Script | null;
+}
+
+/**
+ * A line cut where one non-Latin script meets another: Latin, digits, spaces and punctuation
+ * belong to the run they sit in (the gap between two runs goes with the first). A line in one
+ * script is one run, the whole line. Kanji is Japanese in a Japanese line (kana, or a Japanese
+ * song), Chinese otherwise.
+ */
+export function scriptRuns(line: string, songScript: Script): Run[] {
+  const japanese = songScript === 'Jpan' || /[\u3041-\u3096\u30A1-\u30FA]/.test(line);
+  const runs: Run[] = [];
+  let cur: Run | null = null;
+  let pending = '';
+  for (const ch of line) {
+    let s = charScript(ch);
+    if (s === 'Hani' && japanese) s = 'Jpan';
+    if (!s || s === 'Latn' || s === 'Other') {
+      if (cur) cur.text += ch;
+      else pending += ch;
+      continue;
+    }
+    if (!cur || cur.script !== s) {
+      // A new script: the text since the last letter of the previous run stays with it.
+      cur = { text: pending + ch, script: s };
+      pending = '';
+      runs.push(cur);
+    } else cur.text += ch;
+  }
+  if (!runs.length) return [{ text: line, script: null }];
+  if (pending) runs[0].text = pending + runs[0].text;
+  return runs;
+}
+
+/** An engine's output with the run's Latin words put back as written (some engines lowercase them). */
+export function keepLatin(input: string, output: string): string {
+  let out = output;
+  let from = 0;
+  for (const m of input.matchAll(/\p{Script=Latin}[\p{Script=Latin}\p{M}'’-]*/gu)) {
+    const w = m[0];
+    const at = out.toLowerCase().indexOf(w.toLowerCase(), from);
+    if (at < 0) continue;
+    out = out.slice(0, at) + w + out.slice(at + w.length);
+    from = at + w.length;
+  }
+  return out;
+}
+
 /** romanizeLines, also saying whether the result is final (see romanizeGroup). */
 export async function romanizeLinesDetailed(lines: string[], songScript: Script, deps: RomanizeDeps): Promise<{ lines: (string | null)[]; complete: boolean }> {
   let complete = true;
-  const out: (string | null)[] = lines.map(() => null);
-  const groups = new Map<Script, number[]>();
-  lines.forEach((l, i) => {
-    const s = lineScript(l, songScript);
-    if (s && s !== 'Other') groups.set(s, [...(groups.get(s) ?? []), i]);
-  });
+  const runs = lines.map((l) => scriptRuns(l, songScript));
+  const done = runs.map((rs) => rs.map((r) => r.text));
+  // Every run of one script in the song goes to its engine together (one Google request per
+  // song, not per run).
+  const groups = new Map<Script, [number, number][]>();
+  runs.forEach((rs, i) => rs.forEach((r, k) => {
+    if (r.script) groups.set(r.script, [...(groups.get(r.script) ?? []), [i, k]]);
+  }));
   await Promise.all(
-    [...groups].map(async ([script, idx]) => {
-      const { result, complete: groupComplete } = await romanizeGroup(idx.map((i) => lines[i]), script, deps);
+    [...groups].map(async ([script, at]) => {
+      const texts = at.map(([i, k]) => runs[i][k].text.trim());
+      const { result, complete: groupComplete } = await romanizeGroup(texts, script, deps);
       if (!groupComplete) complete = false;
-      idx.forEach((i, k) => {
-        const r = result[k]?.trim();
-        out[i] = r && r !== lines[i] ? r : null;
+      at.forEach(([i, k], q) => {
+        const r = result[q]?.trim();
+        if (!r) return;
+        // The run's own spacing around it, its Latin words as written.
+        const text = runs[i][k].text;
+        const lead = text.match(/^\s*/)![0];
+        const trail = text.match(/\s*$/)![0];
+        done[i][k] = lead + keepLatin(text, r) + trail;
       });
     }),
   );
+  const out = lines.map((l, i) => {
+    if (!runs[i].some((r) => r.script)) return null;
+    const r = done[i].join('').trim();
+    return r && r !== l.trim() ? r : null;
+  });
   return { lines: out, complete };
 }

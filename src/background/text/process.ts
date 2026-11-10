@@ -75,7 +75,18 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
             if (all.backup) throw new RateLimited('Google Translate is rate-limiting this network');
             // Its romanization lost the line breaks: a stopgap now (not cached), Google next time.
             if (all.romanizationLost) throw new Error("Google's romanization couldn't be put back line by line");
-            return subset.map((l) => all.romanized[lines.indexOf(l)] ?? null);
+            // A run that is a whole line: from that answer. Runs that are part of a line (an
+            // Arabic phrase in a French line): one more request for all of them, never one each.
+            const trimmed = lines.map((l) => l.trim());
+            const out = subset.map((l) => { const i = trimmed.indexOf(l.trim()); return i >= 0 ? all.romanized[i] ?? null : undefined; });
+            const parts = subset.filter((_, k) => out[k] === undefined);
+            if (parts.length) {
+              const more = await googleLines(parts, req.translateTo ?? 'en', true, fetch, { translation: false });
+              if (more.romanizationLost) throw new Error("Google's romanization couldn't be put back line by line");
+              let q = 0;
+              out.forEach((v, k) => { if (v === undefined) out[k] = more.romanized[q++] ?? null; });
+            }
+            return out as (string | null)[];
           },
         });
         // Stopgaps (transliteration, unread kanji, Google unreachable) are retried next time,

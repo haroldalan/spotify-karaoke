@@ -120,3 +120,43 @@ describe('romanizeLines', () => {
     expect(out[0]).toMatch(/^[\x20-\x7e]+$/);
   });
 });
+
+// Made-up lines (not lyrics of any song) mixing scripts the way multilingual songs do.
+describe('romanization by script run', () => {
+  it('cuts a line only where one non-Latin script meets another; Latin stays inside its run', async () => {
+    const { scriptRuns } = await import('../../src/background/text/romanize');
+    expect(scriptRuns('நான் வந்தேன் चल, तू', 'Taml').map((r) => r.script)).toEqual(['Taml', 'Deva']);
+    expect(scriptRuns("Dude'u உன்ன போல yaarum இல்ல", 'Taml')).toEqual([{ text: "Dude'u உன்ன போல yaarum இல்ல", script: 'Taml' }]);
+    expect(scriptRuns('君のこと love してる', 'Jpan')).toEqual([{ text: '君のこと love してる', script: 'Jpan' }]);
+    expect(scriptRuns('all night long', 'Taml')).toEqual([{ text: 'all night long', script: null }]);
+    // Kanji in a Japanese line (kana) is Japanese, even in a Chinese song; otherwise Chinese.
+    expect(scriptRuns('君を愛してる', 'Hani')[0].script).toBe('Jpan');
+    expect(scriptRuns('我爱你', 'Hani')[0].script).toBe('Hani');
+  });
+
+  it('romanizes each script with its own engine in one line: a Devanagari phrase inside a Tamil line', async () => {
+    const [out] = await romanizeLines(['நான் வந்தேன் चल, तू'], 'Taml', noGoogle);
+    expect(out).toMatch(/^naan vandhaen chal, tu$/);
+  });
+
+  it('keeps Latin words as written (an engine that lowercases them is corrected)', async () => {
+    const [out] = await romanizeLines(["Dude'u உன்ன போல யாரும் இல்ல"], 'Taml', noGoogle);
+    expect(out?.startsWith("Dude'u ")).toBe(true);
+  });
+
+  it('a Korean line with English and a Hindi phrase: each part by its own engine', async () => {
+    const [out] = await romanizeLines(['너와 나 Forever मेरा दिल'], 'Kore', noGoogle);
+    expect(out).toContain('Forever');
+    expect(out).toContain('mera dil');
+    expect(out).not.toMatch(/[가-힯ऀ-ॿ]/);
+  });
+
+  it('sends Google the runs of its scripts in one call per song, whole lines and parts alike', async () => {
+    const calls: string[][] = [];
+    const google = async (lines: string[]) => { calls.push(lines); return lines.map((l) => `g(${l})`); };
+    const out = await romanizeLines(['مرحبا', 'bonjour مرحبا يا'], 'Arab', { google });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(['مرحبا', 'bonjour مرحبا يا']);
+    expect(out).toEqual(['g(مرحبا)', 'g(bonjour مرحبا يا)']);
+  });
+});
