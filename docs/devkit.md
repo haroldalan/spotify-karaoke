@@ -42,6 +42,10 @@ await __skDev.reloadExtension()         // open Spotify tabs get the new scripts
 
 ## Cautions
 
+- Open the lyrics the way listeners do: the player bar's Lyrics button
+  (`[data-testid="lyrics-button"]`), which opens Spotify's expanded Now Playing view. The
+  `/lyrics` URL still renders a lyrics page, but it isn't what the app shows (2026-11).
+
 - `fresh()` and `popup({ sk: 'reload', when: 'now' })` reload the page: the music stops if
   that tab is the player. A second Spotify tab in the same browser is a remote; reloading it
   doesn't touch playback.
