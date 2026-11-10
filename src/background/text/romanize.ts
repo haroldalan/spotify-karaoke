@@ -75,6 +75,8 @@ async function localLines(lines: string[], script: Script, deps: RomanizeDeps): 
  * to romanize (English lines, numbers).
  */
 export function lineScript(line: string, songScript: Script): Script | null {
+  // A Japanese line in a Chinese song: read as Japanese, not as pinyin.
+  if (songScript === 'Hani' && /[\u3041-\u3096\u30A1-\u30FA]/.test(line)) return 'Jpan';
   if (songScript !== 'Latn' && songScript !== 'Other' && lineHas(line, songScript)) return songScript;
   const counts = new Map<Script, number>();
   let kana = false;
@@ -102,6 +104,9 @@ async function romanizeGroup(lines: string[], script: Script, deps: RomanizeDeps
   let result: (string | null)[] | null = null;
   if (GOOGLE_PREFERRED.has(script)) {
     result = await deps.google(lines).catch(() => null);
+    // Google answered but has no romanization for this language: generic transliteration is
+    // the answer, and it is final (asking again gets the same nothing).
+    if (result && !result.some(Boolean)) return { result: lines.map((l) => transliterate(l)), complete: true };
     if (result) result = result.map((r) => (r ? stripMarks(r) : r));
   }
   if (!result) {

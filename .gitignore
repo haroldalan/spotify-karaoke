@@ -4,3 +4,5 @@ node_modules/
 .live/
 .DS_Store
 *.log
+.env
+.env.*

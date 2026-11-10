@@ -3,6 +3,7 @@ import { loadSettings, loadSpotifyOnly, onSettingsChanged, onSpotifyOnlyChanged,
 import type { FoundLyrics, Mode, TrackMeta } from '../shared/types';
 import type { LyricsKind } from '../page/channel';
 import { Bridge } from './bridge';
+import { modeForKey } from './keys';
 import { STYLE } from './decorate';
 import { ALL_MODES, switchFor } from './modes';
 import { LineStore } from './lineStore';
@@ -22,6 +23,8 @@ export interface PageStatus {
   build: string;
   /** The song in the player bar, when its details went past. */
   current: {
+    /** The track id: a popup action names the song it was shown for. */
+    id: string;
     name: string;
     artists: string[];
     /** No source has lyrics for it. */
@@ -43,9 +46,9 @@ export interface PageStatus {
 /** Popup → page requests. */
 export type PageRequest =
   | { sk: 'page-status' }
-  | { sk: 'search-again' }
+  | { sk: 'search-again'; id?: string }
   | { sk: 'reload'; when: 'now' | 'after-song' | 'cancel' }
-  | { sk: 'not-this-song'; on: boolean };
+  | { sk: 'not-this-song'; on: boolean; id?: string };
 
 const BUILD = `${chrome.runtime.getManifest().version}${import.meta.env.MODE === 'production' ? '' : `-${import.meta.env.MODE}`}`;
 
@@ -87,13 +90,11 @@ function isNowPlaying(m: TrackMeta, np = nowPlaying()): boolean {
   return !!np.title && m.name === np.title && (!np.artists.length || m.artists.some((a) => np.artists.includes(a)));
 }
 
-const MODE_KEYS: Record<string, Mode> = { o: 'original', r: 'romanized', t: 'translated' };
-
 /** O / R / T switch modes while lyrics are on screen in `win`, outside text fields. */
 function listenForKeys(win: Window, lyricsShown: () => boolean, pick: (m: Mode) => void, signal: AbortSignal) {
   win.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat || !lyricsShown()) return;
-    const mode = MODE_KEYS[e.key.toLowerCase()];
+    const mode = modeForKey(e);
     const t = e.target as HTMLElement | null;
     if (!mode || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
     pick(mode);
@@ -105,6 +106,9 @@ export async function startContent(): Promise<void> {
   document.dispatchEvent(new CustomEvent(TAKEOVER));
   const life = new AbortController();
   const { signal } = life;
+  // A newer copy may announce itself while this one still loads its settings: it must be heard.
+  let takenOver = false;
+  document.addEventListener(TAKEOVER, () => { takenOver = true; }, { once: true });
 
   // Settings and the song lists reach the page before Spotify's first requests are decided.
   const [loaded, known, sentBack] = await Promise.all([
@@ -112,7 +116,7 @@ export async function startContent(): Promise<void> {
     Promise.race([call('knownNoLyrics', {}), new Promise<string[]>((r) => setTimeout(() => r([]), 500))]).catch(() => [] as string[]),
     loadSpotifyOnly(),
   ]);
-  if (signal.aborted) return;
+  if (signal.aborted || takenOver) return;
   let settings = loaded;
   /** The non-translated mode last chosen: what "Original" on a Latin-script song goes back to. */
   let lastPlain: Mode = settings.mode === 'translated' ? 'romanized' : settings.mode;
@@ -191,7 +195,8 @@ export async function startContent(): Promise<void> {
         metas.set(meta.id, meta);
         if (metas.size > 300) metas.delete(metas.keys().next().value!);
         // Japanese needs a dictionary: load it while the song starts, not when its lines arrive.
-        if (meta.languages.includes('ja')) void call('warm', { language: 'ja' }).catch(() => {});
+        // (Only when romanization is wanted: in Original mode the dictionary, 18 MB, isn't needed.)
+        if (meta.languages.includes('ja') && (settings.mode !== 'original' || settings.allLines)) void call('warm', { language: 'ja' }).catch(() => {});
         // Spotify has no lyrics: start looking now, before anyone opens the lyrics view.
         if (!meta.hasLyrics && !spotifyOnly.has(meta.id)) {
           void find(meta).then((found) => found && store.addSong(found.lines.map((l) => l.text), meta.languages[0] ?? null));
@@ -215,6 +220,9 @@ export async function startContent(): Promise<void> {
         if (m.found) missing.delete(m.id);
         else if (meta) missing.set(m.id, meta);
         render();
+      },
+      onAlive() {
+        pageSeenAt ||= Date.now();
       },
       onError: (m) => console.warn('[spotify-karaoke] page:', m),
     },
@@ -308,15 +316,16 @@ export async function startContent(): Promise<void> {
     const mine = notice?.id === meta.id ? notice : null;
     if (mine?.found && reload && reloadFor === meta.id) {
       return {
+        key: meta.id,
         caption: reload.scheduled ? 'Spotify reloads when this song ends.' : 'Lyrics found. Spotify shows them after a reload, which stops the music.',
         actions: reloadActions(),
       };
     }
-    if (mine?.searching) return { caption: mine.caption, actions: [] };
+    if (mine?.searching) return { key: meta.id, caption: mine.caption, actions: [] };
     // Back from adding lyrics: searching is the next step.
-    if (added.has(meta.id)) return { caption: 'Added them? Search again.', actions: [add, { ...search, primary: true }] };
+    if (added.has(meta.id)) return { key: meta.id, caption: 'Added them? Search again.', actions: [add, { ...search, primary: true }] };
     // Spotify's own message already says there are no lyrics: only the ways forward here.
-    return { caption: mine?.caption ?? '', actions: [search, { ...add, primary: true }] };
+    return { key: meta.id, caption: mine?.caption ?? '', actions: [search, { ...add, primary: true }] };
   }
 
   function render() {
@@ -376,9 +385,12 @@ export async function startContent(): Promise<void> {
       const k = m ? kinds.get(m.id) : undefined;
       const current = m
         ? {
+            id: m.id,
             name: m.name,
             artists: m.artists,
-            noLyrics: noLyrics.has(m.id) || missing.has(m.id),
+            // Lyrics on screen (Spotify's own, unsynced, are recorded as "none" by the search for a
+            // synced copy) mean there are lyrics.
+            noLyrics: (noLyrics.has(m.id) || missing.has(m.id)) && !kinds.has(m.id),
             ours: k && k.kind !== 'spotify' ? { kind: k.kind, source: k.source } : null,
             spotifyOnly: spotifyOnly.has(m.id),
           }
@@ -389,7 +401,8 @@ export async function startContent(): Promise<void> {
       return false;
     }
     if (req.sk === 'search-again') {
-      if (!m) { reply({ found: false }); return false; }
+      // The song changed since the popup showed its row: that click isn't for this song.
+      if (!m || (req.id && req.id !== m.id)) { reply({ found: false }); return false; }
       void searchAgain(m).then((found) => reply({ found }));
       return true;
     }
@@ -401,7 +414,7 @@ export async function startContent(): Promise<void> {
       return false;
     }
     if (req.sk === 'not-this-song') {
-      if (!m) { reply({ ok: false }); return false; }
+      if (!m || (req.id && req.id !== m.id)) { reply({ ok: false }); return false; }
       void setSpotifyOnly(m.id, req.on).then((ids) => {
         spotifyOnly = new Set(ids);
         if (!req.on) { noLyrics.delete(m.id); finding.delete(m.id); }
@@ -500,6 +513,7 @@ export async function startContent(): Promise<void> {
   document.addEventListener(TAKEOVER, () => {
     life.abort();
     cancelReload();
+    store.stop();
     view.stop();
     for (const v of pipViews) v.stop();
     pipViews.clear();

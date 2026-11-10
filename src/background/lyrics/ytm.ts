@@ -11,6 +11,11 @@
 import type { LyricLine, TrackMeta } from '../../shared/types';
 import { isMatch, parseClock } from './match';
 import { tracked } from '../health';
+import { cacheGet, cacheSet } from '../cache';
+
+/** No request waits longer than this: a hung source must not hold a lyrics lookup. */
+const TIMEOUT_MS = 10_000;
+const timeout = () => (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? { signal: AbortSignal.timeout(TIMEOUT_MS) } : {});
 
 const BASE = 'https://music.youtube.com/youtubei/v1';
 /** Used when the current version can't be read from YouTube Music's homepage. */
@@ -18,15 +23,29 @@ const WEB_VERSION_FALLBACK = '1.20251103.01.00';
 const WEB_VERSION_TTL = 24 * 3600_000;
 let webVersion: { value: string; at: number } | null = null;
 
-/** The web client's current version, read from YouTube Music's homepage once a day. */
+/**
+ * The web client's current version, read from YouTube Music's homepage once a day (kept in
+ * storage: the service worker forgets its memory every 30 s or so, and the page is large).
+ */
 async function webClientVersion(fetchImpl: typeof fetch): Promise<string> {
   if (webVersion && Date.now() - webVersion.at < WEB_VERSION_TTL) return webVersion.value;
+  const kept = fetchImpl === fetch ? await cacheGet<string>('ytm-web-version').catch(() => undefined) : undefined;
+  if (kept) {
+    webVersion = { value: kept, at: Date.now() };
+    return kept;
+  }
   let value = WEB_VERSION_FALLBACK;
+  let read = false;
   try {
-    const html = await (await fetchImpl('https://music.youtube.com/', { credentials: 'omit' })).text();
-    value = /"INNERTUBE_CLIENT_VERSION"\s*:\s*"([\d.]+)"/.exec(html)?.[1] ?? value;
+    const html = await (await fetchImpl('https://music.youtube.com/', { credentials: 'omit', ...timeout() })).text();
+    const found = /"INNERTUBE_CLIENT_VERSION"\s*:\s*"([\d.]+)"/.exec(html)?.[1];
+    if (found) {
+      value = found;
+      read = true;
+    }
   } catch { /* fallback */ }
   webVersion = { value, at: Date.now() };
+  if (read && fetchImpl === fetch) void cacheSet('ytm-web-version', value, WEB_VERSION_TTL).catch(() => {});
   return value;
 }
 const ANDROID = { client: { clientName: 'ANDROID_MUSIC', clientVersion: '7.21.50', hl: 'en', gl: 'US', osName: 'Android', osVersion: '12' } };
@@ -44,7 +63,9 @@ export async function ytmHeaderRules(): Promise<void> {
   if (!dnr?.updateSessionRules) return;
   // Only this extension's own background requests: never a tab, never another extension or site worker.
   const noTab = [chrome.tabs?.TAB_ID_NONE ?? -1];
-  const ours = [chrome.runtime.id];
+  // The extension's own origin host: the extension id in Chrome and Edge, the internal uuid
+  // in Firefox (where runtime.id is the add-on id, which is not a valid domain there).
+  const ours = [new URL(chrome.runtime.getURL('/')).hostname];
   const types = ['xmlhttprequest', 'other'] as chrome.declarativeNetRequest.ResourceType[];
   await dnr.updateSessionRules({
     removeRuleIds: [101, 102],
@@ -104,6 +125,7 @@ async function callUntracked(endpoint: string, body: Json, client: Client, fetch
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ context: client === 'android' ? ANDROID : { client: { clientName: 'WEB_REMIX', clientVersion: await webClientVersion(fetchImpl), hl: 'en', gl: 'US' } }, ...body }),
+    ...timeout(),
   });
   if (!res.ok) throw new Error(`YouTube Music ${endpoint} (${client}) HTTP ${res.status}`);
   return (await res.json()) as Json;
@@ -187,7 +209,13 @@ export async function ytm(meta: TrackMeta, fetchImpl: typeof fetch = fetch): Pro
   const search = await call('search', { query: `${meta.name} ${meta.artists[0] ?? ''}`, params: SONGS_ONLY }, 'web', fetchImpl);
   const song = parseSearch(search).find((s) => isMatch(meta, { title: s.title, artist: s.artist, durationS: s.durationS }));
   if (!song) return null;
-  const timed = await lyricsFor(song.videoId, 'android', fetchImpl).catch(() => null);
+  let failure: unknown;
+  const timed = await lyricsFor(song.videoId, 'android', fetchImpl).catch((e) => { failure = e; return null; });
   if (timed?.synced) return timed;
-  return (await lyricsFor(song.videoId, 'web', fetchImpl).catch(() => null)) ?? timed;
+  const plain = await lyricsFor(song.videoId, 'web', fetchImpl).catch((e) => { failure ??= e; return null; });
+  const best = plain ?? timed;
+  // A request that failed is not "this song has no lyrics": the lookup is incomplete, and is
+  // asked again soon instead of being remembered as "none" for days.
+  if (!best && failure) throw failure;
+  return best;
 }

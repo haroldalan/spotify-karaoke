@@ -50,6 +50,13 @@ describe('content bridge', () => {
     expect(h.onError).toHaveBeenCalledWith('boom');
   });
 
+  it('tells the content script the page script is there, before any song', () => {
+    const onAlive = vi.fn();
+    const { fromPage } = setup({ onAlive });
+    fromPage({ tag: TAG, dir: 'up', kind: 'event', type: 'alive', data: null });
+    expect(onAlive).toHaveBeenCalledTimes(1);
+  });
+
   it('answers calls by id, with null when the handler fails', async () => {
     const { sent, fromPage } = setup({ restoreNative: vi.fn(async () => { throw new Error('down'); }) });
     fromPage({ tag: TAG, dir: 'up', kind: 'call', id: 7, type: 'findLyrics', data: meta });

@@ -30,6 +30,8 @@ export interface Song {
   translateState: Record<string, State>;
   translateError?: string;
   script?: string | null;
+  /** The romanization is a stopgap (Google unreachable, a kanji unread): asked for again later. */
+  stopgap?: boolean;
 }
 
 /** A line on screen, resolved against its song. */
@@ -45,6 +47,11 @@ export interface ResolvedLine {
 export type Processor = (req: { lines: string[]; language: string | null; romanize: boolean; translateTo: string | null }) => Promise<Processed>;
 
 export const MAX_SONGS = 60;
+/** A failed translation, or a stopgap romanization, is asked for again after this, doubling each time. */
+export const RETRY_MS = 90_000;
+const MAX_RETRIES = 4;
+/** A settings change brings this many of the newest songs up to date at once (the rest when they next show). */
+const SETTINGS_BATCH = 3;
 
 export function normalizeLine(s: string): string {
   return s.normalize('NFC').replace(/\s+/g, ' ').trim();
@@ -57,6 +64,8 @@ export class LineStore {
   private index = new Map<string, Set<string>>();
   private listeners = new Set<() => void>();
   private settings: Settings;
+  private retries = new Map<string, { n: number; timer: ReturnType<typeof setTimeout> }>();
+  private stopped = false;
 
   constructor(private process: Processor, settings: Settings) {
     this.settings = settings;
@@ -120,10 +129,30 @@ export class LineStore {
     }));
   }
 
-  /** Marks a song as just seen on screen. */
+  /** Marks a song as just seen on screen, and brings it up to date with the settings if it isn't. */
   touch(song: Song) {
     this.songs.delete(song.key);
     this.songs.set(song.key, song);
+    this.ensure(song, false);
+  }
+
+  /** Stops asking for anything more (a newer copy of the script has taken over). */
+  stop() {
+    this.stopped = true;
+    for (const r of this.retries.values()) clearTimeout(r.timer);
+    this.retries.clear();
+  }
+
+  private scheduleRetry(song: Song) {
+    if (this.stopped) return;
+    const r = this.retries.get(song.key);
+    const n = r?.n ?? 0;
+    if (n >= MAX_RETRIES) return;
+    clearTimeout(r?.timer);
+    const timer = setTimeout(() => {
+      if (this.songs.get(song.key) === song) this.ensure(song);
+    }, RETRY_MS * 2 ** n);
+    this.retries.set(song.key, { n: n + 1, timer });
   }
 
   /**
@@ -179,8 +208,9 @@ export class LineStore {
 
   setSettings(s: Settings) {
     this.settings = s;
-    // Newest songs first: they are the ones on screen.
-    for (const song of [...this.songs.values()].reverse()) this.ensure(song);
+    // Newest songs first: they are the ones on screen. Only a few at once: one request per
+    // stored song (up to 60) is a burst Google answers by blocking; the rest follow when they show.
+    for (const song of [...this.songs.values()].reverse().slice(0, SETTINGS_BATCH)) this.ensure(song);
     this.changed();
   }
 
@@ -222,13 +252,20 @@ export class LineStore {
     };
   }
 
-  private ensure(song: Song) {
+  /**
+   * Asks for what the settings need and the song lacks. `retry`: also what was asked before
+   * and failed (a settings change, a song seen again, the retry timer); never from `touch`,
+   * which runs on every pass over the page and would ask again and again.
+   */
+  private ensure(song: Song, retry = true) {
     if (!song.lines.some((l) => l)) return;
     const want = this.wants();
-    const romanize = want.romanize && (song.romanizeState === 'no' || song.romanizeState === 'failed');
-    const translateTo = want.translateTo && !song.translateState[want.translateTo] ? want.translateTo : null;
+    const romanize = want.romanize && (song.romanizeState === 'no' || (retry && (song.romanizeState === 'failed' || !!song.stopgap)));
+    const had = want.translateTo ? song.translateState[want.translateTo] : undefined;
+    const translateTo = want.translateTo && (had === undefined || (retry && had === 'failed')) ? want.translateTo : null;
     if (!romanize && !translateTo) return;
-    if (romanize) song.romanizeState = 'pending';
+    // A stopgap on screen stays while it is asked for again (no "busy" flicker).
+    if (romanize && !song.stopgap) song.romanizeState = 'pending';
     if (translateTo) song.translateState[translateTo] = 'pending';
     this.changed();
     this.process({ lines: song.lines, language: song.language, romanize, translateTo }).then(
@@ -236,21 +273,25 @@ export class LineStore {
         song.script = p.script;
         song.translateError = p.translateError;
         if (romanize) {
-          song.romanized = p.romanized;
-          song.romanizeState = p.romanized ? 'done' : 'failed';
+          if (p.romanized || !song.stopgap) song.romanized = p.romanized;
+          song.romanizeState = song.romanized ? 'done' : 'failed';
+          song.stopgap = !!p.incomplete;
         }
         if (translateTo) {
           if (p.translated) {
             song.translated[translateTo] = p.translated;
             song.translateState[translateTo] = 'done';
-          } else delete song.translateState[translateTo]; // failed: retry when asked again
+          } else song.translateState[translateTo] = 'failed'; // asked again below
         }
+        if ((translateTo && !p.translated) || p.incomplete) this.scheduleRetry(song);
+        else this.retries.delete(song.key);
         this.changed();
       },
       (e) => {
-        if (romanize) song.romanizeState = 'failed';
-        if (translateTo) delete song.translateState[translateTo];
+        if (romanize) song.romanizeState = song.romanized ? 'done' : 'failed';
+        if (translateTo) song.translateState[translateTo] = 'failed';
         song.translateError = String(e?.message || e);
+        this.scheduleRetry(song);
         this.changed();
       },
     );

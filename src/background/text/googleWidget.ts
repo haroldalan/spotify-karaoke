@@ -7,6 +7,7 @@
 // embeds the widget. It is read from that script (browser-cached for a year) when first
 // needed. The endpoint answers any origin (CORS), so it needs no host permission.
 import { RateLimited } from './googleErrors';
+import { loadPause, nextPause, savePause } from './pause';
 
 const ENDPOINT = 'https://translate-pa.googleapis.com/v1/translateHtml';
 const WIDGET_SCRIPT =
@@ -17,6 +18,17 @@ const MAX_CHARS = 5000;
 let key: string | null = null;
 let blockedUntil = 0;
 let strikes = 0;
+let loaded: Promise<void> | null = null;
+
+/** Reads the pause kept by an earlier life of this worker (once per worker lifetime). */
+export function ensureWidgetPauseLoaded(): Promise<void> {
+  loaded ??= (async () => {
+    const p = await loadPause('widget');
+    blockedUntil = Math.max(blockedUntil, p.until);
+    strikes = Math.max(strikes, p.strikes);
+  })();
+  return loaded;
+}
 
 /** When the widget endpoint may be asked again (0: now). */
 export function widgetBlockedUntil(): number {
@@ -28,11 +40,18 @@ export function resetWidget() {
   key = null;
   blockedUntil = 0;
   strikes = 0;
+  loaded = null;
+}
+
+function setPause(): void {
+  const p = nextPause(strikes);
+  strikes = p.strikes;
+  blockedUntil = p.until;
+  savePause('widget', p);
 }
 
 function pause(): never {
-  strikes++;
-  blockedUntil = Date.now() + Math.min(30, 2 ** (strikes - 1)) * 60_000;
+  setPause();
   throw new RateLimited('Google Translate (website widget) is rate-limiting this network');
 }
 
@@ -97,14 +116,12 @@ async function send(batch: string[], target: string, fetchImpl: typeof fetch, re
  * after song while it doesn't work.
  */
 export async function widgetTranslate(lines: string[], target: string, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+  await ensureWidgetPauseLoaded();
   if (Date.now() < blockedUntil) throw new RateLimited('Google Translate (website widget) is rate-limiting this network');
   try {
     return await translateAll(lines, target, fetchImpl);
   } catch (e) {
-    if (!(e instanceof RateLimited)) {
-      strikes++;
-      blockedUntil = Date.now() + Math.min(30, 2 ** (strikes - 1)) * 60_000;
-    }
+    if (!(e instanceof RateLimited)) setPause();
     throw e;
   }
 }
@@ -118,6 +135,9 @@ async function translateAll(lines: string[], target: string, fetchImpl: typeof f
     tr.forEach((t, k) => (out[idx[at + k]] = t));
     at += batch.length;
   }
-  strikes = 0;
+  if (strikes) {
+    strikes = 0;
+    savePause('widget', { until: 0, strikes: 0 });
+  }
   return out;
 }

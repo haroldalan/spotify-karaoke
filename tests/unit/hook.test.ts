@@ -151,13 +151,25 @@ describe('page hook: lyrics Spotify has', () => {
     await page.fetch(HINDI_META);
     await page.fetch(lyricsUrl(HINDI_ID));
     await tick();
-    const before = page.events.map((e) => e.type);
-    expect(before).toEqual(['meta', 'lyrics']);
+    const songs = () => page.events.map((e) => e.type).filter((t) => t !== 'alive');
+    expect(songs()).toEqual(['meta', 'lyrics']);
     // A new copy of the content script announces itself to the hook that is already running.
     page.connect();
     await tick();
-    expect(page.events.map((e) => e.type)).toEqual(['meta', 'lyrics', 'meta', 'lyrics']);
-    expect(page.events[3].data).toMatchObject({ id: HINDI_ID, kind: 'spotify' });
+    expect(songs()).toEqual(['meta', 'lyrics', 'meta', 'lyrics']);
+    expect(page.events.filter((e) => e.type === 'lyrics')[1].data).toMatchObject({ id: HINDI_ID, kind: 'spotify' });
+  });
+
+  it('says it is alive to a content script before any song has gone by', async () => {
+    const page = fakePage({ routes: {}, contentLate: true });
+    await tick();
+    expect(page.events.map((e) => e.type)).toEqual([]);
+    page.connect(); // the content script starts after the page script
+    await tick();
+    expect(page.events.map((e) => e.type)).toEqual(['alive']);
+    page.connect(); // and again for a copy that takes over
+    await tick();
+    expect(page.events.map((e) => e.type)).toEqual(['alive', 'alive']);
   });
 
   it('leaves a song the listener sent back to Spotify exactly as Spotify has it', async () => {

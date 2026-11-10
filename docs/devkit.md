@@ -28,6 +28,7 @@ await __skDev.mode('translated')
 await __skDev.searchAgain()             // the popup's Search again
 await __skDev.notThisSong(true)         // the popup's Not this song (false: Undo)
 await __skDev.popup({ sk: 'reload', when: 'after-song' })
+await __skDev.seedNone()                // put the playing song into the "no lyrics anywhere" state (to test Search again)
 await __skDev.forget()                  // forget the playing song's cached results
 await __skDev.fresh()                   // forget() + reload the page: a first play, again
 await __skDev.clearCache()

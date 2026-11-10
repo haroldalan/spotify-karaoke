@@ -1,8 +1,9 @@
 # Spotify Karaoke (next)
 
-A clean-slate rebuild of Spotify Karaoke. It romanizes and translates lyrics inside
-Spotify's web player and finds lyrics for songs Spotify has none for. Chrome first; Edge
-uses the same build; Firefox comes later.
+Spotify Karaoke romanizes and translates lyrics inside Spotify's web player, restores the
+original script when Spotify serves romanized lyrics, and finds lyrics for songs Spotify has
+none for. A clean-slate rebuild (version 4.0.0) of the published extension. Chrome and Edge
+use one build; Firefox (142+) has its own MV3 build.
 
 - [PROBLEM.md](PROBLEM.md): what this is for, in priority order. Every change is judged
   against it.
@@ -28,6 +29,11 @@ state, changes settings, runs the popup's actions, forgets cached results and re
 extension. See [docs/devkit.md](docs/devkit.md).
 
 Load `.output/chrome-mv3` at `chrome://extensions` (Developer mode → Load unpacked).
+
+To rebuild the Firefox add-on from the sources zip (what Mozilla's reviewers do): Node 22,
+`npm ci`, then `npm run build:firefox`; the add-on is `.output/firefox-mv3`. The list of
+bundled packages and their licences is `public/THIRD_PARTY_NOTICES.txt` (regenerate with
+`npm run licenses` after changing dependencies).
 
 ## Live testing in Chrome
 

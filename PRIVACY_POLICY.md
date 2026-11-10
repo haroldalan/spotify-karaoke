@@ -43,11 +43,11 @@ reveals your IP address to the service that receives it.
 | Service | When | What is sent |
 |:---|:---|:---|
 | **LRCLIB** (`lrclib.net`) | When a song starts (or is queued next) that Spotify has no lyrics for, has only unsynced lyrics for, or shows romanized; before you open the lyrics view, so they are ready | Title, artist, album, duration |
-| **YouTube Music** (`music.youtube.com`) | Same as LRCLIB | Title and first artist; then YouTube Music's own ids for the song it found. The extension presents these requests as YouTube Music's Android app, which is the only client YouTube Music gives timed lyrics to |
-| **Google Translate** (`translate.googleapis.com`) | When you show translations, and to romanize scripts without a local romanizer (Arabic, Hebrew, Persian, Urdu and others) or Japanese words the local dictionary doesn't know | The lyric lines and your target language |
+| **YouTube Music** (`music.youtube.com`) | Same as LRCLIB | Title and first artist; then YouTube Music's own ids for the song it found. The extension presents these requests as YouTube Music's Android app, which is the only client YouTube Music gives timed lyrics to. Once a day it also reads YouTube Music's public home page (nothing is sent but the request) for the version number its web client uses |
+| **Google Translate** (`translate.googleapis.com`) | When you show translations, and to romanize scripts without a local romanizer (Arabic, Hebrew, Persian, Urdu and others) or Japanese lines with a word the local dictionary doesn't know. Also, in any mode, when Spotify shows a song in those scripts romanized and the extension checks a copy in the song's own script against it | The lyric lines (the whole song, in one request) and your target language |
 | **Google Translate, website widget** (`translate-pa.googleapis.com`, and its script on `translate.googleapis.com`) | Only while Google Translate above asks the extension to slow down: the backup for translations | The lyric lines and your target language. The widget's public key is read from Google's widget script, which sends nothing about you or the song |
 | **LRCLIB uploader** (`lrclibup.boidu.dev`, a community tool for adding lyrics to LRCLIB) | Only when you click "Add lyrics to LRCLIB" on a song no source has lyrics for: a new tab opens at its address. The extension itself sends nothing to it | Title, artist, album and duration, in the address of the tab that opens |
-| **jsDelivr** (`cdn.jsdelivr.net`) | The first time a Japanese song is romanized | Nothing about you or the song: a public dictionary file is downloaded |
+| **jsDelivr** (`cdn.jsdelivr.net`) | When a Japanese song starts or is queued while romanization is wanted (Romanized mode, or All three lines): the dictionary (about 18 MB) is downloaded, then kept by the browser. Original mode downloads nothing | Nothing about you or the song: a public dictionary file is downloaded |
 
 ## Permissions
 

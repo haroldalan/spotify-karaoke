@@ -21,3 +21,17 @@ export const LANGUAGES: [string, string][] = [
   ['ts', 'Tsonga'], ['tr', 'Turkish'], ['tk', 'Turkmen'], ['ak', 'Twi'], ['uk', 'Ukrainian'], ['ur', 'Urdu'], ['ug', 'Uyghur'], ['uz', 'Uzbek'],
   ['vi', 'Vietnamese'], ['cy', 'Welsh'], ['xh', 'Xhosa'], ['yi', 'Yiddish'], ['yo', 'Yoruba'], ['zu', 'Zulu'],
 ];
+
+/**
+ * Names that start with what was typed come first, then names with a word that does, then
+ * the rest: "hin" finds Hindi before Chinese. The order is otherwise kept.
+ */
+export function rankByQuery<T extends [string, string]>(langs: T[], query: string): T[] {
+  if (!query) return langs;
+  const rank = ([code, name]: T) => {
+    const n = name.toLowerCase();
+    if (code.toLowerCase() === query || n.startsWith(query)) return 0;
+    return n.split(/[\s(),-]+/).some((w) => w.startsWith(query)) ? 1 : 2;
+  };
+  return langs.map((l, i) => [l, i] as const).sort((x, y) => rank(x[0]) - rank(y[0]) || x[1] - y[1]).map(([l]) => l);
+}

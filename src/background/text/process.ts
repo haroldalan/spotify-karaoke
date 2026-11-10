@@ -42,16 +42,26 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
 
   // Shared Google call: translation (+ romanization when Google is the romanizer).
   let googleCall: Promise<GoogleResult> | null = null;
+  let googleCallHasRm = false;
+  let rmCall: Promise<GoogleResult> | null = null;
   const google = (wantRm: boolean) => {
-    googleCall ??= googleLines(lines, req.translateTo ?? 'en', wantRm, fetch, { translation: !!trKey && !sameLanguage });
+    if (!googleCall) {
+      googleCallHasRm = wantRm;
+      googleCall = googleLines(lines, req.translateTo ?? 'en', wantRm, fetch, { translation: !!trKey && !sameLanguage });
+      return googleCall;
+    }
+    // The shared call was made without romanization (the translation got there first, and
+    // the script has a local romanizer): a caller that now needs Google's gets its own call,
+    // never the shared one, which would answer with nothing.
+    if (wantRm && !googleCallHasRm) return (rmCall ??= googleLines(lines, req.translateTo ?? 'en', true, fetch, { translation: false }));
     return googleCall;
   };
   const googleRomanizes = GOOGLE_PREFERRED.has(script);
 
   const romanized = req.romanize
-    ? once(rmKey, async () => {
+    ? once(rmKey, async (): Promise<{ out: (string | null)[]; incomplete: boolean }> => {
         const cached = await cacheGet<(string | null)[]>(rmKey);
-        if (cached) return cached;
+        if (cached) return { out: cached, incomplete: false };
         const { lines: out, complete } = await romanizeLinesDetailed(lines, script, {
           google: async (subset) => {
             // Google romanizes the whole song in the same request as the translation.
@@ -62,9 +72,11 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
             return subset.map((l) => all.romanized[lines.indexOf(l)] ?? null);
           },
         });
-        // Stopgaps (transliteration, unread kanji, Google unreachable) are retried next time.
-        if (complete) await cacheSet(rmKey, out, ROMANIZED_TTL);
-        return out;
+        // Stopgaps (transliteration, unread kanji, Google unreachable) are retried next time,
+        // and so is an answer with nothing in it for a song that has words to romanize.
+        const empty = script !== 'Latn' && lines.some((l) => /\p{L}/u.test(l)) && !out.some(Boolean);
+        if (complete && !empty) await cacheSet(rmKey, out, ROMANIZED_TTL);
+        return { out, incomplete: !complete || empty };
       })
     : Promise.resolve(null);
 
@@ -82,7 +94,9 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
   if (r.status === 'rejected' && t.status === 'rejected') throw r.reason;
   return {
     script,
-    romanized: r.status === 'fulfilled' ? r.value : null,
+    romanized: r.status === 'fulfilled' ? r.value?.out ?? null : null,
+    // A stopgap romanization (Google unreachable, an unread kanji): the page asks again later.
+    ...(r.status === 'fulfilled' && r.value?.incomplete ? { incomplete: true } : {}),
     translated: t.status === 'fulfilled' ? t.value?.map((x, i) => (x && x !== lines[i].trim() ? x : null)) ?? null : null,
     ...(t.status === 'rejected' ? { translateError: String((t.reason as Error)?.message || t.reason) } : {}),
   };

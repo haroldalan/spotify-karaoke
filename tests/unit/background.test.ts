@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { installChromeStorage } from '../helpers/chrome';
-import { RateLimited, googleLines } from '../../src/background/text/google';
+import { RateLimited, googleLines, resetGoogleBackoff } from '../../src/background/text/google';
 import { parseLyricsBrowse, parseSearch, ytm } from '../../src/background/lyrics/ytm';
 import type { TrackMeta } from '../../src/shared/types';
 
@@ -114,6 +114,44 @@ describe('YouTube Music parsing', () => {
     const f = ytmFake(timed, plain);
     expect(await ytm({ ...meta, durationMs: 300000 }, f.impl)).toBeNull();
   });
+
+  it('says "no lyrics" only when YouTube Music said so: a failed request is a failure, not an answer', async () => {
+    // Both lyrics requests fail (HTTP 403): the lookup is incomplete, and is asked again soon.
+    const blocked = (async (url: string, init?: RequestInit) => {
+      if (!url.includes('/youtubei/')) return new Response('');
+      const endpoint = url.split('/v1/')[1].split('?')[0];
+      if (endpoint === 'search') return new Response(JSON.stringify(search));
+      return new Response('', { status: 403 });
+    }) as typeof fetch;
+    await expect(ytm(meta, blocked)).rejects.toThrow(/HTTP 403/);
+    // Answered without lyrics (no Lyrics tab): that is an answer.
+    const none = (async (url: string) => {
+      if (!url.includes('/youtubei/')) return new Response('');
+      const endpoint = url.split('/v1/')[1].split('?')[0];
+      return new Response(JSON.stringify(endpoint === 'search' ? search : { contents: { tabs: [{ tabRenderer: { title: 'Up next' } }] } }));
+    }) as typeof fetch;
+    expect(await ytm(meta, none)).toBeNull();
+  });
+});
+
+describe('YouTube Music header rules', () => {
+  it('limit the rules to this extension\'s own origin host (the id in Chrome, the uuid in Firefox)', async () => {
+    const rules: any[] = [];
+    (globalThis as any).chrome = {
+      runtime: { id: 'spotify-karaoke@example.com', getURL: (p: string) => `moz-extension://6f2a7c1e-uuid-0000/${p.replace(/^\//, '')}` },
+      tabs: { TAB_ID_NONE: -1 },
+      declarativeNetRequest: { updateSessionRules: async (o: any) => { rules.push(...o.addRules); } },
+    };
+    vi.resetModules();
+    const { ytmHeaderRules } = await import('../../src/background/lyrics/ytm');
+    await ytmHeaderRules();
+    expect(rules.map((r) => r.id)).toEqual([101, 102]);
+    for (const r of rules) {
+      expect(r.condition.initiatorDomains).toEqual(['6f2a7c1e-uuid-0000']); // not the add-on id, which Firefox refuses as a domain
+      expect(r.condition.tabIds).toEqual([-1]);
+    }
+    delete (globalThis as any).chrome;
+  });
 });
 
 describe('cache', () => {
@@ -175,6 +213,104 @@ describe('processing', () => {
     expect(out.translated).toBeNull();
     expect(out.translateError).toMatch(/rate-limiting/);
     vi.unstubAllGlobals();
+  });
+});
+
+describe('romanization from Google', () => {
+  beforeEach(() => {
+    resetGoogleBackoff(); // the statically imported copy still holds the 429 test's pause
+    vi.resetModules();
+    installChromeStorage();
+  });
+
+  /** Google answering with a translation and no romanization at all. */
+  const noTranslit = (async (_u: string, init?: RequestInit) => {
+    const q = new URLSearchParams(String(init?.body)).get('q') ?? '';
+    const lines = q.split('\n');
+    return new Response(JSON.stringify({ sentences: lines.map((l, i) => ({ trans: `${l}!${i < lines.length - 1 ? '\n' : ''}` })) }));
+  }) as typeof fetch;
+
+  it('takes "no romanization sent" as an answer: the translation stays one request, not one per line', async () => {
+    const requests: string[] = [];
+    const counting = (async (u: string, init?: RequestInit) => { requests.push(String(init?.body)); return noTranslit(u, init); }) as typeof fetch;
+    const out = await googleLines(['مرحبا', 'شكرا', 'وداعا'], 'en', true, counting);
+    expect(out.translated).toEqual(['مرحبا!', 'شكرا!', 'وداعا!']);
+    expect(out.romanized).toEqual([null, null, null]);
+    expect(requests).toHaveLength(1);
+  });
+
+  it('answers an Arabic song with transliteration, final, when Google has no romanization for it', async () => {
+    vi.stubGlobal('fetch', noTranslit);
+    const { processLines } = await import('../../src/background/text/process');
+    const out = await processLines({ lines: ['مرحبا', 'شكرا'], language: 'ar', romanize: true, translateTo: 'en' });
+    expect(out.romanized?.every(Boolean)).toBe(true);
+    expect(out.incomplete).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+
+  it('gives a romanizer that needs Google its own request when the shared one had no romanization', async () => {
+    // Japanese with the dictionary unavailable: translation first (no romanization asked),
+    // then the romanizer falls back to Google and must not be answered with the shared nothing.
+    const asked: { rm: boolean }[] = [];
+    vi.stubGlobal('fetch', (async (_u: string, init?: RequestInit) => {
+      const params = new URL(_u).searchParams.getAll('dt');
+      const rm = params.includes('rm');
+      asked.push({ rm });
+      const q = new URLSearchParams(String(init?.body)).get('q') ?? '';
+      const lines = q.split('\n');
+      const sentences = lines.map((l, i) => ({ trans: `T(${l})${i < lines.length - 1 ? '\n' : ''}` }));
+      return new Response(JSON.stringify({ sentences: rm ? [...sentences, { src_translit: lines.map((l) => `R(${l})`).join('\n') }] : sentences }));
+    }) as typeof fetch);
+    vi.doMock('../../src/background/text/japanese', () => ({
+      romanizeJapanese: async () => { throw new Error('dictionary not loaded'); },
+      japaneseAnalyzer: async () => { throw new Error('dictionary not loaded'); },
+    }));
+    const { processLines } = await import('../../src/background/text/process');
+    const out = await processLines({ lines: ['君を愛してる', '永遠に'], language: 'ja', romanize: true, translateTo: 'en' });
+    expect(out.romanized).toEqual(['R(君を愛してる)', 'R(永遠に)']);
+    expect(out.translated).toEqual(['T(君を愛してる)', 'T(永遠に)']);
+    expect(asked.some((a) => a.rm)).toBe(true);
+    vi.doUnmock('../../src/background/text/japanese');
+    vi.unstubAllGlobals();
+  });
+
+  it('never caches an empty romanization of a song with words', async () => {
+    vi.stubGlobal('fetch', noTranslit);
+    vi.doMock('../../src/background/text/japanese', () => ({
+      romanizeJapanese: async () => { throw new Error('dictionary not loaded'); },
+      japaneseAnalyzer: async () => { throw new Error('dictionary not loaded'); },
+    }));
+    const stores = installChromeStorage();
+    const { processLines } = await import('../../src/background/text/process');
+    // Dictionary missing, Google has no romanization: nothing usable. Asked again next time.
+    const out = await processLines({ lines: ['君を愛してる'], language: 'ja', romanize: true, translateTo: null });
+    expect(out.romanized?.some(Boolean) ?? false).toBe(false);
+    expect(out.incomplete).toBe(true);
+    expect([...stores.local.keys()].some((k) => k.startsWith('rm'))).toBe(false);
+    vi.doUnmock('../../src/background/text/japanese');
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('Google pauses survive the worker stopping', () => {
+  it('remembers a pause across a new worker life, and forgets it after a success', async () => {
+    vi.resetModules();
+    const stores = installChromeStorage();
+    const limited = (async () => new Response('', { status: 429 })) as typeof fetch;
+    const first = await import('../../src/background/text/google');
+    await expect(first.googleLines(['a'], 'en', false, limited)).rejects.toBeInstanceOf(first.RateLimited);
+    expect([...stores.local.keys()].filter((k) => k.startsWith('pause:')).sort()).toEqual(['pause:google', 'pause:widget']);
+
+    // The worker stopped and started again: memory is gone, storage is not.
+    vi.resetModules();
+    let sent = 0;
+    const second = await import('../../src/background/text/google');
+    const counting = (async () => { sent++; return new Response('', { status: 200 }); }) as typeof fetch;
+    await expect(second.googleLines(['a'], 'en', false, counting)).rejects.toBeInstanceOf(second.RateLimited);
+    expect(sent).toBe(0);
+    await second.ensurePauseLoaded();
+    expect(second.mainBlockedUntil()).toBeGreaterThan(Date.now());
+    expect(second.googleBlockedUntil()).toBeGreaterThan(Date.now());
   });
 });
 

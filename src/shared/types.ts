@@ -66,4 +66,6 @@ export interface Processed {
   script: string | null;
   /** Why translation failed, when it did. */
   translateError?: string;
+  /** The romanization is a stopgap (Google unreachable, a kanji left unread): worth asking for again later. */
+  incomplete?: boolean;
 }

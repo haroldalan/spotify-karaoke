@@ -38,7 +38,11 @@ export async function cacheGet<T>(key: string): Promise<T | undefined> {
     if (e) memory.set(key, e);
   }
   if (!e) return undefined;
-  if (e.ttl && now - e.t > e.ttl) return undefined;
+  if (e.ttl && now - e.t > e.ttl) {
+    // Expired: gone from the device too, not only ignored (the policy says entries expire).
+    void cacheDelete(key).catch(() => {});
+    return undefined;
+  }
   (await loadIndex())[key] = now;
   scheduleIndexSave();
   return e.v;

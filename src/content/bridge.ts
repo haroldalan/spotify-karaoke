@@ -12,6 +12,8 @@ export interface BridgeHandlers {
   /** Spotify had no lyrics for a song and asked for them: whether we found any. */
   onMissing(m: { id: string; found: boolean }): void;
   onError(message: string): void;
+  /** The page script is running in this page (before any song went by). */
+  onAlive?(): void;
 }
 
 export class Bridge {
@@ -54,6 +56,7 @@ export class Bridge {
         if (typeof m?.id === 'string' && typeof m.found === 'boolean') this.h.onMissing({ id: m.id, found: m.found });
       }
       else if (msg.type === 'error') this.h.onError(String(msg.data));
+      else if (msg.type === 'alive') this.h.onAlive?.();
     } else if (msg.kind === 'call' && (msg.type === 'findLyrics' || msg.type === 'restoreNative')) {
       // Only well-formed requests reach the background; anything else is answered with null.
       const run =

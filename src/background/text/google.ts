@@ -3,7 +3,8 @@
 // the batch is retried line by line.
 import { tracked } from '../health';
 import { RateLimited } from './googleErrors';
-import { widgetBlockedUntil, widgetTranslate } from './googleWidget';
+import { ensureWidgetPauseLoaded, widgetBlockedUntil, widgetTranslate } from './googleWidget';
+import { loadPause, nextPause, savePause } from './pause';
 
 export { RateLimited };
 
@@ -17,6 +18,18 @@ const MAX_CHARS = 4000;
 // block last longer.
 let blockedUntil = 0;
 let strikes = 0;
+let loaded: Promise<void> | null = null;
+
+/** Reads the pause kept by an earlier life of this worker (once per worker lifetime). */
+export function ensurePauseLoaded(): Promise<void> {
+  loaded ??= (async () => {
+    const p = await loadPause('google');
+    blockedUntil = Math.max(blockedUntil, p.until);
+    strikes = Math.max(strikes, p.strikes);
+    await ensureWidgetPauseLoaded();
+  })();
+  return loaded;
+}
 
 /** When the main endpoint may be asked again (0: now). */
 export function mainBlockedUntil(): number {
@@ -34,6 +47,7 @@ export function googleBlockedUntil(): number {
 export function resetGoogleBackoff() {
   blockedUntil = 0;
   strikes = 0;
+  loaded = null;
 }
 
 interface Raw {
@@ -42,6 +56,7 @@ interface Raw {
 }
 
 async function request(text: string, target: string, wantRomanized: boolean, fetchImpl = fetch): Promise<Raw> {
+  await ensurePauseLoaded();
   if (Date.now() < blockedUntil) {
     throw new RateLimited(`Google Translate is rate-limiting this network; retrying after ${new Date(blockedUntil).toLocaleTimeString()}`);
   }
@@ -62,14 +77,19 @@ async function send(text: string, target: string, wantRomanized: boolean, fetchI
   });
   const redirected = res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400);
   if (res.status === 429 || redirected) {
-    strikes++;
-    blockedUntil = Date.now() + Math.min(30, 2 ** (strikes - 1)) * 60_000;
+    const p = nextPause(strikes);
+    strikes = p.strikes;
+    blockedUntil = p.until;
+    savePause('google', p);
     throw new RateLimited(redirected
       ? 'Google Translate is rate-limiting this network (it asks for a CAPTCHA)'
       : 'Google Translate is rate-limiting this network');
   }
   if (!res.ok) throw new Error(`Google Translate HTTP ${res.status}`);
-  strikes = 0;
+  if (strikes) {
+    strikes = 0;
+    savePause('google', { until: 0, strikes: 0 });
+  }
   const j = (await res.json()) as { sentences?: { trans?: string; src_translit?: string }[] };
   const sentences = j.sentences ?? [];
   const translated = sentences.map((s) => s.trans ?? '').join('');
@@ -144,8 +164,9 @@ async function mainLines(
     const trLines = splitLines(raw.translated);
     const rmLines = raw.romanized ? splitLines(raw.romanized) : null;
     if (trLines.length === chunk.length) tr = trLines;
-    // Without a romanization wanted, there is none to check.
-    const rmOk = !wantRomanized || (!!rmLines && rmLines.length === chunk.length);
+    // No romanization wanted, or none sent (Google has none for this language): nothing to
+    // check. Only a romanization with the wrong number of lines means the structure was lost.
+    const rmOk = !wantRomanized || !rmLines || rmLines.length === chunk.length;
     if (rmOk) rm = rmLines;
     if (!tr || !rmOk) {
       // Line structure lost: one request per line, a few at a time.

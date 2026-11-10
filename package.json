@@ -13,6 +13,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "live": "node tools/live/driver.mjs",
+    "licenses": "node tools/licenses.mjs",
     "postinstall": "wxt prepare",
     "build:edge": "wxt build -b edge",
     "zip:firefox": "wxt zip -b firefox --mv3",

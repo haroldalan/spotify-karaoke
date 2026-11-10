@@ -26,7 +26,8 @@ export interface LrclibResult {
 
 function getJson<T>(url: string, fetchImpl: typeof fetch): Promise<T | null> {
   return tracked('lrclib', async () => {
-    const res = await fetchImpl(url, { headers: HEADERS });
+    // No request waits longer than 10 s: a hung source must not hold a lyrics lookup.
+    const res = await fetchImpl(url, { headers: HEADERS, ...(typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? { signal: AbortSignal.timeout(10_000) } : {}) });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`LRCLIB HTTP ${res.status}`);
     return (await res.json()) as T;

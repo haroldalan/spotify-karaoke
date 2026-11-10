@@ -1,4 +1,4 @@
-import { LANGUAGES } from '../../src/shared/languages';
+import { LANGUAGES, rankByQuery } from '../../src/shared/languages';
 import { call } from '../../src/shared/messages';
 import { loadSettings, onSettingsChanged, resetSettings, saveSettings } from '../../src/shared/settings';
 import type { Mode, Settings } from '../../src/shared/types';
@@ -25,8 +25,8 @@ const nameOf = (code: string) => LANGUAGES.find(([c]) => c === code)?.[1] ?? cod
 function fillLanguages() {
   const f = search.value.trim().toLowerCase();
   const match = ([code, name]: [string, string]) => !f || name.toLowerCase().includes(f) || code.toLowerCase() === f;
-  const common = QUICK.map((c) => LANGUAGES.find(([code]) => code === c)).filter((l): l is [string, string] => !!l).filter(match);
-  const rest = LANGUAGES.filter(([c]) => !QUICK.includes(c)).filter(match);
+  const common = rankByQuery(QUICK.map((c) => LANGUAGES.find(([code]) => code === c)).filter((l): l is [string, string] => !!l).filter(match), f);
+  const rest = rankByQuery(LANGUAGES.filter(([c]) => !QUICK.includes(c)).filter(match), f);
   const nodes: HTMLLIElement[] = [];
   let i = 0;
   for (const [label, langs] of [['Common', common], ['All languages', rest]] as const) {
@@ -69,14 +69,14 @@ function setActive(i: number) {
   else search.removeAttribute('aria-activedescendant');
 }
 
-function openLanguages(open: boolean) {
+function openLanguages(open: boolean, refocus = true) {
   panel.hidden = !open;
   langButton.setAttribute('aria-expanded', String(open));
   if (open) {
     search.value = '';
     fillLanguages();
     search.focus();
-  } else langButton.focus();
+  } else if (refocus) langButton.focus();
 }
 
 function choose(code: string | undefined) {
@@ -98,6 +98,11 @@ search.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 list.addEventListener('click', (e) => choose((e.target as HTMLElement).closest<HTMLElement>('li[role="option"]')?.dataset.code));
+// A click anywhere else closes the list (and leaves the focus where the click put it).
+document.addEventListener('mousedown', (e) => {
+  const t = e.target as Node;
+  if (!panel.hidden && !panel.contains(t) && !langButton.contains(t)) openLanguages(false, false);
+});
 
 // ── Switches ──
 const allLines = $<HTMLInputElement>('#all-lines');
@@ -117,7 +122,7 @@ function render(s: Settings) {
   showPill.checked = s.showPill;
   showPill.disabled = s.allLines;
   pillRow.classList.toggle('disabled', s.allLines);
-  pillDescription.textContent = s.allLines ? 'Hidden while all three lines show' : 'The Original / Romanized / Translated switch on the lyrics';
+  pillDescription.textContent = s.allLines ? 'Hidden while all three lines show' : 'The mode switch on the lyrics';
 }
 
 void loadSettings().then(render);
@@ -185,7 +190,7 @@ function renderSong(page: PageStatus, note = '') {
   if (!c) { song.hidden = true; return; }
   const title = `${c.name} · ${c.artists.join(', ')}`;
   /** Sends the song back to Spotify, or undoes that. */
-  const choose = (on: boolean) => () => void ask({ sk: 'not-this-song', on }).then(() => refresh());
+  const choose = (on: boolean) => () => void ask({ sk: 'not-this-song', on, id: c.id }).then(() => refresh());
   if (page.reload) {
     const reloadNow = { label: 'Reload now', primary: true, run: () => { void ask({ sk: 'reload', when: 'now' }); window.close(); } };
     // A choice made for this song can be undone until the reload.
@@ -216,7 +221,7 @@ function renderSong(page: PageStatus, note = '') {
         label: 'Search again',
         run: () => {
           songRow(title, 'Searching again…', []);
-          void ask<{ found: boolean }>({ sk: 'search-again' }).then((r) => refresh(r?.found ? '' : 'Still none to be found.'));
+          void ask<{ found: boolean }>({ sk: 'search-again', id: c.id }).then((r) => refresh(r?.found ? '' : 'Still none to be found.'));
         },
       },
     ]);
@@ -250,6 +255,10 @@ async function renderStatus() {
   else if (failing) setSummary('bad', failing);
   else setSummary('ok', 'Working');
   if (page?.pageSeenAt) renderSong(page);
+  // With a song row and everything fine, the song's own line carries the green dot: one line less.
+  const merged = !song.hidden && summary.classList.contains('ok');
+  summary.hidden = merged;
+  song.classList.toggle('with-dot', merged);
 }
 
 // ── Storage, Clear cache and Reset data ──
@@ -304,7 +313,9 @@ void renderStorage();
 $('#version').textContent = `v${chrome.runtime.getManifest().version}`;
 $('#shortcuts').addEventListener('click', (e) => {
   e.preventDefault();
-  // Chrome and Edge; Firefox has its own page (about:addons, gear menu).
-  const url = navigator.userAgent.includes('Firefox') ? 'about:addons' : 'chrome://extensions/shortcuts';
-  void chrome.tabs.create({ url });
+  // Firefox opens its shortcut settings directly (a page tab may not be opened for about:addons);
+  // Chrome and Edge have a page for them.
+  const commands = chrome.commands as typeof chrome.commands & { openShortcutSettings?: () => Promise<void> };
+  if (navigator.userAgent.includes('Firefox')) void commands.openShortcutSettings?.();
+  else void chrome.tabs.create({ url: navigator.userAgent.includes('Edg/') ? 'edge://extensions/shortcuts' : 'chrome://extensions/shortcuts' });
 });

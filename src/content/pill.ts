@@ -52,6 +52,8 @@ export interface NoticeAction {
 }
 
 export interface Notice {
+  /** The song this notice is for: its buttons act on that song, so another song's notice is another one. */
+  key: string;
   /** Short status under the actions (e.g. "Still no lyrics"); empty: none. */
   caption: string;
   actions: NoticeAction[];
@@ -59,6 +61,9 @@ export interface Notice {
 
 /** The full lyrics view, not Spotify's small lyrics card in the sidebar. */
 const isFullView = (a: Anchor) => a.width >= 420 && a.height >= 260;
+
+/** What identifies a notice's buttons: its song, and what they say. They are rebuilt when it changes. */
+export const noticeIdentity = (n: Notice) => `${n.key}\n${n.caption}\n${n.actions.map((a) => a.label).join('|')}`;
 
 export class Pill {
   private host = document.createElement('sk-pill');
@@ -120,7 +125,7 @@ export class Pill {
       return;
     }
     this.mount();
-    const key = n.caption + n.actions.map((a) => a.label).join();
+    const key = noticeIdentity(n);
     if (key !== this.noticeKey) {
       this.noticeKey = key;
       this.noticeCapsule.replaceChildren(

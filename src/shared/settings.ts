@@ -42,9 +42,32 @@ export function settingsFrom(stored: unknown): Settings {
   };
 }
 
+/** The top-level keys 3.1.6 kept its preferences under. */
+const LEGACY = ['targetLang', 'preferredMode', 'showPill'] as const;
+
+/**
+ * Settings 3.1.6 saved, as 4.x settings: the language, the mode and the switcher carry
+ * over. (3.1.6's "dual lyrics" was the original beneath the main line, which is now always
+ * on; the three-line view is new and starts off.) null: no 3.1.6 settings were saved.
+ */
+export function settingsFromLegacy(got: Record<string, unknown>): Settings | null {
+  if (!LEGACY.some((k) => got[k] !== undefined)) return null;
+  // 3.1.6 wrote Javanese as 'jv'; Google Translate says 'jw'.
+  const lang = got.targetLang === 'jv' ? 'jw' : got.targetLang;
+  return settingsFrom({ mode: got.preferredMode, targetLang: lang, showPill: got.showPill });
+}
+
 export async function loadSettings(): Promise<Settings> {
   try {
-    const got = await chrome.storage.sync.get(KEY);
+    const got = await chrome.storage.sync.get([KEY, ...LEGACY]);
+    if (got[KEY] === undefined) {
+      // First run after an update from 3.1.6: its choices, written once as ours.
+      const migrated = settingsFromLegacy(got);
+      if (migrated) {
+        await chrome.storage.sync.set({ [KEY]: migrated }).catch(() => {});
+        return migrated;
+      }
+    }
     return settingsFrom(got[KEY]);
   } catch {
     return defaults();

@@ -4,7 +4,7 @@ import type { Mode } from '../shared/types';
 import { findLyrics, knownNoLyrics, retryLyrics } from './lyrics/find';
 import { cacheBytes, cacheClear } from './cache';
 import { getHealth } from './health';
-import { googleBlockedUntil } from './text/google';
+import { ensurePauseLoaded, googleBlockedUntil } from './text/google';
 import { japaneseAnalyzer } from './text/japanese';
 import { restoreNative } from './lyrics/native';
 import { processLines } from './text/process';
@@ -52,7 +52,10 @@ export function startBackground(): void {
     retryLyrics: (meta) => retryLyrics(meta),
     storage: async () => ({ bytes: await cacheBytes() }),
     clearCache: async () => { await cacheClear(); return true as const; },
-    health: async () => ({ sources: await getHealth(), googleBlockedUntil: googleBlockedUntil() }),
+    health: async () => {
+      await ensurePauseLoaded();
+      return { sources: await getHealth(), googleBlockedUntil: googleBlockedUntil() };
+    },
     restoreNative,
     process: processLines,
     warm: ({ language }) => {
@@ -69,8 +72,12 @@ export function startBackground(): void {
     });
   }
 
-  chrome.runtime.onInstalled.addListener(({ reason }) => {
-    if (reason === 'install' || reason === 'update') void addToOpenTabs();
+  chrome.runtime.onInstalled.addListener(({ reason, previousVersion }) => {
+    // A tab open during an update from 3.x still runs 3.x's scripts, which know nothing of the
+    // handover (no TAKEOVER): adding 4.x on top of them would run both. That tab keeps what it
+    // has until it is reloaded, and the popup says so. From 4.x on, a newer copy takes over.
+    const from3 = reason === 'update' && /^3\./.test(previousVersion ?? '');
+    if ((reason === 'install' || reason === 'update') && !from3) void addToOpenTabs();
   });
 
   // Keyboard shortcuts (chrome://extensions/shortcuts). Settings sync to every tab.

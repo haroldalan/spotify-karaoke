@@ -130,6 +130,9 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
       } else if (msg.kind === 'ready') {
         for (const m of recent) win.postMessage(m, win.location.origin);
       }
+      // Say so before any song has gone by: the popup tells a page nothing has happened on
+      // (Spotify just opened, nothing played yet) from a page this script isn't in.
+      if (msg.kind === 'ready') win.postMessage({ tag: TAG, dir: 'up', kind: 'event', type: 'alive', data: null } satisfies Up, win.location.origin);
     } else if (msg.kind === 'reply') {
       replies.get(msg.id)?.(msg.data);
       replies.delete(msg.id);

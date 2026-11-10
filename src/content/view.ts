@@ -50,6 +50,8 @@ export class View {
   };
   /** Line elements a pass has already been over. */
   private seen = new WeakSet<Element>();
+  private unsubscribe: () => void;
+  private stopped = false;
 
   constructor(private store: LineStore, settings: Settings, private doc: Document = document) {
     this.settings = settings;
@@ -62,10 +64,11 @@ export class View {
       }
     });
     if (typeof win.ResizeObserver === 'function') this.resizeObserver = new win.ResizeObserver(this.onResize);
-    store.onChange(() => this.schedule());
+    this.unsubscribe = store.onChange(() => this.schedule());
   }
 
   start() {
+    this.stopped = false;
     this.observer.observe(this.doc.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-checked'] });
     (this.doc.defaultView ?? window).addEventListener('resize', this.onResize);
     this.doc.addEventListener('transitionend', this.onFade, true);
@@ -86,7 +89,7 @@ export class View {
   }
 
   schedule() {
-    if (this.scheduled) return;
+    if (this.scheduled || this.stopped) return;
     this.scheduled = true;
     (this.doc.defaultView ?? window).requestAnimationFrame(() => {
       this.scheduled = false;
@@ -96,6 +99,9 @@ export class View {
 
   /** One decoration pass over every lyrics list in the document. Exposed for tests. */
   pass() {
+    // A pass already scheduled when this view was stopped (a newer copy took over, the mini
+    // player closed) must not run: it would decorate from a store nobody uses any more.
+    if (this.stopped) return;
     const lines = [...this.doc.querySelectorAll(LINE_SELECTOR)];
     const lists = new Map<Element | null, Element[]>();
     for (const el of lines) {
@@ -200,6 +206,8 @@ export class View {
   }
 
   stop() {
+    this.stopped = true;
+    this.unsubscribe();
     this.observer.disconnect();
     this.resizeObserver?.disconnect();
     (this.doc.defaultView ?? window).removeEventListener('resize', this.onResize);

@@ -19,22 +19,19 @@
         <label title="Romanized (R)"><input type="radio" name="mode" value="romanized" /><span>Romanized</span></label>
         <label title="Translated (T)"><input type="radio" name="mode" value="translated" /><span>Translated</span></label>
       </div>
-      <p class="sub hint-line">Press O, R or T while the lyrics are open. <a href="#" id="shortcuts">Alt+Shift shortcuts</a> work anywhere.</p>
+      <p class="sub hint-line">O · R · T on the lyrics · <a href="#" id="shortcuts">Alt+Shift shortcuts</a></p>
     </section>
 
     <section>
       <div class="row">
-        <span id="lang-label">Translate into<span class="sub">For the translated lines</span></span>
+        <span id="lang-label">Translate into</span>
         <button id="lang-button" type="button" class="dropdown" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="lang-label lang-button"><span id="lang-name">English</span></button>
       </div>
       <div id="lang-panel" class="lang-panel" hidden>
         <input id="lang-search" type="search" placeholder="Search languages" autocomplete="off" aria-label="Search languages" aria-controls="lang-list" />
         <ul id="lang-list" role="listbox" aria-labelledby="lang-label" tabindex="-1"></ul>
       </div>
-    </section>
-
-    <section>
-      <label class="row"><span>All three lines<span class="sub">Original, romanization and translation together, in every mode</span></span><input type="checkbox" role="switch" id="all-lines" /></label>
+      <label class="row"><span>All three lines<span class="sub">All three at once, in every mode</span></span><input type="checkbox" role="switch" id="all-lines" /></label>
       <label class="row" id="pill-row"><span>Show the switcher<span class="sub" id="pill-description"></span></span><input type="checkbox" role="switch" id="show-pill" /></label>
     </section>
 
@@ -62,7 +59,7 @@
 
     <a class="star" href="https://github.com/haroldalan/spotify-karaoke" target="_blank" rel="noopener noreferrer">
       <svg class="star-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.94 5.96 6.58.96-4.76 4.64 1.12 6.55L12 17.52l-5.88 3.09 1.12-6.55L2.48 9.42l6.58-.96z" /></svg>
-      <span class="star-text"><span class="star-title">Star this project</span><span class="sub">Show your love on GitHub</span></span>
+      <span class="star-text"><span class="star-title">Star this project on GitHub</span></span>
       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 2.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v5a.5.5 0 0 1-1 0V4.207l-7.146 7.147a.5.5 0 0 1-.708-.708L10.793 3.5H7a.5.5 0 0 1-.5-.5z" /></svg>
     </a>
 

@@ -58,7 +58,11 @@ export function songScript(lines: string[], language?: string | null): Script {
   const counts = scriptCounts(lines.join('\n'));
   const kana = counts.get('Jpan') ?? 0;
   const han = counts.get('Hani') ?? 0;
-  if (han && (kana || language === 'ja')) {
+  const base = (language ?? '').toLowerCase().split(/[-_]/)[0];
+  const chinese = base === 'zh' || base === 'cmn' || base === 'yue';
+  // J-pop is mostly kana and kanji; a phrase in a Chinese song, a の or a "ー", is a small share.
+  const japanese = base === 'ja' || (!chinese && kana > 0 && kana * 10 >= kana + han) || (chinese && kana * 3 >= han);
+  if (han && japanese) {
     counts.set('Jpan', kana + han);
     counts.delete('Hani');
   }

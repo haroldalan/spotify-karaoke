@@ -47,7 +47,7 @@ to sing along.
 - **Free and private.** No account, no API key, no sign-in, no analytics. Lyrics and
   lines are only sent to the lyrics and translation services that need them.
 - **Chrome, Edge and Firefox**, from one codebase, Manifest V3.
-- **Preferences follow the user** across devices (mode, target language, dual lines).
+- **Preferences follow the user** across devices (mode, target language, the three-line view, the switcher).
 
 ## Out of scope
 

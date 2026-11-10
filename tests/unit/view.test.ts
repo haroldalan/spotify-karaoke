@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
-import { LineStore, MAX_SONGS } from '../../src/content/lineStore';
+import { describe, expect, it, vi } from 'vitest';
+import { LineStore, MAX_SONGS, RETRY_MS } from '../../src/content/lineStore';
 import { View, currentLine } from '../../src/content/view';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 import { STYLE } from '../../src/content/decorate';
+import { noticeIdentity, type Notice } from '../../src/content/pill';
+import { modeForKey } from '../../src/content/keys';
 import { readEl } from '../helpers/lines';
 
 const flush = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
@@ -314,5 +316,123 @@ describe('the stylesheet in compact lists (Spotify\'s sidebar card, the mini pla
     expect(display({ 'data-sk-compact': '', 'data-sk-big': 'c' })).not.toBe('none'); // Spotify\'s own text is the main line
     expect(display({ 'data-sk-compact': '', 'data-sk-big': 'a', 'data-sk-a': 'oh yeah' })).toBe('none'); // ::before is
     expect(display({ 'data-sk-compact': '', 'data-sk-big': 'b', 'data-sk-b': 'oh yeah' })).toBe('none'); // ::after is
+  });
+});
+
+describe('the no-lyrics notice', () => {
+  it('is a different notice for each song: its buttons act on the song it was built for', () => {
+    // Found by the audit (2026-11-10): the notice was rebuilt only when its words changed, so
+    // after skipping from one no-lyrics song to another, Search again still searched the first.
+    const a: Notice = { key: 'songA', caption: '', actions: [{ label: 'Search again' }, { label: 'Add lyrics to LRCLIB' }] };
+    const b: Notice = { ...a, key: 'songB' };
+    expect(noticeIdentity(a)).not.toBe(noticeIdentity(b));
+    expect(noticeIdentity(a)).toBe(noticeIdentity({ ...a }));
+  });
+});
+
+describe('asking again, and not asking too much', () => {
+  const lines = (n: number) => [`第${n}行`, `${n}番目の歌`];
+
+  it('a settings change brings only the newest songs up to date, the rest when they show', async () => {
+    const asked: string[][] = [];
+    const store = new LineStore(async (req) => { asked.push(req.lines); return { script: 'Jpan', romanized: req.lines.map((l) => `r(${l})`), translated: req.translateTo ? req.lines.map((l) => `tr(${l})`) : null }; }, { ...DEFAULT_SETTINGS, mode: 'original' });
+    const songs = [1, 2, 3, 4, 5, 6].map((n) => store.addSong(lines(n), 'ja'));
+    await flush();
+    asked.length = 0;
+    store.setSettings({ ...DEFAULT_SETTINGS, mode: 'translated' });
+    await flush();
+    expect(asked).toHaveLength(3); // not one request per stored song
+    // An older song shows again: it is brought up to date then.
+    store.touch(songs[0]);
+    await flush();
+    expect(asked).toHaveLength(4);
+    // Nothing is asked twice for the same state.
+    store.touch(songs[0]);
+    await flush();
+    expect(asked).toHaveLength(4);
+  });
+
+  it('asks again for a failed translation later, with growing gaps, and not from every pass', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const store = new LineStore(async (req) => {
+      calls++;
+      if (calls <= 2) throw new Error('rate-limited');
+      return { script: 'Jpan', romanized: req.lines.map(() => 'r'), translated: req.lines.map((l) => `tr(${l})`) };
+    }, { ...DEFAULT_SETTINGS, mode: 'translated' });
+    const song = store.addSong(lines(1), 'ja');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(1);
+    expect(song.translateState.en).toBe('failed');
+    // A pass over the page touches the song over and over: that never asks again.
+    for (let i = 0; i < 20; i++) store.touch(song);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 1000); // the first retry fails too
+    expect(calls).toBe(2);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 1000); // gaps double: not yet
+    expect(calls).toBe(2);
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 1000); // now
+    expect(calls).toBe(3);
+    expect(song.translated.en).toEqual([`tr(${lines(1)[0]})`, `tr(${lines(1)[1]})`]);
+    expect(song.translateState.en).toBe('done');
+    await vi.advanceTimersByTimeAsync(10 * RETRY_MS);
+    expect(calls).toBe(3); // done: no more
+    store.stop();
+    vi.useRealTimers();
+  });
+
+  it('asks again for a stopgap romanization, keeping it on screen meanwhile', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const store = new LineStore(async (req) => {
+      calls++;
+      return { script: 'Arab', romanized: req.lines.map(() => (calls === 1 ? 'stopgap' : 'proper')), translated: null, ...(calls === 1 ? { incomplete: true } : {}) };
+    }, { ...DEFAULT_SETTINGS, mode: 'romanized' });
+    const song = store.addSong(['مرحبا'], 'ar');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(song.romanized).toEqual(['stopgap']);
+    expect(song.romanizeState).toBe('done'); // on screen, not "busy"
+    await vi.advanceTimersByTimeAsync(RETRY_MS + 1000);
+    expect(song.romanized).toEqual(['proper']);
+    expect(song.stopgap).toBe(false);
+    expect(calls).toBe(2);
+    store.stop();
+    vi.useRealTimers();
+  });
+});
+
+describe('keys', () => {
+  it('O, R and T on a Latin layout, and the same physical keys on layouts without Latin letters', () => {
+    expect(modeForKey({ key: 'o', code: 'KeyO' })).toBe('original');
+    expect(modeForKey({ key: 'R', code: 'KeyR' })).toBe('romanized');
+    expect(modeForKey({ key: 't', code: 'KeyT' })).toBe('translated');
+    // Russian layout: the keys where O, R and T sit type щ, к, е.
+    expect(modeForKey({ key: 'щ', code: 'KeyO' })).toBe('original');
+    expect(modeForKey({ key: 'к', code: 'KeyR' })).toBe('romanized');
+    expect(modeForKey({ key: 'е', code: 'KeyT' })).toBe('translated');
+    // Another Latin layout (Dvorak): the letter wins, not the position.
+    expect(modeForKey({ key: 'a', code: 'KeyO' })).toBeUndefined();
+    expect(modeForKey({ key: 'o', code: 'KeyS' })).toBe('original');
+    // Not letters at all.
+    expect(modeForKey({ key: 'Enter', code: 'Enter' })).toBeUndefined();
+    expect(modeForKey({ key: 'щ', code: 'KeyQ' })).toBeUndefined();
+  });
+});
+
+describe('a stopped view', () => {
+  it('does not run a pass that was already scheduled, and no longer listens to the store', async () => {
+    const { store, view } = setup({ mode: 'romanized' });
+    store.addSong(['我爱你', '永远'], 'zh');
+    await flush();
+    const [[line]] = lyricsDom(['我爱你', '永远']);
+    view.start();
+    view.stop(); // a newer copy of the script took over before the scheduled pass ran
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    await flush();
+    expect(line.dataset.skBig).toBeUndefined();
+    store.addSong(['别的歌']); // the store changes: nothing is scheduled any more
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    expect(line.dataset.skBig).toBeUndefined();
   });
 });

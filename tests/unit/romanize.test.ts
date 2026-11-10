@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deleteSchwas, romanizeIndic } from '../../src/background/text/indic';
-import { romanizeLines } from '../../src/background/text/romanize';
+import { lineScript, romanizeLines } from '../../src/background/text/romanize';
 import { lineHas, songScript } from '../../src/shared/scripts';
 
 const noGoogle = { google: async () => null };
@@ -10,6 +10,21 @@ describe('script detection', () => {
     expect(songScript(['君を愛してる', '永遠'])).toBe('Jpan');
     expect(songScript(['我爱你', '永远'])).toBe('Hani');
     expect(songScript(['永遠'], 'ja')).toBe('Jpan');
+  });
+  it('does not turn a Chinese song into Japanese for a stray kana', () => {
+    const zh = ['我爱你永远不变', '在这个世界上只有你', 'の', '明天会更好', '谢谢你', '再见朋友'];
+    expect(songScript(zh)).toBe('Hani');
+    expect(songScript(zh, 'zh')).toBe('Hani');
+    expect(songScript(zh, 'cmn')).toBe('Hani');
+    // A real share of kana is Japanese, whatever the tag says; the tag 'ja' always is.
+    expect(songScript(['君を愛してる', '永遠に', 'ありがとう'], 'zh')).toBe('Jpan');
+    expect(songScript(['永遠', '愛'], 'ja')).toBe('Jpan');
+    // And no tag: a few kana among many Han is still Chinese, a Japanese song is not.
+    expect(songScript(['東京の街を歩いていた', '君を愛してる'])).toBe('Jpan');
+  });
+  it('reads a Japanese line in a Chinese song as Japanese', () => {
+    expect(lineScript('君を愛してる', 'Hani')).toBe('Jpan');
+    expect(lineScript('我爱你', 'Hani')).toBe('Hani');
   });
   it('picks the main non-Latin script of a mixed song', () => {
     expect(songScript(['사랑해 baby', 'oh yeah', '너만을'])).toBe('Kore');
