@@ -5,8 +5,8 @@ import type { LyricsKind } from '../page/channel';
 import { Bridge } from './bridge';
 import { modeForKey } from './keys';
 import { STYLE } from './decorate';
-import { ALL_MODES, switchFor } from './modes';
-import { LineStore } from './lineStore';
+import { ALL_MODES, plainSong, switchFor } from './modes';
+import { LineStore, type Song } from './lineStore';
 import { Pill, type Notice } from './pill';
 import { View, type ViewState } from './view';
 import { DEVKIT } from '../devkit/protocol';
@@ -31,8 +31,10 @@ export interface PageStatus {
     noLyrics: boolean;
     /** The lyrics on screen came from us: found, restored to their own script, or a synced copy. */
     ours: { kind: Exclude<LyricsKind, 'spotify'>; source: string } | null;
-    /** The listener sent this song back to Spotify ("Not this song"). */
+    /** The listener sent this song back to Spotify ("Wrong lyrics?"). */
     spotifyOnly: boolean;
+    /** Lyrics the extension leaves as they are (see plainSong); null when it changes them or doesn't know yet. */
+    plain: 'latin' | 'same' | null;
   } | null;
   /** Lyrics found, or a choice made, that Spotify shows after a reload. */
   reload: ReloadOffer;
@@ -130,6 +132,13 @@ export async function startContent(): Promise<void> {
   const missing = new Map<string, TrackMeta>();
   /** Where each song's lyrics on screen came from. */
   const kinds = new Map<string, { kind: LyricsKind; source: string }>();
+  /** Track id -> its lyrics in the store (for the popup's row). */
+  const songOf = new Map<string, Song>();
+  const remember = (id: string, song: Song) => {
+    songOf.delete(id);
+    songOf.set(id, song);
+    if (songOf.size > 300) songOf.delete(songOf.keys().next().value!);
+  };
   /** Native-script copies found in time, until the page says it put them on screen. */
   const restored = new Map<string, { shown: string[]; native: string[]; language: string | null; aligned: boolean }>();
   /** The no-lyrics notice's state for a song (searching, nothing, found). */
@@ -199,7 +208,7 @@ export async function startContent(): Promise<void> {
         if (meta.languages.includes('ja') && (settings.mode !== 'original' || settings.allLines)) void call('warm', { language: 'ja' }).catch(() => {});
         // Spotify has no lyrics: start looking now, before anyone opens the lyrics view.
         if (!meta.hasLyrics && !spotifyOnly.has(meta.id)) {
-          void find(meta).then((found) => found && store.addSong(found.lines.map((l) => l.text), meta.languages[0] ?? null));
+          void find(meta).then((found) => found && remember(meta.id, store.addSong(found.lines.map((l) => l.text), meta.languages[0] ?? null)));
         }
       },
       onLyrics: (l) => {
@@ -207,12 +216,12 @@ export async function startContent(): Promise<void> {
         missing.delete(l.id);
         kinds.set(l.id, { kind: l.kind ?? 'spotify', source: l.source });
         if (kinds.size > 300) kinds.delete(kinds.keys().next().value!);
-        store.addSong(l.lines, l.language);
+        remember(l.id, store.addSong(l.lines, l.language));
         const r = restored.get(l.id);
         restored.delete(l.id);
         // Our native-script copy is on screen: Spotify's own romanized lines (aligned with
         // it) become this song's romanization.
-        if (r && l.kind === 'restored' && r.aligned) store.addRestored(r.shown, r.native, r.language);
+        if (r && l.kind === 'restored' && r.aligned) remember(l.id, store.addRestored(r.shown, r.native, r.language));
       },
       onMissing: (m) => {
         pageSeenAt = Date.now();
@@ -393,6 +402,7 @@ export async function startContent(): Promise<void> {
             noLyrics: (noLyrics.has(m.id) || missing.has(m.id)) && !kinds.has(m.id),
             ours: k && k.kind !== 'spotify' ? { kind: k.kind, source: k.source } : null,
             spotifyOnly: spotifyOnly.has(m.id),
+            plain: songOf.has(m.id) ? plainSong(songOf.get(m.id)!, settings.targetLang) : null,
           }
         : null;
       // An offer made for another song is not this song's: its Undo would act on the wrong one.

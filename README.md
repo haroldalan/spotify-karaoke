@@ -113,7 +113,7 @@ UX pass (2026-11-09/10, a persona audit with the owner's decisions; docs/ux-audi
   original, romanization and translation in every mode, and the switcher leaves the page
   (its popup switch greys out and keeps its setting).
 - Popup: the mode, the language (Common languages first), the two switches with a description
-  each, a status card with the playing song (Search again; "Not this song?" with Undo, sending
+  each, a status card with the playing song (Search again; "Wrong lyrics?" with Undo, sending
   a song back to Spotify's own lyrics; Reload now / After this song), Storage with Clear cache
   and Reset data, the Star card and the credit footer. Checked with a stubbed API.
 - Open Spotify tabs pick up the extension on install and update, without a reload.

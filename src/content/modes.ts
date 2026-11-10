@@ -17,8 +17,19 @@ const baseLang = (l?: string | null) => (l ?? '').toLowerCase().split(/[-_]/)[0]
  */
 export function switchFor(song: Song | null, s: Settings): { modes: Mode[]; mode: Mode } | null {
   if (s.allLines) return null;
-  if (!song || (song.script ?? songScript(song.lines, song.language)) !== 'Latn') return { modes: ALL_MODES, mode: s.mode };
-  const lang = baseLang(song.language);
-  if (lang && lang === baseLang(s.targetLang)) return null;
+  const plain = song && plainSong(song, s.targetLang);
+  if (!plain) return { modes: ALL_MODES, mode: s.mode };
+  if (plain === 'same') return null;
   return { modes: ['original', 'translated'], mode: s.mode === 'translated' ? 'translated' : 'original' };
+}
+
+/**
+ * A song the extension leaves as it is: 'latin', already in Latin script (nothing to
+ * romanize; it can still be translated); 'same', also in the language translations go into.
+ * Null for a song in another script.
+ */
+export function plainSong(song: Song, targetLang: string): 'latin' | 'same' | null {
+  if ((song.script ?? songScript(song.lines, song.language)) !== 'Latn') return null;
+  const lang = baseLang(song.language);
+  return lang && lang === baseLang(targetLang) ? 'same' : 'latin';
 }

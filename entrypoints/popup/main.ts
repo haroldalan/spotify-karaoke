@@ -112,7 +112,10 @@ const pillDescription = $('#pill-description');
 allLines.addEventListener('change', () => void saveSettings({ allLines: allLines.checked }));
 showPill.addEventListener('change', () => void saveSettings({ showPill: showPill.checked }));
 
+let settings: Settings | null = null;
+
 function render(s: Settings) {
+  settings = s;
   for (const r of modeInputs) r.checked = r.value === s.mode;
   current = s.targetLang;
   langName.textContent = nameOf(current);
@@ -122,7 +125,9 @@ function render(s: Settings) {
   showPill.checked = s.showPill;
   showPill.disabled = s.allLines;
   pillRow.classList.toggle('disabled', s.allLines);
-  pillDescription.textContent = s.allLines ? 'Hidden while all three lines show' : 'The mode switch on the lyrics';
+  pillDescription.textContent = s.allLines ? 'Hidden while all three lines show' : 'Pick the main line on the lyrics';
+  // The song row's wording depends on the mode and language (e.g. "Already in English").
+  if (lastPage && !song.hidden) renderSong(lastPage, lastNote);
 }
 
 void loadSettings().then(render);
@@ -183,9 +188,21 @@ function songRow(title: string, text: string, actions: Action[], inline?: Action
   song.hidden = false;
 }
 
-const FROM: Record<string, string> = { found: 'Lyrics from', upgraded: 'Synced lyrics from', restored: 'Original script from' };
+const FROM: Record<string, string> = { found: 'Lyrics from', upgraded: 'Synced lyrics from', restored: 'Original script restored, from' };
+
+let lastPage: PageStatus | null = null;
+let lastNote = '';
+
+/** What the extension does to a song it shows as it is, or '' when it changes it. */
+function plainText(c: NonNullable<PageStatus['current']>): string {
+  if (c.plain === 'same') return `Already in ${langName.textContent}: shown as it is.`;
+  if (c.plain === 'latin' && settings?.mode !== 'translated' && !settings?.allLines) return 'Already in Latin script: nothing to romanize.';
+  return '';
+}
 
 function renderSong(page: PageStatus, note = '') {
+  lastPage = page;
+  lastNote = note;
   const c = page.current;
   if (!c) { song.hidden = true; return; }
   const title = `${c.name} · ${c.artists.join(', ')}`;
@@ -228,10 +245,12 @@ function renderSong(page: PageStatus, note = '') {
     return;
   }
   if (c.ours) {
-    songRow(title, `${FROM[c.ours.kind] ?? 'Lyrics from'} ${c.ours.source}.`, [], { label: 'Not this song?', run: choose(true) });
+    songRow(title, `${FROM[c.ours.kind] ?? 'Lyrics from'} ${c.ours.source}.`, [], { label: 'Wrong lyrics?', run: choose(true) });
     return;
   }
-  songRow(title, '', []);
+  // Nothing on screen yet: where to look (a first-time user doesn't know).
+  const text = page.linesOnScreen ? plainText(c) : 'Open its lyrics with Spotify’s Lyrics button.';
+  songRow(title, text, []);
 }
 
 async function refresh(note = '') {
@@ -250,7 +269,7 @@ async function renderStatus() {
     const down = (Object.keys(names) as (keyof typeof names)[]).find((k) => health?.sources[k] && !health.sources[k]!.ok);
     if (down) failing = `${names[down]} isn’t answering`;
   }
-  if (!tab) setSummary('idle', 'Open Spotify in a tab to start');
+  if (!tab) setSummary('idle', 'Open Spotify, play a song, then press its Lyrics button');
   else if (!page?.pageSeenAt) setSummary('bad', 'Reload the Spotify tab to start');
   else if (failing) setSummary('bad', failing);
   else setSummary('ok', 'Working');

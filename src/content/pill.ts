@@ -80,7 +80,7 @@ export class Pill {
     const shadow = this.host.attachShadow({ mode: 'closed' });
     const style = document.createElement('style');
     style.textContent = CSS;
-    [this.switcher, this.switcherCapsule, this.switcherCaption] = slot('Lyrics display');
+    [this.switcher, this.switcherCapsule, this.switcherCaption] = slot('Main line');
     for (const [mode, label, key] of LABELS) {
       const b = document.createElement('button');
       b.textContent = label;

@@ -2,7 +2,7 @@
 // decides what is on their screen.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { installChromeStorage } from '../helpers/chrome';
-import { switchFor } from '../../src/content/modes';
+import { plainSong, switchFor } from '../../src/content/modes';
 import { LANGUAGES, rankByQuery } from '../../src/shared/languages';
 import type { Song } from '../../src/content/lineStore';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
@@ -24,6 +24,15 @@ describe('the switcher offers what changes something', () => {
   });
   it('nothing with all three lines on: every version is on screen already', () => {
     expect(switchFor(song(['보고 싶다'], 'ko'), s({ allLines: true }))).toBeNull();
+  });
+});
+
+describe('the popup says when a song is shown as it is', () => {
+  it('latin: nothing to romanize; same: also in the target language; null: another script', () => {
+    expect(plainSong(song(['te quiero tanto'], 'es'), 'en')).toBe('latin');
+    expect(plainSong(song(['I walk alone'], 'en'), 'en')).toBe('same');
+    expect(plainSong(song(['I walk alone'], 'en'), 'fr')).toBe('latin');
+    expect(plainSong(song(['보고 싶다'], 'ko'), 'en')).toBeNull();
   });
 });
 
