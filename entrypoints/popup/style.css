@@ -136,3 +136,5 @@ footer .social a { display: flex; }
 .row .dropdown { flex: none; }
 .row.storage .links { flex-direction: column; align-items: flex-end; gap: 4px; }
 #storage-info { white-space: nowrap; }
+.star-icon { flex: none; color: #f5c518; }
+.star-text { flex: 1; min-width: 0; }
