@@ -80,6 +80,11 @@ describe('decoration', () => {
   it('translated main with the original beneath', () => {
     expect(shown('君を愛してる', info, { mode: 'translated' })).toEqual({ main: 'I love you', beneath: ['君を愛してる'] });
   });
+  it('leaves a line without words (an instrumental ♪) as Spotify draws it', () => {
+    const note = { romanized: '♪', translated: { en: '♫' } };
+    expect(decoration('♪', note, s({ mode: 'translated' }))).toEqual(NONE);
+    expect(decoration('♪', note, s({ mode: 'romanized', allLines: true }))).toEqual(NONE);
+  });
   it('original mode is Spotify as it is', () => {
     expect(decoration('君を愛してる', info, s({ mode: 'original' }))).toEqual(NONE);
   });

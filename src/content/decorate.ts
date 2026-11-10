@@ -67,6 +67,8 @@ const RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
  * translation hasn't arrived (or can't be had) shows as in romanized mode, never bare.
  */
 export function decoration(original: string, info: LineInfo | undefined, s: Settings, aliased = false): Decoration {
+  // No words (an instrumental "♪"): nothing to romanize or translate. Left as Spotify draws it.
+  if (!/\p{L}/u.test(original)) return NONE;
   const differs = (x: string | null | undefined) => (x && x !== original ? x : null);
   const rom = differs(info?.romanized);
   const tr = differs(info?.translated?.[s.targetLang]);

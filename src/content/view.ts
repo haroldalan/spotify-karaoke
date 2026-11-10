@@ -16,6 +16,11 @@ export interface Anchor {
   /** The lyrics view's box, to tell the full view from a small card. */
   width: number;
   height: number;
+  /**
+   * The top of the scrolling lyrics and Spotify's lyrics background colour: a band in that
+   * colour behind the switcher fades the lines out before they pass under it.
+   */
+  band?: { top: number; left: number; width: number; color: string };
 }
 
 export interface ViewState {
@@ -137,6 +142,9 @@ export class View {
     if (!box) return null;
     this.observe(box);
     const boxRect = box.getBoundingClientRect();
+    const color = getComputedStyle(line).getPropertyValue('--lyrics-color-background').trim();
+    // clientWidth leaves the scrollbar uncovered.
+    const band = color ? { top: boxRect.top, left: boxRect.left, width: box.clientWidth || boxRect.width, color } : undefined;
     const radio = this.doc.querySelector('[role="radiogroup"] [role="radio"][value="lyrics"]');
     if (radio) {
       // Walk up from the media switch to the child of the element that also holds the lyrics.
@@ -146,10 +154,10 @@ export class View {
       if (header && view) {
         const h = header.getBoundingClientRect();
         const v = view.getBoundingClientRect();
-        return { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: boxRect.width, height: boxRect.height };
+        return { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: boxRect.width, height: boxRect.height, band };
       }
     }
-    return { top: boxRect.top + ANCHOR_GAP, centerX: boxRect.left + boxRect.width / 2, width: boxRect.width, height: boxRect.height };
+    return { top: boxRect.top + ANCHOR_GAP, centerX: boxRect.left + boxRect.width / 2, width: boxRect.width, height: boxRect.height, band };
   }
 
   /**
