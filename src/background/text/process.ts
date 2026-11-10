@@ -20,7 +20,7 @@ export interface ProcessRequest {
 }
 
 /** Bump when romanizer output changes, so stale cached romanizations are not reused. */
-const ROMANIZER_VERSION = 4;
+const ROMANIZER_VERSION = 5;
 const ROMANIZED_TTL = 30 * 24 * 3600_000;
 const TRANSLATED_TTL = 60 * 24 * 3600_000;
 

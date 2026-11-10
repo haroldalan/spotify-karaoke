@@ -223,20 +223,38 @@ describe('the line being sung holds still', () => {
     store.addSong(zh, 'zh');
     await flush();
     const { lines, state } = scrollingLyrics(zh, ['past', 'past', 'now', 'coming', 'coming', 'coming', 'coming'], 40);
-    view.pass(); // first sight of every element: decorated, heights change, no scroll of ours
+    view.pass(); // the whole list is new: decorated, with the current line held (next test)
     expect(lines[0].dataset.skBig).toBe('a');
-    expect(state.scrollTop).toBe(40);
-    // Spotify re-renders two lines as new, undecorated elements (the one just sung, the one sung now).
+    const settled = state.scrollTop;
+    // Spotify re-renders two lines as new, undecorated elements (the one just sung, the one
+    // sung now) and starts its own smooth scroll.
+    const list = lines[0].parentElement!;
     for (const i of [1, 2]) {
-      lines[i].removeAttribute('data-sk-big');
-      lines[i].removeAttribute('data-sk-a');
+      const fresh = lines[i].cloneNode(true) as HTMLElement;
+      fresh.removeAttribute('data-sk-big');
+      fresh.removeAttribute('data-sk-a');
+      fresh.getBoundingClientRect = lines[i].getBoundingClientRect;
+      Object.defineProperty(fresh, 'offsetParent', { value: list });
+      list.replaceChild(fresh, lines[i]);
+      lines[i] = fresh;
     }
-    const fresh = new WeakSet([lines[1], lines[2]]);
-    // Stand-in for "new elements": a second view has never seen any of them.
-    const second = new View(store, { ...DEFAULT_SETTINGS, mode: 'romanized' });
-    second.pass();
-    expect(fresh.has(lines[1]) && lines[1].dataset.skBig).toBe('a');
-    expect(state.scrollTop).toBe(40);
+    view.pass();
+    expect(lines[1].dataset.skBig).toBe('a');
+    expect(lines[2].dataset.skBig).toBe('a');
+    expect(state.scrollTop).toBe(settled);
+  });
+
+  it('holds the current line when a whole list is decorated for the first time (the lyrics view opened mid-song)', async () => {
+    const { store, view } = setup({ mode: 'romanized' });
+    store.addSong(zh, 'zh');
+    await flush();
+    // Spotify has just put the current line where it wants it; every line is still undecorated.
+    const { lines, state } = scrollingLyrics(zh, ['past', 'past', 'past', 'now', 'coming', 'coming', 'coming'], 100);
+    const top = lines[3].getBoundingClientRect().top;
+    view.pass();
+    expect(lines[0].dataset.skBig).toBe('a');
+    expect(lines[3].getBoundingClientRect().top).toBe(top);
+    expect(state.scrollTop).toBe(220); // three lines above it grew by 40 px each
   });
 
   it('counts only lyrics on screen: a faded-out panel left under Spotify\'s "no lyrics" message is not the lyrics view', async () => {

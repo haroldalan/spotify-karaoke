@@ -100,8 +100,30 @@ const kanaToRomaji = (kana: string): string =>
     .kanaToRomaji(kana, 'hepburn')
     .replace(/[\u0101\u012B\u016B\u0113\u014D\u0100\u012A\u016A\u0112\u014C]/g, (c) => LONG_VOWELS[c]);
 
+/**
+ * Counted people: the dictionary reads 一人 and 二人 digit by digit ("ichinin", "ninin").
+ * In lyrics they are almost always hitori and futari (seen live on a J-pop song, 2026-11-10).
+ */
+const PEOPLE: Record<string, string> = { 一人: 'ヒトリ', 二人: 'フタリ', ひとり: 'ヒトリ', ふたり: 'フタリ' };
+
+function withLyricReadings(tokens: JapaneseToken[]): JapaneseToken[] {
+  const out: JapaneseToken[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    const pair = tokens[i + 1] ? t.surface_form + tokens[i + 1].surface_form : '';
+    if (PEOPLE[pair] && /^[一二]$/.test(t.surface_form)) {
+      out.push({ surface_form: pair, pos: '名詞', pos_detail_1: '一般', basic_form: pair, reading: PEOPLE[pair] });
+      i++;
+    } else if (PEOPLE[t.surface_form] && /^[一二]人$/.test(t.surface_form)) {
+      out.push({ ...t, reading: PEOPLE[t.surface_form] });
+    } else out.push(t);
+  }
+  return out;
+}
+
 /** Romanizes one tokenized line. */
-export function romanizeJapaneseTokens(tokens: JapaneseToken[]): string {
+export function romanizeJapaneseTokens(input: JapaneseToken[]): string {
+  const tokens = withLyricReadings(input);
   const words: string[] = [];
   let kana = '';
   let opener = ''; // an opening quote or bracket, written before the next word

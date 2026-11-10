@@ -65,6 +65,18 @@ describe('Japanese: words, not morphemes', () => {
     ]))).toBe('"suki" Baby doko?');
   });
 
+  it('reads counted people as lyrics do: hitori, futari', () => {
+    // The dictionary splits them into digit + counter: ニ + ニン.
+    expect(romanizeJapaneseTokens(tok([
+      ['二', '名詞', '数', '二', 'ニ'], ['人', '名詞', '接尾', '人', 'ニン'], ['だけ', '助詞', '副助詞', 'だけ', 'ダケ'],
+      ['の', '助詞', '連体化', 'の', 'ノ'], ['空', '名詞', '一般', '空', 'ソラ'],
+    ]))).toBe('futari dake no sora');
+    expect(romanizeJapaneseTokens(tok([['一', '名詞', '数', '一', 'イチ'], ['人', '名詞', '接尾', '人', 'ニン'], ['で', '助詞', '格助詞', 'で', 'デ']]))).toBe('hitori de');
+    expect(romanizeJapaneseTokens(tok([['二人', '名詞', '一般', '二人', 'ニニン']]))).toBe('futari');
+    // Other counts keep the dictionary's reading.
+    expect(romanizeJapaneseTokens(tok([['三', '名詞', '数', '三', 'サン'], ['人', '名詞', '接尾', '人', 'ニン']]))).toBe('sannin');
+  });
+
   it('keeps English punctuation tight in a mixed line', () => {
     expect(romanizeJapaneseTokens(tok([
       ['涙', '名詞', '一般', '涙', 'ナミダ'], ['uneasy', '名詞', '一般', '*'], ['(', '名詞', 'サ変接続', '*'],

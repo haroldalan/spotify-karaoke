@@ -129,11 +129,14 @@ export class View {
         const r = song ? this.store.resolve(song, texts[i]) : null;
         return r ? decoration(r.original, r.info, this.settings, r.aliased) : NONE;
       });
-      // Lines already on screen are about to change height (a mode switch, a translation
-      // arriving): the line being sung stays where it is. Not for elements new to us: Spotify
-      // replaces a line's element when it becomes the current or a past line, and scrolls
-      // to it smoothly at that moment; a scroll of ours would cut that short.
-      const changes = els.some((el, i) => this.seen.has(el) && (el.hasAttribute('data-sk-compact') !== compact || !shows(el, next[i])));
+      // Lines are about to change height (a mode switch, a translation arriving, a list we
+      // decorate for the first time, e.g. the lyrics view opened mid-song after Spotify put
+      // the current line in the middle): the line being sung stays where it is.
+      // Not for single elements new to us in a list we know: Spotify replaces a line's element
+      // when it becomes the current or a past line, and scrolls to it smoothly at that
+      // moment; a scroll of ours would cut that short.
+      const newList = els.every((el) => !this.seen.has(el));
+      const changes = els.some((el, i) => (newList || this.seen.has(el)) && (el.hasAttribute('data-sk-compact') !== compact || !shows(el, next[i])));
       const settle = changes && box ? holdLine(els, box) : null;
       els.forEach((el, i) => {
         if (compact) el.setAttribute('data-sk-compact', '');

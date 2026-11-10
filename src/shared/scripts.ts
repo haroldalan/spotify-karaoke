@@ -86,7 +86,7 @@ export function lineHas(line: string, script: Script): boolean {
 const LANGUAGE_SCRIPT: Record<string, Script> = {
   hi: 'Deva', mr: 'Deva', ne: 'Deva', sa: 'Deva', bho: 'Deva', mai: 'Deva', kok: 'Deva',
   bn: 'Beng', as: 'Beng', pa: 'Guru', gu: 'Gujr', or: 'Orya', ta: 'Taml', te: 'Telu', kn: 'Knda', ml: 'Mlym', si: 'Sinh',
-  ja: 'Jpan', zh: 'Hani', yue: 'Hani', ko: 'Kore', th: 'Thai', lo: 'Laoo', km: 'Khmr', my: 'Mymr',
+  ja: 'Jpan', zh: 'Hani', cmn: 'Hani', yue: 'Hani', ko: 'Kore', th: 'Thai', lo: 'Laoo', km: 'Khmr', my: 'Mymr',
   ru: 'Cyrl', uk: 'Cyrl', be: 'Cyrl', bg: 'Cyrl', sr: 'Cyrl', mk: 'Cyrl', kk: 'Cyrl', ky: 'Cyrl', mn: 'Cyrl',
   ar: 'Arab', fa: 'Arab', ur: 'Arab', ps: 'Arab', he: 'Hebr', iw: 'Hebr', yi: 'Hebr', el: 'Grek', ka: 'Geor', hy: 'Armn', am: 'Ethi',
 };
