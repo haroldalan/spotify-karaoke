@@ -154,7 +154,10 @@ export class View {
       if (header && view) {
         const h = header.getBoundingClientRect();
         const v = view.getBoundingClientRect();
-        return { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: boxRect.width, height: boxRect.height, band };
+        // Spotify's header (title, media switch, full screen...) sits over the lyrics: the
+        // band starts under it, never over it.
+        const under = band && { ...band, top: Math.max(band.top, h.bottom) };
+        return { top: h.bottom + ANCHOR_GAP, centerX: v.left + v.width / 2, width: boxRect.width, height: boxRect.height, band: under };
       }
     }
     return { top: boxRect.top + ANCHOR_GAP, centerX: boxRect.left + boxRect.width / 2, width: boxRect.width, height: boxRect.height, band };
