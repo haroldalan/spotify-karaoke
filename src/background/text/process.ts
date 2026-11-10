@@ -69,6 +69,8 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
             // The backup has no romanization: Google is unreachable for that, so nothing
             // second-best is cached.
             if (all.backup) throw new RateLimited('Google Translate is rate-limiting this network');
+            // Its romanization lost the line breaks: a stopgap now (not cached), Google next time.
+            if (all.romanizationLost) throw new Error("Google's romanization couldn't be put back line by line");
             return subset.map((l) => all.romanized[lines.indexOf(l)] ?? null);
           },
         });
@@ -84,8 +86,10 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
     ? once(trKey, async () => {
         const cached = await cacheGet<string[]>(trKey);
         if (cached) return cached;
-        const out = (await google(req.romanize && googleRomanizes)).translated.map(sentenceCase);
-        await cacheSet(trKey, out, TRANSLATED_TTL);
+        const res = await google(req.romanize && googleRomanizes);
+        const out = res.translated.map(sentenceCase);
+        // Lines left without a translation: shown as they are, and asked again another time.
+        if (!res.incomplete) await cacheSet(trKey, out, TRANSLATED_TTL);
         return out;
       })
     : Promise.resolve(null);

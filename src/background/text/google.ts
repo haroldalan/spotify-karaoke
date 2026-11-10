@@ -1,6 +1,8 @@
 // Google Translate's public web endpoint (client=gtx): translation and romanization.
-// Lines are sent joined by newlines and split back; when the line count doesn't survive,
-// the batch is retried line by line.
+// Lines are sent joined by newlines. The answer comes as sentences, each with the source
+// text it translates (orig), so every translation is put back on its own line even when
+// Google moves the line breaks in its translation. Never one request per line: a burst like
+// that is what gets a network blocked.
 import { tracked } from '../health';
 import { RateLimited } from './googleErrors';
 import { ensureWidgetPauseLoaded, widgetBlockedUntil, widgetTranslate } from './googleWidget';
@@ -53,6 +55,8 @@ export function resetGoogleBackoff() {
 interface Raw {
   translated: string;
   romanized: string | null;
+  /** Google's sentences: the source text each translates, and its translation. */
+  sentences: { orig?: string; trans?: string }[];
 }
 
 async function request(text: string, target: string, wantRomanized: boolean, fetchImpl = fetch): Promise<Raw> {
@@ -90,11 +94,11 @@ async function send(text: string, target: string, wantRomanized: boolean, fetchI
     strikes = 0;
     savePause('google', { until: 0, strikes: 0 });
   }
-  const j = (await res.json()) as { sentences?: { trans?: string; src_translit?: string }[] };
+  const j = (await res.json()) as { sentences?: { trans?: string; orig?: string; src_translit?: string }[] };
   const sentences = j.sentences ?? [];
   const translated = sentences.map((s) => s.trans ?? '').join('');
   const translit = sentences.map((s) => s.src_translit ?? '').join('');
-  return { translated, romanized: translit || null };
+  return { translated, romanized: translit || null, sentences: sentences.filter((s) => s.trans != null) };
 }
 
 function chunks(lines: string[]): string[][] {
@@ -113,15 +117,33 @@ function chunks(lines: string[]): string[][] {
 const splitLines = (s: string) => s.replace(/\r/g, '').split('\n');
 
 /**
- * Google's answer lined up with the lines sent: extra lines dropped, missing ones filled with
- * the line itself (which counts as untranslated), so a merged line never shifts later chunks.
+ * Each of `n` lines' translation, from Google's sentences: a sentence belongs to the line its
+ * source text (orig) is on; several on one line are joined. A sentence whose source spans
+ * lines is split by its translation's line breaks when they match, and otherwise leaves those
+ * lines null: never guessed, never shifted onto a neighbour. All null when the sources don't
+ * add up to the lines sent (an answer we can't read).
  */
-export function alignToChunk(out: string[], chunk: string[]): string[] {
-  if (out.length === chunk.length) return out;
-  if (out.length > chunk.length) return out.slice(0, chunk.length);
-  const aligned = out.slice();
-  while (aligned.length < chunk.length) aligned.push(chunk[aligned.length]);
-  return aligned;
+export function alignSentences(sentences: { orig?: string; trans?: string }[], n: number): (string | null)[] {
+  const none = (): (string | null)[] => Array.from({ length: n }, () => null);
+  if (!sentences.length || sentences.some((s) => s.orig == null)) return none();
+  const parts: string[][] = Array.from({ length: n }, () => []);
+  const lost = new Set<number>();
+  let line = 0;
+  for (const s of sentences) {
+    const pieces = s.orig!.replace(/\r/g, '').split('\n');
+    const on = pieces.map((p, k) => (p.trim() ? line + k : -1)).filter((i) => i >= 0);
+    if (on.some((i) => i >= n)) return none();
+    const trans = (s.trans ?? '').replace(/\r/g, '');
+    if (on.length === 1) parts[on[0]].push(trans.replace(/\s*\n\s*/g, ' ').trim());
+    else if (on.length > 1) {
+      const tr = trans.split('\n').map((t) => t.trim()).filter(Boolean);
+      if (tr.length === on.length) on.forEach((i, k) => parts[i].push(tr[k]));
+      else on.forEach((i) => lost.add(i));
+    }
+    line += pieces.length - 1;
+  }
+  if (line !== n - 1) return none();
+  return parts.map((p, i) => (lost.has(i) || !p.length ? null : p.join(' ').replace(/\s+/g, ' ').trim()));
 }
 
 export interface GoogleResult {
@@ -129,6 +151,10 @@ export interface GoogleResult {
   romanized: (string | null)[];
   /** From the backup (Google's website widget): translation only, no romanization. */
   backup?: true;
+  /** Some lines have no translation (Google's answer couldn't be put back line by line, nor the backup asked): not to be kept. */
+  incomplete?: true;
+  /** Google sent a romanization that couldn't be put back line by line: not "none for this language". */
+  romanizationLost?: true;
 }
 
 /**
@@ -168,23 +194,41 @@ async function mainLines(
   const work = idx.map((i) => lines[i].trim());
   const translated = lines.map(() => '');
   const romanized: (string | null)[] = lines.map(() => null);
+  /** Lines (indices into `lines`) Google's answer couldn't put a translation on. */
+  const unplaced: number[] = [];
+  let romanizationLost = false;
   let at = 0;
-  // One request per chunk, never more. When Google merges or splits lines, the answer is lined
-  // up with what was sent (as 3.1.6 did) instead of asking again line by line: a burst of one
-  // request per line is what gets a network rate-limited.
   for (const chunk of chunks(work)) {
     const raw = await request(chunk.join('\n'), target, wantRomanized, fetchImpl);
-    const tr = alignToChunk(splitLines(raw.translated.trim()), chunk);
-    // A romanization with the wrong number of lines can't be lined up (it would put one line's
-    // reading under another): none for this chunk, and the romanizer's stopgap stands in.
-    const rmLines = raw.romanized ? splitLines(raw.romanized.trim()) : null;
+    // Line by line from the sentences; an answer without them (or older tests) by its line breaks.
+    const byLines = splitLines(raw.translated);
+    const tr = raw.sentences.some((s) => s.orig != null)
+      ? alignSentences(raw.sentences, chunk.length)
+      : byLines.length === chunk.length ? byLines : chunk.map(() => null);
+    // Google's romanization is one block with no sentences to place it by: used only when its
+    // line count matches. Otherwise the local romanizer stands in (romanize.ts), not a burst.
+    const rmLines = raw.romanized ? splitLines(raw.romanized) : null;
     const rm = rmLines && rmLines.length === chunk.length ? rmLines : null;
+    if (wantRomanized && rmLines && !rm) romanizationLost = true;
     chunk.forEach((_, k) => {
       const i = idx[at + k];
-      translated[i] = tr[k].trim();
+      const t = tr[k]?.trim();
+      if (t) translated[i] = t;
+      else unplaced.push(i);
       romanized[i] = rm?.[k]?.trim() || null;
     });
     at += chunk.length;
   }
-  return { translated, romanized };
+  const lost = romanizationLost ? { romanizationLost: true as const } : {};
+  if (!unplaced.length) return { translated, romanized, ...lost };
+  // The lines Google's answer couldn't place: one request to the backup, which answers line
+  // for line (it takes and returns a list). If that can't be had, they stay without a
+  // translation, and the result isn't kept: asked again another time, not now.
+  try {
+    const more = await widgetTranslate(unplaced.map((i) => lines[i].trim()), target, fetchImpl);
+    unplaced.forEach((i, k) => (translated[i] = more[k] ?? ''));
+    return { translated, romanized, ...lost, ...(unplaced.some((i) => !translated[i]) ? { incomplete: true as const } : {}) };
+  } catch {
+    return { translated, romanized, ...lost, incomplete: true };
+  }
 }

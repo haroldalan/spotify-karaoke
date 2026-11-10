@@ -1,21 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { installChromeStorage } from '../helpers/chrome';
-import { RateLimited, googleLines, resetGoogleBackoff } from '../../src/background/text/google';
+import { RateLimited, alignSentences, googleLines, resetGoogleBackoff } from '../../src/background/text/google';
+import { resetWidget } from '../../src/background/text/googleWidget';
 import { parseLyricsBrowse, parseSearch, ytm } from '../../src/background/lyrics/ytm';
 import type { TrackMeta } from '../../src/shared/types';
 
-/** A Google gtx dj=1 response translating each line as "<line>!" (and romanizing as "r(<line>)"). */
-function googleFake(opts: { status?: number; mangle?: boolean } = {}) {
+/**
+ * A Google gtx dj=1 response translating each line as "<line>!" (and romanizing as
+ * "r(<line>)"). As Google does, each sentence's orig keeps its source line break.
+ * mangle: the translations lose their line breaks. merge: lines 0 and 1 come back as one
+ * sentence. rmLost: the romanization loses a line break. widget: the backup's answers
+ * ("<line>?"), or false for a backup that fails.
+ */
+function googleFake(opts: { status?: number; mangle?: boolean; merge?: boolean; rmLost?: boolean; widget?: boolean } = {}) {
   const requests: string[] = [];
-  const impl = (async (_url: string, init?: RequestInit) => {
+  const widget: string[][] = [];
+  const impl = (async (url: string, init?: RequestInit) => {
+    if (url.includes('translate_http')) return new Response(`x={"X-Goog-Api-Key":"${'k'.repeat(39)}"}`);
+    if (url.includes('translate-pa')) {
+      if (opts.widget === false) return new Response('', { status: 500 });
+      const batch = (JSON.parse(String(init?.body)) as [[string[]]])[0][0];
+      widget.push(batch);
+      return new Response(JSON.stringify([batch.map((l) => `${l}?`)]));
+    }
     const q = new URLSearchParams(String(init?.body)).get('q') ?? '';
     requests.push(q);
     if (opts.status) return new Response('', { status: opts.status });
     const lines = q.split('\n');
-    const sentences = lines.map((l, i) => ({ trans: `${l}!${i < lines.length - 1 && !opts.mangle ? '\n' : ''}`, orig: l }));
-    return new Response(JSON.stringify({ sentences: [...sentences, { src_translit: lines.map((l) => `r(${l})`).join('\n') }] }));
+    const nl = (i: number) => (i < lines.length - 1 ? '\n' : '');
+    let sentences = lines.map((l, i) => ({ trans: `${l}!${opts.mangle ? '' : nl(i)}`, orig: `${l}${nl(i)}` }));
+    if (opts.merge && lines.length > 2) sentences = [{ trans: `${lines[0]} ${lines[1]}!\n`, orig: `${lines[0]}\n${lines[1]}\n` }, ...sentences.slice(2)];
+    const rm = lines.map((l) => `r(${l})`).join(opts.rmLost ? ' ' : '\n');
+    return new Response(JSON.stringify({ sentences: [...sentences, { src_translit: rm }] }));
   }) as typeof fetch;
-  return { impl, requests };
+  return { impl, requests, widget };
 }
 
 describe('Google client', () => {
@@ -27,20 +45,50 @@ describe('Google client', () => {
     expect(g.requests).toHaveLength(1);
   });
 
-  it('lines up a merged answer instead of asking again line by line (3.1.6 did the same)', async () => {
-    // A burst of one request per line is what gets a network rate-limited.
+  it('puts translations back on their lines by Google\'s sentences when it moves the line breaks: one request', async () => {
     const g = googleFake({ mangle: true });
     const out = await googleLines(['one', 'two', 'three'], 'en', false, g.impl);
+    expect(out.translated).toEqual(['one!', 'two!', 'three!']);
     expect(g.requests).toHaveLength(1);
-    // Missing lines are the line itself: shown as untranslated, never shifted onto another.
-    expect(out.translated).toHaveLength(3);
-    expect(out.translated.slice(1)).toEqual(['two', 'three']);
+    expect(out.incomplete).toBeUndefined();
   });
 
-  it('lines an answer up by dropping extra lines or filling missing ones with the line itself', async () => {
-    const { alignToChunk } = await import('../../src/background/text/google');
-    expect(alignToChunk(['a', 'b', 'c', 'd'], ['1', '2', '3'])).toEqual(['a', 'b', 'c']);
-    expect(alignToChunk(['a'], ['1', '2', '3'])).toEqual(['a', '2', '3']);
+  it('asks the backup once for lines Google merged into one sentence, never one request per line', async () => {
+    resetWidget();
+    const g = googleFake({ merge: true });
+    const out = await googleLines(['one', 'two', 'three', 'four'], 'en', false, g.impl);
+    expect(out.translated).toEqual(['one?', 'two?', 'three!', 'four!']);
+    expect(g.requests).toHaveLength(1);
+    expect(g.widget).toEqual([['one', 'two']]);
+    expect(out.incomplete).toBeUndefined();
+  });
+
+  it('leaves such lines without a translation when the backup fails too, and says the result is incomplete', async () => {
+    resetWidget();
+    const g = googleFake({ merge: true, widget: false });
+    const out = await googleLines(['one', 'two', 'three'], 'en', false, g.impl);
+    expect(out.translated).toEqual(['', '', 'three!']);
+    expect(out.incomplete).toBe(true);
+    expect(g.requests).toHaveLength(1);
+  });
+
+  it('drops a romanization that lost its line breaks (a stopgap, not "none"), without asking again', async () => {
+    const g = googleFake({ rmLost: true });
+    const out = await googleLines(['one', 'two'], 'en', true, g.impl);
+    expect(out.translated).toEqual(['one!', 'two!']);
+    expect(out.romanized).toEqual([null, null]);
+    expect(out.romanizationLost).toBe(true);
+    expect(g.requests).toHaveLength(1);
+  });
+
+  it('places sentences: several on one line joined, a spanning one split by its own line breaks, a mismatch never shifted', () => {
+    // Two sentences on line 0; line 1 alone.
+    expect(alignSentences([{ orig: 'Hi. ', trans: 'Salut. ' }, { orig: 'Bye.\n', trans: 'Au revoir.\n' }, { orig: 'Again', trans: 'Encore' }], 2))
+      .toEqual(['Salut. Au revoir.', 'Encore']);
+    // One sentence over two lines whose translation keeps the break: split.
+    expect(alignSentences([{ orig: 'a\nb\n', trans: 'A\nB\n' }, { orig: 'c', trans: 'C' }], 3)).toEqual(['A', 'B', 'C']);
+    // Sources that don't add up to the lines sent: nothing placed rather than misplaced.
+    expect(alignSentences([{ orig: 'a b c', trans: 'A B C' }], 3)).toEqual([null, null, null]);
   });
 
   it('splits long songs into several requests', async () => {
@@ -215,7 +263,7 @@ describe('processing', () => {
   });
 
   it('keeps romanization when translation fails, and says why', async () => {
-    vi.stubGlobal('fetch', googleFake({ status: 429 }).impl);
+    vi.stubGlobal('fetch', googleFake({ status: 429, widget: false }).impl);
     const { processLines } = await import('../../src/background/text/process');
     const out = await processLines({ lines: ['사랑해'], language: 'ko', romanize: true, translateTo: 'en' });
     expect(out.romanized).toEqual(['saranghae']);
