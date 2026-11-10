@@ -3,7 +3,8 @@ name: Build and Release
 # Adapted from Spotify Karaoke 3.1.6's workflow.
 #  - Push a `v*` tag: checks, builds, creates the GitHub release, submits to all three stores.
 #  - Run it by hand (Actions -> Build and Release -> Run workflow): rebuilds an existing tag and
-#    submits only to the stores you tick. "Dry run" checks the store credentials, uploads nothing.
+#    submits only to the stores you tick. "Dry run" checks the store credentials, uploads nothing
+#    (for Chrome it asks the store for the item's status, so a wrong id fails too).
 # Each store is its own job, so one failing never blocks another.
 
 on:
@@ -39,7 +40,11 @@ concurrency:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
+  # Edge and Firefox: 4.0.4, which published 4.0.0 to both. Chrome: 6.2.0 on the Chrome Web Store
+  # API v2. 4.0.4's Chrome step talks to API v1.1 (shut down 2026-10-15), sends no valid token
+  # and never checks the replies, so it reported success for 4.0.0 without uploading anything.
   SUBMIT: npx --yes -p publish-browser-extension@4.0.4 publish-extension
+  SUBMIT_CHROME: npx --yes -p publish-browser-extension@6.2.0 publish-extension
   DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
 
 jobs:
@@ -120,13 +125,43 @@ jobs:
         with:
           name: zips
           path: .output
-      - name: Submit to the Chrome Web Store
-        run: $SUBMIT $DRY_RUN_FLAG --chrome-zip .output/*-chrome.zip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # API v2 accepts the same OAuth client and refresh token as v1.1: trade them for an access
+      # token here and hand it over as a bearer token. The publisher id is on the developer
+      # dashboard, Account (Publisher) settings.
+      - name: Get a Chrome Web Store access token
         env:
-          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
           CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
           CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+        run: |
+          if [ -z "$CHROME_PUBLISHER_ID" ]; then
+            echo "::error::The CHROME_PUBLISHER_ID secret is missing (developer dashboard, Account settings)."
+            exit 1
+          fi
+          status=0
+          reply=$(curl -sS -w '\n%{http_code}' https://oauth2.googleapis.com/token \
+            --data-urlencode "client_id=$CHROME_CLIENT_ID" \
+            --data-urlencode "client_secret=$CHROME_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$CHROME_REFRESH_TOKEN" \
+            --data-urlencode "grant_type=refresh_token") || status=$?
+          code=${reply##*$'\n'}
+          token=$(printf '%s' "${reply%$'\n'*}" | jq -r '.access_token // empty' 2>/dev/null || true)
+          if [ "$status" -ne 0 ] || [ "$code" != 200 ] || [ -z "$token" ]; then
+            echo "::error::Google refused the Chrome Web Store credentials (HTTP $code): $(printf '%s' "${reply%$'\n'*}" | jq -r '.error_description // .error // empty' 2>/dev/null)"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "CHROME_SERVICE_ACCOUNT_ACCESS_TOKEN=$token" >> "$GITHUB_ENV"
+      - name: Submit to the Chrome Web Store
+        run: $SUBMIT_CHROME $DRY_RUN_FLAG --chrome-zip .output/*-chrome.zip
+        env:
+          CHROME_API_VERSION: v2
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
 
   firefox:
     if: github.event_name == 'push' || inputs.firefox
