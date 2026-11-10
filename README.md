@@ -104,6 +104,10 @@ UX pass (2026-11-09/10, a persona audit with the owner's decisions; docs/ux-audi
 - Verified live: all three lines, and the two-line Translated view, on Kesariya; the switcher
   offers only Original / Translated on a Latin-script song and floats over the lines, like
   Spotify's own Sync button. Wordless lines (♪) are left as Spotify draws them.
+- Native script on a first play: YouTube Music and LRCLIB are searched at once; a song not
+  playing yet may wait up to 12 s; a line-for-line copy that comes after Spotify drew its
+  romanized lines is put on screen right away (owner's call). Seen live: Malang Sajna in
+  Gurmukhi (cached). Not yet seen live: a first play.
 
 Not done yet: see the batches below.
 

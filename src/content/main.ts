@@ -124,7 +124,7 @@ export async function startContent(): Promise<void> {
   const missing = new Map<string, TrackMeta>();
   /** Where each song's lyrics on screen came from. */
   const kinds = new Map<string, { kind: LyricsKind; source: string }>();
-  /** Native-script copies found, used only if the page put them on screen in time. */
+  /** Native-script copies found in time, until the page says it put them on screen. */
   const restored = new Map<string, { shown: string[]; native: string[]; language: string | null; aligned: boolean }>();
   /** The no-lyrics notice's state for a song (searching, nothing, found). */
   let notice: { id: string; caption: string; searching?: boolean; found?: boolean } | null = null;
@@ -165,13 +165,19 @@ export async function startContent(): Promise<void> {
       restoreNative: (req) =>
         call('restoreNative', req).then(
           (r) => {
-            // Kept until the page says whether it used it: a copy that came too late is used
-            // the next time the song loads (from cache, in time), never dropped onto lines
-            // already being read.
-            if (r) {
-              restored.set(req.meta.id, { shown: req.lines, native: r.lines.map((l) => l.text), language: req.meta.languages[0] ?? null, aligned: r.aligned });
-              if (restored.size > 20) restored.delete(restored.keys().next().value!);
+            if (!r) return r;
+            const copy = { shown: req.lines, native: r.lines.map((l) => l.text), language: req.meta.languages[0] ?? null, aligned: r.aligned };
+            // Too late for the page: Spotify already drew its romanized lines. A line-for-line
+            // copy goes on screen now (the owner's call, 2026-11-10), over Spotify's lines;
+            // one with its own line breaks can't, and waits for the song's next load.
+            if (kinds.get(req.meta.id)?.kind === 'spotify' && r.aligned) {
+              store.addRestored(copy.shown, copy.native, copy.language);
+              kinds.set(req.meta.id, { kind: 'restored', source: r.source });
+              return r;
             }
+            // In time: kept until the page says it used it (onLyrics).
+            restored.set(req.meta.id, copy);
+            if (restored.size > 20) restored.delete(restored.keys().next().value!);
             return r;
           },
           () => null,

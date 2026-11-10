@@ -61,6 +61,20 @@ describe('View', () => {
     expect(readEl(list[0])).toEqual({ main: 'तेरा है', beneath: [] });
   });
 
+  it('switches lines already on screen to a restored copy that came late', async () => {
+    const { store, view } = setup({ mode: 'original' });
+    store.addSong(['tera hai', 'dil mera'], 'hi'); // Spotify's romanized lines, drawn as they are
+    await flush();
+    const [list] = lyricsDom(['tera hai', 'dil mera']);
+    view.pass();
+    expect(list[0].dataset.skBig).toBeUndefined();
+    store.addRestored(['tera hai', 'dil mera'], ['तेरा है', 'दिल मेरा'], 'hi');
+    await flush();
+    view.pass();
+    expect(readEl(list[0])).toEqual({ main: 'तेरा है', beneath: [] });
+    expect(readEl(list[1]).main).toBe('दिल मेरा');
+  });
+
   it('never lends a restored line to another song that shares a romanized line', async () => {
     const { store, view } = setup({ mode: 'original' });
     store.addRestored(['tera hai', 'dil mera'], ['तेरा है', 'दिल मेरा'], 'hi');

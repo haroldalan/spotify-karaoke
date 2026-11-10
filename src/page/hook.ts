@@ -15,8 +15,9 @@ export interface HookTiming {
   lookupMs: number;
   /** How long Spotify's unsynced lyrics may wait for a synced copy. */
   upgradeMs: number;
-  /** How long Spotify's romanized lyrics may wait for the original script. A later result
-   *  is used the next time the song loads. */
+  /** How long Spotify's romanized lyrics may wait for the original script. A later
+   *  line-for-line copy is put on screen by the content script; another waits for the
+   *  song's next load. */
   nativeMs: number;
   /** The same wait for a song that isn't playing yet (Spotify's prefetch of the next one):
    *  nobody is reading it, so the search may take its time. Once the song starts, at most
@@ -28,8 +29,9 @@ export interface HookTiming {
   configWaitMs: number;
 }
 
-// Spotify's own lyrics wait at most 1.5 s for a better copy; one that comes later is used the
-// next time the song loads (from cache), never dropped onto lines already being read.
+// Spotify's own lyrics wait at most 1.5 s for a better copy (12 s for a song not playing
+// yet). A native-script copy that comes later and matches line for line is put on screen by
+// the content script; anything else later is used the next time the song loads (from cache).
 export const DEFAULT_TIMING: HookTiming = { lookupMs: 12_000, upgradeMs: 1_500, nativeMs: 1_500, nativeAheadMs: 12_000, metaWaitMs: 1_500, configWaitMs: 800 };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
