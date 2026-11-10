@@ -17,10 +17,7 @@ const CSS = `
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   font-family: ${FONT}; pointer-events: none;
 }
-.slot[hidden], button[hidden], .band[hidden] { display: none; }
-/* Spotify's lyrics background behind the switcher, fading out below it: lines fade away
-   instead of passing under the capsule. Clicks go through to the lines. */
-.band { position: fixed; z-index: 2147482999; pointer-events: none; }
+.slot[hidden], button[hidden] { display: none; }
 .capsule {
   pointer-events: auto; display: flex; align-items: center; gap: 4px; padding: 6px;
   background: rgba(0, 0, 0, .4); -webkit-backdrop-filter: blur(4px) saturate(180%); backdrop-filter: blur(4px) saturate(180%);
@@ -66,7 +63,6 @@ const isFullView = (a: Anchor) => a.width >= 420 && a.height >= 260;
 export class Pill {
   private host = document.createElement('sk-pill');
   private switcher: HTMLDivElement;
-  private band = document.createElement('div');
   private switcherCapsule: HTMLDivElement;
   private buttons = new Map<Mode, HTMLButtonElement>();
   private switcherCaption: HTMLDivElement;
@@ -90,9 +86,7 @@ export class Pill {
     }
     [this.noticeSlot, this.noticeCapsule, this.noticeCaption] = slot('Lyrics not found');
     this.noticeSlot.setAttribute('role', 'status');
-    this.band.className = 'band';
-    this.band.hidden = true;
-    shadow.append(style, this.band, this.switcher, this.noticeSlot);
+    shadow.append(style, this.switcher, this.noticeSlot);
   }
 
   mount() {
@@ -117,19 +111,6 @@ export class Pill {
     const show = o.visible && !!o.anchor && isFullView(o.anchor);
     this.switcher.hidden = !show;
     if (show) place(this.switcher, o.anchor!);
-    const band = show ? o.anchor!.band : undefined;
-    this.band.hidden = !band;
-    if (band) {
-      // Solid down to the switcher's bottom edge, then a 32 px fade.
-      const solid = Math.max(0, Math.round(o.anchor!.top - band.top + (this.switcher.offsetHeight || 48)));
-      Object.assign(this.band.style, {
-        top: `${Math.round(band.top)}px`,
-        left: `${Math.round(band.left)}px`,
-        width: `${Math.round(band.width)}px`,
-        height: `${solid + 32}px`,
-        background: `linear-gradient(to bottom, ${band.color} ${solid}px, transparent)`,
-      });
-    }
   }
 
   /** Actions in the switcher's spot when the lyrics view is open but empty; null hides them. */

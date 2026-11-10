@@ -102,8 +102,8 @@ UX pass (2026-11-09/10, a persona audit with the owner's decisions; docs/ux-audi
   and Reset data, the Star card and the credit footer. Checked with a stubbed API.
 - Open Spotify tabs pick up the extension on install and update, without a reload.
 - Verified live: all three lines, and the two-line Translated view, on Kesariya; the switcher
-  offers only Original / Translated on a Latin-script song, and a band in Spotify's lyrics colour
-  fades lines out before they pass under it. Wordless lines (♪) are left as Spotify draws them.
+  offers only Original / Translated on a Latin-script song and floats over the lines, like
+  Spotify's own Sync button. Wordless lines (♪) are left as Spotify draws them.
 
 Not done yet: see the batches below.
 
