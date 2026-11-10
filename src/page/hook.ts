@@ -9,7 +9,7 @@ import { buildColorLyrics, classify, harvestTracks, parseColorLyrics, parseMeta,
 import type { FoundLyrics, NativeResult, TrackMeta } from '../shared/types';
 import { expectedScript, songScript } from '../shared/scripts';
 import { isLikelyRomanizedFallback } from '../shared/romanizedDetector';
-import { hasRomanizedPart } from '../shared/lineMix';
+import { hasRomanizedPart, mostlyInScript } from '../shared/lineMix';
 
 export interface HookTiming {
   /** How long Spotify's lyrics request may wait for our lookup (Spotify shows its spinner). */
@@ -175,11 +175,12 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
    */
   function romanizedLanguage(lines: string[], meta: TrackMeta, tag: string | null): string | null {
     if (!hasRomanizedPart(lines)) return null;
-    const fromMeta = meta.languages.find((l) => expectedScript([l]));
-    if (fromMeta) return fromMeta;
     // No (or a Latin) language in the metadata: judge by the words and Spotify's lyrics tag.
     const verdict = isLikelyRomanizedFallback(lines, tag);
-    return verdict.romanized && verdict.lang && expectedScript([verdict.lang]) ? verdict.lang : null;
+    const lang = meta.languages.find((l) => expectedScript([l])) ??
+      (verdict.romanized && verdict.lang && expectedScript([verdict.lang]) ? verdict.lang : null);
+    // Spotify already serves the song in its script: nothing to restore.
+    return lang && !mostlyInScript(lines, expectedScript([lang])!) ? lang : null;
   }
 
   /**

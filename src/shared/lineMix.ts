@@ -38,3 +38,12 @@ export function romanizedShare(lines: string[]): number {
 export const ROMANIZED_SHARE_MIN = 0.3;
 
 export const hasRomanizedPart = (lines: string[]) => romanizedShare(lines) >= ROMANIZED_SHARE_MIN;
+
+/**
+ * Most lines already in the script: Spotify serves the song in it, and the lines that look
+ * romanized are ad-libs or hooks ("ddu-du ddu-du"), not a romanized song to restore.
+ */
+export function mostlyInScript(lines: string[], script: Script): boolean {
+  const worded = lines.filter((l) => /\p{L}/u.test(l));
+  return !!worded.length && worded.filter((l) => scriptShare(l, script) >= 0.5).length / worded.length >= 0.5;
+}

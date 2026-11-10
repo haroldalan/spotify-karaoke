@@ -121,6 +121,22 @@ describe('page hook: lyrics Spotify has', () => {
     expect(page.calls[0].data.lines[0]).toBe('Mera dil tera hai, tu kahan hai yaar');
   });
 
+  it('looks for no copy when Spotify already serves the song in its script (a few hooks look romanized)', async () => {
+    const roman = fixture('color-lyrics-romanized-hindi.json');
+    // Made-up lines: mostly Devanagari, with hooks that look romanized (30% of the lines).
+    const words = ['मेरा दिल तेरा है', 'तू कहाँ है यार', 'dhoom dhoom dhoom', 'मैं हर पल तेरी याद में', 'फिर भी मुझे तुझसे प्यार है',
+      'dhoom dhoom dhoom', 'सारी रात जागे हम', 'चंदा भी सो गया', 'dhoom machale', 'तेरे लिए'];
+    const inScript = { ...roman, lyrics: { ...roman.lyrics, lines: words.map((w, i) => ({ ...roman.lyrics.lines[0], startTimeMs: String(1000 * (i + 1)), words: w })) } };
+    const page = fakePage({
+      routes: { 'metadata/4': () => json(fixture('metadata-hindi.json')), 'color-lyrics': () => json(inScript) },
+      answer: () => null,
+    });
+    await page.fetch(HINDI_META);
+    await (await page.fetch(lyricsUrl(HINDI_ID))).json();
+    await tick();
+    expect(page.calls.filter((c) => c.type === 'restoreNative')).toHaveLength(0);
+  });
+
   it('gives a song that is not playing yet (Spotify\'s prefetch) longer to find its original script', async () => {
     const roman = fixture('color-lyrics-romanized-hindi.json');
     const page = fakePage({
