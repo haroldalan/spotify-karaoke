@@ -8,8 +8,10 @@ const MAX_CHARS = 4000;
 
 export class RateLimited extends Error {}
 
-// After a 429, wait before asking again: 1, 2, 4 ... up to 30 minutes. Requests in the
-// meantime fail at once, without touching the network.
+// After a 429, or a redirect to Google's "unusual traffic" page (google.com/sorry, a
+// CAPTCHA no extension can answer), wait before asking again: 1, 2, 4 ... up to 30 minutes.
+// Requests in the meantime fail at once, without touching the network: asking on makes the
+// block last longer.
 let blockedUntil = 0;
 let strikes = 0;
 
@@ -44,11 +46,17 @@ async function send(text: string, target: string, wantRomanized: boolean, fetchI
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: new URLSearchParams({ q: text }).toString(),
+    // Never follow Google to google.com/sorry: outside our host permissions, that ends in
+    // "Failed to fetch". The redirect itself is the answer.
+    redirect: 'manual',
   });
-  if (res.status === 429) {
+  const redirected = res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400);
+  if (res.status === 429 || redirected) {
     strikes++;
     blockedUntil = Date.now() + Math.min(30, 2 ** (strikes - 1)) * 60_000;
-    throw new RateLimited('Google Translate is rate-limiting this network');
+    throw new RateLimited(redirected
+      ? 'Google Translate is rate-limiting this network (it asks for a CAPTCHA)'
+      : 'Google Translate is rate-limiting this network');
   }
   if (!res.ok) throw new Error(`Google Translate HTTP ${res.status}`);
   strikes = 0;

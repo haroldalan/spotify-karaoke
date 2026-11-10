@@ -14,6 +14,24 @@ describe('target language from the browser', () => {
 describe('Google backoff', () => {
   beforeEach(() => vi.resetModules());
 
+  it('treats Google sending it to its CAPTCHA page as rate limiting, and stops asking', async () => {
+    vi.resetModules();
+    const { googleLines, googleBlockedUntil, RateLimited } = await import('../../src/background/text/google');
+    let calls = 0;
+    let redirect: RequestRedirect | undefined;
+    const sorry = (async (_u: unknown, init?: RequestInit) => {
+      calls++;
+      redirect = init?.redirect;
+      // What fetch gives for a redirect with redirect: 'manual'.
+      return Object.defineProperty(new Response(null, { status: 200 }), 'type', { value: 'opaqueredirect' });
+    }) as typeof fetch;
+    await expect(googleLines(['a'], 'en', false, sorry)).rejects.toBeInstanceOf(RateLimited);
+    expect(redirect).toBe('manual');
+    expect(googleBlockedUntil()).toBeGreaterThan(Date.now());
+    await expect(googleLines(['a'], 'en', false, sorry)).rejects.toBeInstanceOf(RateLimited);
+    expect(calls).toBe(1);
+  });
+
   it('stops asking for a while after a 429, then tries again', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const { googleLines, googleBlockedUntil, RateLimited } = await import('../../src/background/text/google');
