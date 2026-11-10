@@ -57,17 +57,37 @@ loads the extension through CDP, using the test profile in `.live/chrome-profile
 Before pressing play, check that nothing says "Playing on …" (the account is shared, so
 Spotify Connect would move playback from your own player), and mute the test player.
 
+`node tools/live/headers.mjs` shows the headers Chrome sends on the extension's Google Translate
+request, in a throwaway profile (one real request; see docs/google-translate-tests.md).
+
 `tools/probe/` is a tiny extension that records Spotify's lyrics-related network traffic
 from page start. Use it to see what Spotify changed after a redesign.
 
-## Status (2026-11-10)
+## Status (2026-11-10, evening)
 
-A complete live pass over every feature (owner's Chrome with the dev kit, test Chrome with the
-production build) plus a code audit is in [docs/live-check-2026-11-10.md](docs/live-check-2026-11-10.md):
-11 bugs found live and fixed, the audit's confirmed findings fixed, verdict and open owner
-decisions at the top. Not yet run live: Firefox.
+Release candidate 4.0.0. 302 unit tests pass, `tsc` is clean, Chrome/Edge/Firefox build, the
+production build has no dev kit.
 
-Verified live in Chrome 156:
+Since the morning's full pass ([docs/live-check-2026-11-10.md](docs/live-check-2026-11-10.md)),
+22 commits and a pre-release review of them (background, page, content, popup). Its
+findings, fixed and each checked live in the owner's Chrome (dev-kit build): copies timed to
+another recording refused; songs already in the listener's language left alone; a line
+Google echoes is no translation; no script search for songs Spotify serves in their script;
+"chh" and Gurmukhi's addak romanized right (cache version 6). New since: Google Translate's
+main endpoint asked as its Android app (`tools/live/headers.mjs` shows the headers on the
+wire), and copies judged by their whole text when line breaks differ.
+
+The same evening, as a listener would (search, play, Spotify's own controls, the switcher,
+the R key): Gurmukhi, Korean, Japanese, Cyrillic (a song Spotify has no lyrics for), Arabic
+(Google's romanization), English and Spanish songs; Two lines, All three lines, a second
+target language; no lyrics anywhere (notice, Search again); Wrong lyrics? and Undo; a
+script restored on a first play; song changes; the sidebar card; an extension reload.
+
+Not run live: Firefox; the popup page itself (its actions ran through the dev kit); the
+Alt+Shift commands; the mini player (Premium). Open owner decisions: see
+docs/live-check-2026-11-10.md ("Owner decisions").
+
+Earlier passes, kept for reference (2026-11-09/10). Verified live in Chrome 156:
 - Romanized / translated main line with the original beneath, Spotify's highlighting and
   scrolling intact; switching modes from the on-page switcher.
 - Song changes: no undecorated or wrong-song line in any 100 ms sample, including while
@@ -125,8 +145,6 @@ UX pass (2026-11-09/10, a persona audit with the owner's decisions; docs/ux-audi
   playing yet may wait up to 12 s; a line-for-line copy that comes after Spotify drew its
   romanized lines is put on screen right away (owner's call). Seen live: Malang Sajna in
   Gurmukhi (cached). Not yet seen live: a first play.
-
-Not done yet: see the batches below.
 
 ## Fix plan (from three audits, 2026-11-09)
 
