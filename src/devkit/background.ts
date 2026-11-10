@@ -8,6 +8,7 @@ import { expectedScript, scriptShare } from '../shared/scripts';
 import { ytm } from '../background/lyrics/ytm';
 import { lrclibCandidates } from '../background/lyrics/lrclib';
 import { parseLrc, plainLines } from '../background/lyrics/lrc';
+import { processLines } from '../background/text/process';
 import { resetSettings } from '../shared/settings';
 
 const LOG_MAX = 300;
@@ -92,6 +93,16 @@ const OPS: Record<string, Op> = {
     await Promise.all([resetSettings(), cacheClear()]);
     devLog('dev resetData');
     return true;
+  },
+  /** A song's lines through romanization and translation, as the page would ask (uncached). */
+  async process(args) {
+    const a = (args ?? {}) as { lines?: string[]; language?: string | null; translateTo?: string };
+    if (!Array.isArray(a.lines) || !a.lines.length) throw new Error('process: lines?');
+    const lines = a.lines.map((l) => `${l}`);
+    // Uncached: a marker no song has keeps the cache keys apart.
+    const marker = `\u2063${Date.now()}`;
+    const r = await processLines({ lines: [...lines, marker], language: a.language ?? null, romanize: true, translateTo: a.translateTo ?? 'en' });
+    return { ...r, romanized: r.romanized?.slice(0, -1) ?? null, translated: r.translated?.slice(0, -1) ?? null };
   },
   /** What each source has for a song (no cache): synced, lines, share of lines in the song's script. */
   async sources(args) {

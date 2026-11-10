@@ -43,6 +43,7 @@ export function installDevkit(win: Window & typeof globalThis = window): void {
     notThisSong: (on = true) => request('page', { sk: 'not-this-song', on }),
     seedNone: () => request('seedNone'),
     sources: () => request('sources'),
+    process: (lines: string[], language: string | null = null, translateTo = 'en') => request('process', { lines, language, translateTo }),
     forget: (id?: string) => request('forget', { id }),
     fresh: async () => {
       const r = await request('forget', {});

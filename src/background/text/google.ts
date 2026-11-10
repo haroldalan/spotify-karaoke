@@ -80,12 +80,16 @@ async function send(text: string, target: string, wantRomanized: boolean, fetchI
     redirect: 'manual',
   });
   const redirected = res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400);
-  if (res.status === 429 || redirected) {
+  // Google's ways of saying "not from this network": 429, a redirect to its CAPTCHA page, a
+  // 403, or the CAPTCHA page itself served as a 200 (HTML, not JSON).
+  const body = res.ok ? await res.text() : '';
+  const notJson = res.ok && /^\s*</.test(body);
+  if (res.status === 429 || res.status === 403 || redirected || notJson) {
     const p = nextPause(strikes);
     strikes = p.strikes;
     blockedUntil = p.until;
     savePause('google', p);
-    throw new RateLimited(redirected
+    throw new RateLimited(redirected || notJson
       ? 'Google Translate is rate-limiting this network (it asks for a CAPTCHA)'
       : 'Google Translate is rate-limiting this network');
   }
@@ -94,7 +98,7 @@ async function send(text: string, target: string, wantRomanized: boolean, fetchI
     strikes = 0;
     savePause('google', { until: 0, strikes: 0 });
   }
-  const j = (await res.json()) as { sentences?: { trans?: string; orig?: string; src_translit?: string }[] };
+  const j = JSON.parse(body) as { sentences?: { trans?: string; orig?: string; src_translit?: string }[] };
   const sentences = j.sentences ?? [];
   const translated = sentences.map((s) => s.trans ?? '').join('');
   const translit = sentences.map((s) => s.src_translit ?? '').join('');
@@ -159,9 +163,9 @@ export interface GoogleResult {
 
 /**
  * Translates (and optionally romanizes) lines. Returns arrays aligned with the input.
- * Empty lines map to ''. While the main endpoint is paused, the translation comes from the
- * backup (googleWidget.ts), without romanization; `translation: false` (romanizing only)
- * skips the backup.
+ * Empty lines map to ''. When the main endpoint fails (paused, blocked, or any other error),
+ * the translation comes from the backup (googleWidget.ts), without romanization;
+ * `translation: false` (romanizing only) skips the backup.
  */
 export async function googleLines(
   lines: string[],
@@ -173,7 +177,9 @@ export async function googleLines(
   try {
     return await mainLines(lines, target, wantRomanized, fetchImpl);
   } catch (e) {
-    if (!(e instanceof RateLimited) || opts.translation === false) throw e;
+    // Any failure of the main endpoint (a block, a server error, a dropped connection): the
+    // translation comes from the backup. Romanizing only: nothing the backup can do.
+    if (opts.translation === false) throw e;
     let translated: string[];
     try {
       translated = await tracked('google', () => widgetTranslate(lines, target, fetchImpl));

@@ -99,8 +99,29 @@ describe('Google client', () => {
     expect(out.translated[119]).toBe(`${lines[119].trim()}!`);
   });
 
+  it('takes a 403 or the CAPTCHA page served as a page for a block, and translates through the backup', async () => {
+    for (const blocked of [new Response('', { status: 403 }), new Response('<html>unusual traffic</html>', { status: 200 })]) {
+      resetGoogleBackoff();
+      resetWidget();
+      const g = googleFake({});
+      const impl = (async (url: string, init?: RequestInit) => (url.includes('translate_a') ? blocked.clone() : g.impl(url, init))) as typeof fetch;
+      const out = await googleLines(['one', 'two'], 'en', false, impl);
+      expect(out).toMatchObject({ translated: ['one?', 'two?'], backup: true });
+    }
+  });
+
+  it('translates through the backup when the main endpoint fails any other way (a server error)', async () => {
+    resetGoogleBackoff();
+    resetWidget();
+    const g = googleFake({});
+    const impl = (async (url: string, init?: RequestInit) => (url.includes('translate_a') ? new Response('', { status: 503 }) : g.impl(url, init))) as typeof fetch;
+    expect(await googleLines(['one'], 'en', false, impl)).toMatchObject({ translated: ['one?'], backup: true });
+  });
+
   it('reports rate limiting as such', async () => {
-    await expect(googleLines(['a'], 'en', false, googleFake({ status: 429 }).impl)).rejects.toBeInstanceOf(RateLimited);
+    resetWidget();
+    // Both endpoints refusing: the main one's rate limit is what is reported.
+    await expect(googleLines(['a'], 'en', false, googleFake({ status: 429, widget: false }).impl)).rejects.toBeInstanceOf(RateLimited);
   });
 });
 
