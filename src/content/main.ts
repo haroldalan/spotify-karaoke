@@ -295,7 +295,7 @@ export async function startContent(): Promise<void> {
 
   // ── Search again ──
   async function searchAgain(meta: TrackMeta): Promise<boolean> {
-    notice = { id: meta.id, caption: 'Searching again…', searching: true };
+    notice = { id: meta.id, caption: '', searching: true };
     added.delete(meta.id);
     render();
     const found = await call('retryLyrics', meta).catch(() => null);
@@ -308,7 +308,7 @@ export async function startContent(): Promise<void> {
       notice = { id: meta.id, caption: '', found: true };
       offerReload('found', meta.id);
     } else {
-      notice = { id: meta.id, caption: 'Still none to be found.' };
+      notice = { id: meta.id, caption: 'Still no lyrics found.' };
     }
     render();
     return !!found;
@@ -330,9 +330,11 @@ export async function startContent(): Promise<void> {
         actions: reloadActions(),
       };
     }
-    if (mine?.searching) return { key: meta.id, caption: mine.caption, actions: [] };
+    // The two buttons keep their places in every state: only which one is highlighted changes.
+    // Searching shows on the button that was pressed.
+    if (mine?.searching) return { key: meta.id, caption: '', actions: [{ label: 'Searching…', busy: true }, { ...add, primary: true }] };
     // Back from adding lyrics: searching is the next step.
-    if (added.has(meta.id)) return { key: meta.id, caption: 'Added them? Search again.', actions: [add, { ...search, primary: true }] };
+    if (added.has(meta.id)) return { key: meta.id, caption: 'Added them? Search again to show them.', actions: [{ ...search, primary: true }, add] };
     // Spotify's own message already says there are no lyrics: only the ways forward here.
     return { key: meta.id, caption: mine?.caption ?? '', actions: [search, { ...add, primary: true }] };
   }

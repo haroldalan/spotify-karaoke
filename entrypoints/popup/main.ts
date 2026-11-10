@@ -247,7 +247,7 @@ function renderSong(page: PageStatus, note = '') {
         label: 'Search again',
         run: () => {
           songRow(title, 'Searching again…', []);
-          void ask<{ found: boolean }>({ sk: 'search-again', id: c.id }).then((r) => refresh(r?.found ? '' : 'Still none to be found.'));
+          void ask<{ found: boolean }>({ sk: 'search-again', id: c.id }).then((r) => refresh(r?.found ? '' : 'Still no lyrics found.'));
         },
       },
     ]);

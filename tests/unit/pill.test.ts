@@ -3,7 +3,7 @@
 // view transition that draws the view as one layer above the page, so a switcher on body
 // only showed once the animation had ended (it popped in, 2026-11-10).
 import { describe, expect, it } from 'vitest';
-import { Pill } from '../../src/content/pill';
+import { Pill, noticeIdentity, type Notice } from '../../src/content/pill';
 
 const anchor = { top: 148, centerX: 700, width: 1384, height: 538 };
 const state = { mode: 'romanized' as const, modes: ['original', 'romanized', 'translated'] as ('original' | 'romanized' | 'translated')[], busy: false };
@@ -39,5 +39,24 @@ describe('the switcher', () => {
     const pill = new Pill(() => {});
     pill.update({ ...state, visible: false, anchor: null, container: null });
     expect(pill.debugState()).toMatchObject({ mounted: false, switcher: null });
+  });
+});
+
+describe('the no-lyrics notice', () => {
+  const search = { label: 'Search again', run: () => {} };
+  const add = { label: 'Add lyrics to LRCLIB', href: 'https://lrclib.net/' };
+
+  it('is redrawn when only the highlight moves (the buttons keep their places)', () => {
+    const before: Notice = { key: 's', caption: '', actions: [search, { ...add, primary: true }] };
+    const after: Notice = { key: 's', caption: '', actions: [{ ...search, primary: true }, add] };
+    expect(noticeIdentity(before)).not.toBe(noticeIdentity(after));
+  });
+
+  it('takes the view\'s width, not its zero-size host\'s: no text wrapped a word to a line', () => {
+    document.body.innerHTML = '<div id="view"></div>';
+    const pill = new Pill(() => {});
+    pill.notice({ key: 's', caption: 'Lyrics found. Spotify shows them after a reload, which stops the music.', actions: [] }, anchor, document.getElementById('view'));
+    expect(pill.debugState().notice).toMatchObject({ top: '148px', left: '700px' });
+    expect(pill.debugState().noticeMaxWidth).toBe('1336px');
   });
 });

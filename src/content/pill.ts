@@ -17,11 +17,13 @@ const FONT = `SpotifyMixUI, CircularSp, "Circular Std", system-ui, -apple-system
 const CSS = `
 :host { all: initial; position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483000; }
 .slot {
-  position: absolute; z-index: 2147483000; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  /* The host is zero-size: the slot takes its own width (at most the view's, set in place()),
+     or its text would wrap a word to a line and run past the bottom of the view. */
+  position: absolute; z-index: 2147483000; transform: translateX(-50%); width: max-content;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
   font-family: ${FONT}; pointer-events: none;
 }
-.slot[hidden], button[hidden] { display: none; }
+.slot[hidden], .capsule[hidden], button[hidden] { display: none; }
 .capsule {
   pointer-events: auto; display: flex; align-items: center; gap: 4px; padding: 6px;
   background: rgba(0, 0, 0, .4); -webkit-backdrop-filter: blur(4px) saturate(180%); backdrop-filter: blur(4px) saturate(180%);
@@ -41,7 +43,18 @@ button:focus-visible, a:focus-visible { outline: 2px solid #fff; outline-offset:
 [aria-pressed="true"]:hover, .primary:hover { background-color: #fff; color: #000; }
 .busy [aria-pressed="true"] { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .6; } }
-.caption { font: 400 12px/1.3 ${FONT}; color: rgba(255, 255, 255, .7); text-shadow: 0 1px 2px rgba(0, 0, 0, .4); }
+.caption {
+  max-width: 100%; text-align: center; text-wrap: balance;
+  font: 500 13px/1.4 ${FONT}; color: rgba(255, 255, 255, .85); text-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+}
+/* An action at work ("Searching…"): a spinner in its place, not clickable meanwhile. */
+.working { display: inline-flex; align-items: center; gap: 8px; cursor: default; color: #fff; }
+.working:hover { background-color: transparent; }
+.working::before {
+  content: ""; width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, .3); border-top-color: #fff; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .caption:empty { display: none; }
 `;
 
@@ -53,6 +66,8 @@ export interface NoticeAction {
   href?: string;
   run?: () => void;
   primary?: boolean;
+  /** At work (e.g. "Searching…"): a spinner, and not clickable. */
+  busy?: boolean;
 }
 
 export interface Notice {
@@ -66,8 +81,8 @@ export interface Notice {
 /** The full lyrics view, not Spotify's small lyrics card in the sidebar. */
 const isFullView = (a: Anchor) => a.width >= 420 && a.height >= 260;
 
-/** What identifies a notice's buttons: its song, and what they say. They are rebuilt when it changes. */
-export const noticeIdentity = (n: Notice) => `${n.key}\n${n.caption}\n${n.actions.map((a) => a.label).join('|')}`;
+/** What identifies a notice's buttons: its song, what they say and which is highlighted. They are rebuilt when it changes. */
+export const noticeIdentity = (n: Notice) => `${n.key}\n${n.caption}\n${n.actions.map((a) => `${a.label}${a.primary ? '*' : ''}${a.busy ? '…' : ''}`).join('|')}`;
 
 export class Pill {
   private host = document.createElement('sk-pill');
@@ -101,7 +116,7 @@ export class Pill {
   /** Where the switcher and the notice are (dev kit). */
   debugState() {
     const at = (el: HTMLElement) => (el.hidden ? null : { top: el.style.top, left: el.style.left });
-    return { mounted: this.host.isConnected, switcher: at(this.switcher), notice: at(this.noticeSlot) };
+    return { mounted: this.host.isConnected, switcher: at(this.switcher), notice: at(this.noticeSlot), noticeMaxWidth: this.noticeSlot.style.maxWidth };
   }
 
   /** Puts the controls in `container` (the lyrics view), or on body. */
@@ -148,12 +163,16 @@ export class Pill {
           const el = a.href ? document.createElement('a') : document.createElement('button');
           el.textContent = a.label;
           if (a.primary) el.className = 'primary';
+          if (a.busy) {
+            el.className = 'working';
+            el.setAttribute('aria-disabled', 'true');
+          }
           if (el instanceof HTMLAnchorElement && a.href) {
             el.href = a.href;
             el.target = '_blank';
             el.rel = 'noopener noreferrer';
           }
-          if (a.run) el.addEventListener('click', () => a.run!());
+          if (a.run && !a.busy) el.addEventListener('click', () => a.run!());
           return el;
         }),
       );
@@ -184,4 +203,5 @@ function place(el: HTMLElement, a: Anchor, host: Element) {
   const r = host.getBoundingClientRect();
   el.style.top = `${Math.round(a.top - r.top)}px`;
   el.style.left = `${Math.round(a.centerX - r.left)}px`;
+  el.style.maxWidth = `${Math.max(200, Math.round(a.width - 48))}px`;
 }

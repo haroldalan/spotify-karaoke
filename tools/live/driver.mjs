@@ -155,6 +155,14 @@ const handlers = {
     const re = match ? new RegExp(match) : null;
     return logs.filter((l) => !re || re.test(l)).slice(-(n || 80));
   },
+  /** Closes every tab but Spotify's (e.g. one a link opened) and brings Spotify's to the front. */
+  async closeOthers() {
+    const page = await spotifyPage();
+    let n = 0;
+    for (const p of await browser.pages()) if (p !== page) { await p.close(); n++; }
+    await page.bringToFront();
+    return n;
+  },
   async clearLogs() { logs.length = 0; return 'ok'; },
   async url() { return (await spotifyPage()).url(); },
   async targets() { return { extId, targets: browser.targets().map((t) => `${t.type()} ${t.url().slice(0, 120)}`) }; },
