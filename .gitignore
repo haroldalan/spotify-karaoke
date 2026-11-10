@@ -1,13 +1,8 @@
-node_modules
-.wxt
-.output
-.agent
-.gemini
-*.txt
+node_modules/
+.output/
+.wxt/
+.live/
+.DS_Store
 *.log
-!CHANGELOG.md
-!README.md
-!LICENSE
-
-# Environment variables
-.env*
+.env
+.env.*

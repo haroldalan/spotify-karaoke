@@ -1,14 +1,10 @@
 name: Build and Release
 
-# Two ways to run this:
-#  - Push a `v*` tag: checks, builds, creates the GitHub release and submits
-#    to all three stores.
-#  - Run it by hand (Actions → Build and Release → Run workflow): rebuilds an
-#    existing tag and submits only to the stores you tick. Use "Dry run" to
-#    check the store credentials without uploading anything, e.g. before tagging.
-#
-# Each store is its own job, so one store failing never blocks another, and
-# "Re-run failed jobs" retries only the store that failed.
+# Adapted from Spotify Karaoke 3.1.6's workflow.
+#  - Push a `v*` tag: checks, builds, creates the GitHub release, submits to all three stores.
+#  - Run it by hand (Actions -> Build and Release -> Run workflow): rebuilds an existing tag and
+#    submits only to the stores you tick. "Dry run" checks the store credentials, uploads nothing.
+# Each store is its own job, so one failing never blocks another.
 
 on:
   push:
@@ -17,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing release tag to build and submit (e.g. v3.1.6)'
+        description: 'Existing release tag to build and submit (e.g. v4.0.0)'
         required: true
         type: string
       chrome:
@@ -43,7 +39,6 @@ concurrency:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
-  # Keep in step with the version in package-lock.json.
   SUBMIT: npx --yes -p publish-browser-extension@4.0.4 publish-extension
   DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
 
@@ -61,8 +56,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -93,7 +88,6 @@ jobs:
           name: zips
           path: .output/*.zip
           if-no-files-found: error
-          # .output is a dot-folder, which upload-artifact skips unless told otherwise.
           include-hidden-files: true
           retention-days: 30
 
@@ -108,7 +102,6 @@ jobs:
         with:
           name: zips
           path: .output
-
       - name: Release to GitHub
         uses: softprops/action-gh-release@v2
         with:
@@ -127,7 +120,6 @@ jobs:
         with:
           name: zips
           path: .output
-
       - name: Submit to the Chrome Web Store
         run: $SUBMIT $DRY_RUN_FLAG --chrome-zip .output/*-chrome.zip
         env:
@@ -145,7 +137,6 @@ jobs:
         with:
           name: zips
           path: .output
-
       - name: Submit to Firefox Add-ons
         run: $SUBMIT $DRY_RUN_FLAG --firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip
         env:
@@ -162,7 +153,6 @@ jobs:
         with:
           name: zips
           path: .output
-
       - name: Submit to Edge Add-ons
         run: $SUBMIT $DRY_RUN_FLAG --edge-zip .output/*-edge.zip
         env:

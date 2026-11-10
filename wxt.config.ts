@@ -1,79 +1,47 @@
 import { defineConfig } from 'wxt';
-import preact from '@preact/preset-vite';
-import removeConsole from 'vite-plugin-remove-console';
-
-const keepDebugLogs = process.env.SLY_DEBUG === '1';
 
 export default defineConfig({
+  // `npm run dev` builds .output/chrome-mv3-dev and reloads it on every change; load that folder
+  // unpacked in your own Chrome. WXT doesn't launch a browser of its own.
+  webExt: { disabled: true },
   zip: {
-    // The Firefox sources zip is built from the project folder: never ship local test
-    // material (live-logs holds a signed-in test browser profile) or page captures.
-    excludeSources: ['live-logs/**', 'fiber*.json', 'home.html', 'lyrics.html', '.env*'],
+    // The Firefox sources zip is built from this folder: never ship the signed-in test
+    // browser profile (.live) or local probes.
+    // assets/: the README's images and video, not needed to build.
+    excludeSources: ['.live/**', '.output/**', 'tools/probe/**', 'assets/**', '.env*'],
   },
-  vite: (configEnv) => ({
-    plugins: [
-      preact(),
-      ...(configEnv.mode === 'production' && !keepDebugLogs ? [removeConsole({ includes: ['debug', 'info', 'log', 'table', 'group', 'groupCollapsed', 'groupEnd'] })] : []),
-    ],
-    // Test hooks (lib/testHooks.ts) exist only in debug builds.
-    define: { __SLY_TEST_HOOKS__: JSON.stringify(keepDebugLogs) },
-    optimizeDeps: {
-      include: ['@indic-transliteration/sanscript'],
-    },
-  }),
-  manifest: ({ browser }) => ({
-    name: browser === 'firefox' ? 'Spotify Karaoke' : 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Songs',
-    description: 'Automatically fetches missing synced lyrics, romanizes any script, and translates into 132 languages – all live inside Spotify.',
-    icons: {
-      16: "icon16.png",
-      48: "icon48.png",
-      128: "icon128.png"
-    },
-    permissions: ['storage', 'unlimitedStorage', 'declarativeNetRequest'],
-    content_scripts: [
-      {
-        matches: ['https://open.spotify.com/*'],
-        js: ['fetchInterceptor.js', 'slyBridge.js'],
-        world: 'MAIN',
-        run_at: 'document_start',
-      },
-    ],
+  // Same names as the published listings, so updates land on them.
+  manifest: ({ browser, mode }) => ({
+    // Dev kit builds say so in chrome://extensions (see src/devkit/protocol.ts).
+    name: (browser === 'firefox' ? 'Spotify Karaoke' : 'Spotify Karaoke - Fetches Missing Lyrics, Romanizes & Translates Songs') + (mode === 'production' ? '' : ` (${mode})`),
+    description: 'Romanizes and translates Spotify lyrics as they play, restores their original script, and finds lyrics Spotify doesn’t have.',
+    permissions: ['storage', 'unlimitedStorage', 'declarativeNetRequestWithHostAccess', 'scripting'],
     host_permissions: [
-      '*://open.spotify.com/*',
-      '*://spclient.wg.spotify.com/*',
-      '*://open.spotifycdn.com/*',
-      '*://translate.googleapis.com/*',
-      '*://translate.google.com/*',
-      // Japanese dictionary for the local romanizer (kuromoji, lib/lyrics/japaneseRomanizer.ts).
-      '*://cdn.jsdelivr.net/*',
-      // Layer 2 lyrics fallback providers (lyric-test integration)
+      'https://open.spotify.com/*',
       'https://lrclib.net/*',
       'https://music.youtube.com/*',
-      'https://i.scdn.co/*',
+      'https://translate.googleapis.com/*',
+      // Japanese dictionary for kuromoji (romanization).
+      'https://cdn.jsdelivr.net/*',
     ],
-
-    declarative_net_request: {
-      rule_resources: [{
-        id: 'ytm_rules',
-        enabled: true,
-        path: 'rules.json',
-      }],
+    icons: { 16: 'icon16.png', 48: 'icon48.png', 128: 'icon128.png' },
+    commands: {
+      'mode-original': { description: 'Show original lyrics', suggested_key: { default: 'Alt+Shift+O' } },
+      'mode-romanized': { description: 'Show romanized lyrics', suggested_key: { default: 'Alt+Shift+R' } },
+      'mode-translated': { description: 'Show translated lyrics', suggested_key: { default: 'Alt+Shift+T' } },
     },
-
-    web_accessible_resources: [{
-      resources: ['fetchInterceptor.js', 'slyBridge.js'],
-      matches: ['https://open.spotify.com/*'],
-    }],
-
-    browser_specific_settings: {
-      gecko: {
-        id: 'spotify-karaoke@example.com',
-        strict_min_version: '142.0',
-        // @ts-ignore: WXT types missing the new Firefox AMO compliance flag
-        data_collection_permissions: {
-          required: ['none']
-        },
-      },
-    },
+    ...(browser === 'firefox'
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              // The published add-on's id: this build updates it.
+              id: 'spotify-karaoke@example.com',
+              // Page-world content scripts (world: MAIN) need Firefox's MV3; 142 matches 3.1.6.
+              strict_min_version: '142.0',
+              data_collection_permissions: { required: ['none'] },
+            },
+          },
+        }
+      : {}),
   }),
 });

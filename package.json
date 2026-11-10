@@ -1,25 +1,23 @@
 {
   "name": "spotify-karaoke",
-  "version": "3.1.6",
-  "description": "WXT browser extension for Chrome/Firefox — fetches missing lyrics, restores native scripts, and romanizes & translates Spotify lyrics in real time",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
+  "description": "Romanize, translate and fill in missing lyrics inside Spotify's web player",
   "scripts": {
     "dev": "wxt",
-    "dev:firefox": "wxt -b firefox",
-    "dev:edge": "wxt -b edge",
     "build": "wxt build",
-    "build:chrome:debug": "SLY_DEBUG=1 wxt build -b chrome",
-    "build:firefox": "wxt build -b firefox",
-    "build:firefox:debug": "SLY_DEBUG=1 wxt build -b firefox",
-    "build:edge": "wxt build -b edge",
+    "build:devkit": "wxt build --mode devkit",
+    "build:firefox": "wxt build -b firefox --mv3",
     "zip": "wxt zip",
-    "zip:firefox": "wxt zip -b firefox",
-    "zip:edge": "wxt zip -b edge",
-    "prepare": "wxt prepare",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p .",
-    "test:watch": "vitest"
+    "typecheck": "tsc --noEmit",
+    "live": "node tools/live/driver.mjs",
+    "licenses": "node tools/licenses.mjs",
+    "postinstall": "wxt prepare",
+    "build:edge": "wxt build -b edge",
+    "zip:firefox": "wxt zip -b firefox --mv3",
+    "zip:edge": "wxt zip -b edge"
   },
   "dependencies": {
     "@dehoist/romanize-thai": "^1.0.0",
@@ -28,21 +26,16 @@
     "@sglkc/kuroshiro": "^1.0.1",
     "@sglkc/kuroshiro-analyzer-kuromoji": "^1.0.1",
     "cyrillic-to-translit-js": "^3.2.1",
-    "pinyin-pro": "^3.28.0",
-    "preact": "^10.25.4",
+    "pinyin-pro": "^3.29.5",
     "tamil-romanizer": "^1.0.2",
-    "transliteration": "^2.3.5"
+    "transliteration": "^2.7.0"
   },
   "devDependencies": {
-    "@preact/preset-vite": "^2.8.2",
-    "@testing-library/preact": "^3.2.4",
-    "@vitest/ui": "^4.0.18",
-    "happy-dom": "^20.7.0",
-    "jsdom": "^28.1.0",
-    "typescript": "^5.7.3",
-    "vite-plugin-remove-console": "^2.2.0",
-    "vite-plugin-string-replace": "^1.1.5",
-    "vitest": "^4.0.18",
-    "wxt": "^0.20.5"
+    "@types/chrome": "^0.3.7",
+    "happy-dom": "^21.0.4",
+    "puppeteer-core": "^25.16.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0",
+    "wxt": "^0.21.5"
   }
 }

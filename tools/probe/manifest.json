@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "sk-probe",
+  "version": "0.0.1",
+  "browser_specific_settings": { "gecko": { "id": "sk-probe@local", "strict_min_version": "128.0" } },
+  "host_permissions": ["https://open.spotify.com/*"],
+  "content_scripts": [{ "matches": ["https://open.spotify.com/*"], "js": ["probe.js"], "world": "MAIN", "run_at": "document_start" }]
+}

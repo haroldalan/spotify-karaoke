@@ -1,3 +1,4 @@
+// Ported from Spotify Karaoke 3.1.6 (tests/unit/romanizedDetector.test.ts).
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -5,7 +6,7 @@ import {
   detectRomanizedLanguage,
   isLikelyRomanizedFallback,
   nonLatinLetterRatio,
-} from '../../lib/lyrics/romanizedDetector';
+} from '../../src/shared/romanizedDetector';
 
 const fixture = JSON.parse(
   readFileSync(resolve(__dirname, '../fixtures/color-lyrics-romanized-hindi.json'), 'utf8'),

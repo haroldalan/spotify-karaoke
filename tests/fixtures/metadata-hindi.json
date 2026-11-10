@@ -1,0 +1,43 @@
+{
+  "gid": "0123456789abcdef0123456789abcdef",
+  "name": "Song Hindi",
+  "album": {
+    "gid": "cc33",
+    "name": "Album",
+    "artist": [
+      {
+        "gid": "bb22",
+        "name": "Singer"
+      }
+    ]
+  },
+  "artist": [
+    {
+      "gid": "bb22",
+      "name": "Singer"
+    }
+  ],
+  "number": 3,
+  "disc_number": 1,
+  "duration": 262000,
+  "popularity": 52,
+  "external_id": [
+    {
+      "type": "isrc",
+      "id": "JPA000000001"
+    }
+  ],
+  "earliest_live_timestamp": 1546300800,
+  "licensor": {
+    "uuid": "00000000000000000000000000000000"
+  },
+  "language_of_performance": [
+    "hi"
+  ],
+  "original_audio": {
+    "uuid": "0"
+  },
+  "canonical_uri": "",
+  "media_type": "AUDIO",
+  "has_lyrics": true
+}

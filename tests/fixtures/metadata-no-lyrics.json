@@ -1,0 +1,17 @@
+{
+  "gid": "647a7f80ed7b47578743b227e6bfb793",
+  "name": "まどろみ",
+  "album": { "gid": "1c3a4ccd1d0a4a6f9b8b5e3f0b9b0a01", "name": "URBAN BLUES Presents BEST OF NAOKO GUSHIMA", "artist": [{ "gid": "aa11", "name": "Naoko Gushima" }] },
+  "artist": [{ "gid": "aa11", "name": "Naoko Gushima" }],
+  "number": 3,
+  "disc_number": 1,
+  "duration": 250040,
+  "popularity": 52,
+  "external_id": [{ "type": "isrc", "id": "JPA000000001" }],
+  "earliest_live_timestamp": 1546300800,
+  "licensor": { "uuid": "00000000000000000000000000000000" },
+  "language_of_performance": ["ja"],
+  "original_audio": { "uuid": "0" },
+  "canonical_uri": "spotify:track:33BdipYlRY2WBvIBNk4Wmn",
+  "media_type": "AUDIO"
+}

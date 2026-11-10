@@ -3,6 +3,29 @@
 All notable changes to Spotify Karaoke are documented here.  
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.0.0] — 2026-11-11
+
+A rebuild from a clean slate. Spotify's lyrics view is no longer replaced or redrawn: the extension changes the lyrics Spotify receives and how each line's text is drawn, so Spotify's own highlighting, scrolling, click-to-seek, layouts and colours keep working, and Spotify changes break far less. Settings carry over from 3.x.
+
+### Changed
+- **Lyrics where Spotify has none, drawn by Spotify itself**: when Spotify has no lyrics, it is given the lyrics found on LRCLIB or YouTube Music in its own format, and shows them like its own (synced, credited in its footer). Unsynced Spotify lyrics are replaced by a synced copy in the same script.
+- **Original script restored before Spotify draws the lyrics**: for a song Spotify serves romanized, YouTube Music and LRCLIB are asked at once, and a copy is used only when it is the same song (line by line, or as a whole text when the two break their lines differently, with timings that agree). Never for a song Spotify already serves in its script.
+- **Two lines** (replacing Dual lyrics): the main line, with the original beneath it. Your Dual lyrics choice is kept.
+- **Romanization**: each script in a line by its own engine; Japanese by word, read as pronounced; Thai offline; Hindi and Punjabi spelled the way lyrics are written ("kuchh", "sajjna").
+- **Translation**: one Google request per song, never one per line; a backup endpoint when the main one refuses; pauses when Google rate-limits instead of retrying; lines Google sends back unchanged aren't shown as translations; songs already in your translation language are left as they are.
+- **Firefox**: an MV3 build (Firefox 142+).
+- **Permissions**: fewer sites (no longer `spclient.wg.spotify.com`, `open.spotifycdn.com`, `translate.google.com`, `i.scdn.co`); `declarativeNetRequestWithHostAccess` instead of `declarativeNetRequest`, its header rules limited to the extension's own requests; `scripting`, to add the extension to Spotify tabs already open when it is installed or updated, without a reload.
+
+### Added
+- **All three lines**: original, romanization and translation together, in every mode.
+- **No lyrics anywhere**: the lyrics view says so, with **Search again** and **Add lyrics to LRCLIB**; instrumentals are named when Spotify says so.
+- **Wrong lyrics?** in the popup: sends a song back to Spotify's own lyrics, with Undo.
+- **Alt+Shift+O / R / T** browser shortcuts, beside the O / R / T keys on the lyrics.
+- Decoration in the Now Playing sidebar's lyrics card and the mini player.
+
+### Removed
+- 3.x's own lyrics renderer and its reading of Spotify's React tree: Spotify draws every line itself now.
+
 ## [3.1.6] — 2026-11-08
 
 Spotify rebuilt its web player in late 2026 (an expanded Now Playing view with a media switch for Artwork, Canvas, Artist image and Lyrics). This release adapts the whole extension to it and sharpens romanization and translation, its core features.

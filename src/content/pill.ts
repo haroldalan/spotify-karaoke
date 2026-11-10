@@ -1,0 +1,207 @@
+// The on-page controls, in their own shadow root. The host goes inside the element holding
+// Spotify's lyrics view (body when there is none), as a zero-size, absolutely placed box that
+// takes no part in the view's layout: Spotify opens the view with a view transition that
+// draws the view as one layer above the rest of the page, so controls outside it would show
+// only once the animation ends. Inside, they arrive (and leave) with the view.
+// - the mode switcher (Original / Romanized / Translated): 3.1.6's capsule, centred 12 px
+//   under Spotify's lyrics header, shown only while the lyrics view is open, offering only
+//   the modes that change something for the song;
+// - in the same spot, the actions for a song nothing was found for (Search again / Add to
+//   LRCLIB), under Spotify's own "no lyrics" message rather than repeating it.
+// Spotify's font comes from its page (@font-face applies inside shadow roots).
+import type { Mode } from '../shared/types';
+import type { Anchor } from './view';
+
+const FONT = `SpotifyMixUI, CircularSp, "Circular Std", system-ui, -apple-system, "Segoe UI", sans-serif`;
+
+const CSS = `
+:host { all: initial; position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483000; }
+.slot {
+  /* The host is zero-size: the slot takes its own width (at most the view's, set in place()),
+     or its text would wrap a word to a line and run past the bottom of the view. */
+  position: absolute; z-index: 2147483000; transform: translateX(-50%); width: max-content;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  font-family: ${FONT}; pointer-events: none;
+}
+.slot[hidden], .capsule[hidden], button[hidden] { display: none; }
+.capsule {
+  pointer-events: auto; display: flex; align-items: center; gap: 4px; padding: 6px;
+  background: rgba(0, 0, 0, .4); -webkit-backdrop-filter: blur(4px) saturate(180%); backdrop-filter: blur(4px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, .1); border-radius: 32px; box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+  transition: background .2s ease, box-shadow .2s ease;
+}
+.capsule:hover { background: rgba(0, 0, 0, .6); border-color: rgba(255, 255, 255, .2); }
+button, a {
+  all: unset; cursor: pointer; box-sizing: border-box; padding: 8px 16px; border-radius: 20px; white-space: nowrap;
+  font: 400 14px/1.2 ${FONT}; color: rgba(255, 255, 255, .7);
+  transition: color .2s ease, background-color .2s ease, transform .1s ease;
+}
+button:hover, a:hover { color: #fff; background-color: rgba(255, 255, 255, .1); }
+button:active, a:active { transform: scale(.96); }
+button:focus-visible, a:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+[aria-pressed="true"], .primary { background-color: #fff; color: #000; font-weight: 600; box-shadow: 0 2px 4px rgba(0, 0, 0, .1); }
+[aria-pressed="true"]:hover, .primary:hover { background-color: #fff; color: #000; }
+.busy [aria-pressed="true"] { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .6; } }
+.caption {
+  max-width: 100%; text-align: center; text-wrap: balance;
+  font: 500 13px/1.4 ${FONT}; color: rgba(255, 255, 255, .85); text-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+}
+/* An action at work ("Searching…"): a spinner in its place, not clickable meanwhile. */
+.working { display: inline-flex; align-items: center; gap: 8px; cursor: default; color: #fff; }
+.working:hover { background-color: transparent; }
+.working::before {
+  content: ""; width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, .3); border-top-color: #fff; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.caption:empty { display: none; }
+`;
+
+const LABELS: [Mode, string, string][] = [['original', 'Original', 'O'], ['romanized', 'Romanized', 'R'], ['translated', 'Translated', 'T']];
+
+export interface NoticeAction {
+  label: string;
+  /** A link opened in a new tab, or a function run on click. */
+  href?: string;
+  run?: () => void;
+  primary?: boolean;
+  /** At work (e.g. "Searching…"): a spinner, and not clickable. */
+  busy?: boolean;
+}
+
+export interface Notice {
+  /** The song this notice is for: its buttons act on that song, so another song's notice is another one. */
+  key: string;
+  /** Short status under the actions (e.g. "Still no lyrics"); empty: none. */
+  caption: string;
+  actions: NoticeAction[];
+}
+
+/** The full lyrics view, not Spotify's small lyrics card in the sidebar. */
+const isFullView = (a: Anchor) => a.width >= 420 && a.height >= 260;
+
+/** What identifies a notice's buttons: its song, what they say and which is highlighted. They are rebuilt when it changes. */
+export const noticeIdentity = (n: Notice) => `${n.key}\n${n.caption}\n${n.actions.map((a) => `${a.label}${a.primary ? '*' : ''}${a.busy ? '…' : ''}`).join('|')}`;
+
+export class Pill {
+  private host = document.createElement('sk-pill');
+  private switcher: HTMLDivElement;
+  private switcherCapsule: HTMLDivElement;
+  private buttons = new Map<Mode, HTMLButtonElement>();
+  private switcherCaption: HTMLDivElement;
+  private noticeSlot: HTMLDivElement;
+  private noticeCapsule: HTMLDivElement;
+  private noticeCaption: HTMLDivElement;
+  private noticeKey = '';
+
+  constructor(onPick: (m: Mode) => void) {
+    const shadow = this.host.attachShadow({ mode: 'closed' });
+    const style = document.createElement('style');
+    style.textContent = CSS;
+    [this.switcher, this.switcherCapsule, this.switcherCaption] = slot('Main line');
+    for (const [mode, label, key] of LABELS) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.title = `${label} (${key})`;
+      b.addEventListener('click', () => onPick(mode));
+      this.buttons.set(mode, b);
+      this.switcherCapsule.append(b);
+    }
+    [this.noticeSlot, this.noticeCapsule, this.noticeCaption] = slot('Lyrics not found');
+    this.noticeSlot.setAttribute('role', 'status');
+    shadow.append(style, this.switcher, this.noticeSlot);
+  }
+
+  /** Where the switcher and the notice are (dev kit). */
+  debugState() {
+    const at = (el: HTMLElement) => (el.hidden ? null : { top: el.style.top, left: el.style.left });
+    return { mounted: this.host.isConnected, switcher: at(this.switcher), notice: at(this.noticeSlot), noticeMaxWidth: this.noticeSlot.style.maxWidth };
+  }
+
+  /** Puts the controls in `container` (the lyrics view), or on body. */
+  mount(container: Element | null = null) {
+    const target = container ?? document.body;
+    if (this.host.parentNode !== target) target.append(this.host);
+  }
+
+  remove() {
+    this.host.remove();
+  }
+
+  /**
+   * `mode` is the mode in effect for this song, `modes` the ones that change something for
+   * it (a Latin-script song has nothing to romanize: Original and Translated only).
+   */
+  update(o: { mode: Mode; modes: Mode[]; visible: boolean; anchor: Anchor | null; container?: Element | null; busy: boolean; caption?: string }) {
+    for (const [m, b] of this.buttons) {
+      b.setAttribute('aria-pressed', String(m === o.mode));
+      b.hidden = !o.modes.includes(m);
+    }
+    this.switcherCapsule.classList.toggle('busy', o.busy);
+    this.switcherCaption.textContent = o.caption ?? '';
+    const show = o.visible && !!o.anchor && isFullView(o.anchor);
+    if (show) {
+      this.mount(o.container ?? null);
+      place(this.switcher, o.anchor!, this.host);
+    }
+    this.switcher.hidden = !show;
+  }
+
+  /** Actions in the switcher's spot when the lyrics view is open but empty; null hides them. */
+  notice(n: Notice | null, anchor: Anchor | null, container: Element | null = null) {
+    if (!n || !anchor) {
+      this.noticeSlot.hidden = true;
+      return;
+    }
+    this.mount(container);
+    const key = noticeIdentity(n);
+    if (key !== this.noticeKey) {
+      this.noticeKey = key;
+      this.noticeCapsule.replaceChildren(
+        ...n.actions.map((a) => {
+          const el = a.href ? document.createElement('a') : document.createElement('button');
+          el.textContent = a.label;
+          if (a.primary) el.className = 'primary';
+          if (a.busy) {
+            el.className = 'working';
+            el.setAttribute('aria-disabled', 'true');
+          }
+          if (el instanceof HTMLAnchorElement && a.href) {
+            el.href = a.href;
+            el.target = '_blank';
+            el.rel = 'noopener noreferrer';
+          }
+          if (a.run && !a.busy) el.addEventListener('click', () => a.run!());
+          return el;
+        }),
+      );
+      this.noticeCapsule.hidden = n.actions.length === 0;
+      this.noticeCaption.textContent = n.caption;
+    }
+    place(this.noticeSlot, anchor, this.host);
+    this.noticeSlot.hidden = false;
+  }
+}
+
+function slot(label: string): [HTMLDivElement, HTMLDivElement, HTMLDivElement] {
+  const outer = document.createElement('div');
+  outer.className = 'slot';
+  outer.hidden = true;
+  const capsule = document.createElement('div');
+  capsule.className = 'capsule';
+  capsule.setAttribute('role', 'group');
+  capsule.setAttribute('aria-label', label);
+  const caption = document.createElement('div');
+  caption.className = 'caption';
+  outer.append(capsule, caption);
+  return [outer, capsule, caption];
+}
+
+/** Puts a slot at the anchor's viewport spot, measured from where the host sits. */
+function place(el: HTMLElement, a: Anchor, host: Element) {
+  const r = host.getBoundingClientRect();
+  el.style.top = `${Math.round(a.top - r.top)}px`;
+  el.style.left = `${Math.round(a.centerX - r.left)}px`;
+  el.style.maxWidth = `${Math.max(200, Math.round(a.width - 48))}px`;
+}
