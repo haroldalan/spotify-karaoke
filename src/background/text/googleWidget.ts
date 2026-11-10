@@ -90,18 +90,18 @@ function batches(lines: string[]): string[][] {
   return out;
 }
 
-async function send(batch: string[], target: string, fetchImpl: typeof fetch, retried = false): Promise<string[]> {
+async function send(batch: string[], target: string, fetchImpl: typeof fetch, source = 'auto', retried = false): Promise<string[]> {
   const res = await fetchImpl(ENDPOINT, {
     method: 'POST',
     headers: { 'content-type': 'application/json+protobuf', 'x-goog-api-key': await widgetKey(fetchImpl) },
-    body: JSON.stringify([[batch.map(escapeHtml), 'auto', target], 'te']),
+    body: JSON.stringify([[batch.map(escapeHtml), source, target], 'te']),
     redirect: 'manual',
   });
   if (res.status === 429 || res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) pause();
   // A key Google has replaced: read the script again, once.
   if ((res.status === 400 || res.status === 403) && !retried) {
     key = null;
-    return send(batch, target, fetchImpl, true);
+    return send(batch, target, fetchImpl, source, true);
   }
   if (!res.ok) throw new Error(`Google Translate (website widget) HTTP ${res.status}`);
   const j = (await res.json()) as [string[]?, string[]?];
@@ -115,23 +115,24 @@ async function send(batch: string[], target: string, fetchImpl: typeof fetch, re
  * key, an answer we can't read) pauses the backup like a rate limit: it is never asked song
  * after song while it doesn't work.
  */
-export async function widgetTranslate(lines: string[], target: string, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+/** `source`: the lines' language, or 'auto' (Google detects one language for the whole request). */
+export async function widgetTranslate(lines: string[], target: string, fetchImpl: typeof fetch = fetch, source = 'auto'): Promise<string[]> {
   await ensureWidgetPauseLoaded();
   if (Date.now() < blockedUntil) throw new RateLimited('Google Translate (website widget) is rate-limiting this network');
   try {
-    return await translateAll(lines, target, fetchImpl);
+    return await translateAll(lines, target, fetchImpl, source);
   } catch (e) {
     if (!(e instanceof RateLimited)) setPause();
     throw e;
   }
 }
 
-async function translateAll(lines: string[], target: string, fetchImpl: typeof fetch): Promise<string[]> {
+async function translateAll(lines: string[], target: string, fetchImpl: typeof fetch, source: string): Promise<string[]> {
   const idx = lines.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
   const out = lines.map(() => '');
   let at = 0;
   for (const batch of batches(idx.map((i) => lines[i].trim()))) {
-    const tr = await send(batch, target, fetchImpl);
+    const tr = await send(batch, target, fetchImpl, source);
     tr.forEach((t, k) => (out[idx[at + k]] = t));
     at += batch.length;
   }

@@ -292,6 +292,25 @@ describe('processing', () => {
     vi.unstubAllGlobals();
   });
 
+  it('asks again, from the song\'s language, for its lines that came back unchanged (a mostly English request)', async () => {
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', (async (url: string, init?: RequestInit) => {
+      const sl = new URL(url).searchParams.get('sl') ?? '';
+      asked.push(sl);
+      const q = new URLSearchParams(String(init?.body)).get('q') ?? '';
+      const lines = q.split('\n');
+      // Detected as English: Korean words left as they were; from Korean, translated.
+      const tr = (l: string) => (sl === 'ko' ? l.replace('말해줘', 'tell me') : l.includes('말해줘') ? l : `${l}`);
+      const nl = (i: number) => (i < lines.length - 1 ? '\n' : '');
+      return new Response(JSON.stringify({ sentences: lines.map((l, i) => ({ trans: tr(l) + nl(i), orig: l + nl(i) })) }));
+    }) as typeof fetch);
+    const { processLines } = await import('../../src/background/text/process');
+    const out = await processLines({ lines: ['Baby I love you', "Don't want no riddle, 말해줘, say it back"], language: 'ko', romanize: false, translateTo: 'en' });
+    expect(out.translated?.[1]).toBe("Don't want no riddle, tell me, say it back");
+    expect(asked).toEqual(['auto', 'ko']);
+    vi.unstubAllGlobals();
+  });
+
   it('keeps romanization when translation fails, and says why', async () => {
     vi.stubGlobal('fetch', googleFake({ status: 429, widget: false }).impl);
     const { processLines } = await import('../../src/background/text/process');

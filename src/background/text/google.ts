@@ -59,16 +59,16 @@ interface Raw {
   sentences: { orig?: string; trans?: string }[];
 }
 
-async function request(text: string, target: string, wantRomanized: boolean, fetchImpl = fetch): Promise<Raw> {
+async function request(text: string, target: string, wantRomanized: boolean, fetchImpl = fetch, source = 'auto'): Promise<Raw> {
   await ensurePauseLoaded();
   if (Date.now() < blockedUntil) {
     throw new RateLimited(`Google Translate is rate-limiting this network; retrying after ${new Date(blockedUntil).toLocaleTimeString()}`);
   }
-  return tracked('google', () => send(text, target, wantRomanized, fetchImpl));
+  return tracked('google', () => send(text, target, wantRomanized, fetchImpl, source));
 }
 
-async function send(text: string, target: string, wantRomanized: boolean, fetchImpl: typeof fetch): Promise<Raw> {
-  const params = new URLSearchParams({ client: 'gtx', sl: 'auto', tl: target, dj: '1' });
+async function send(text: string, target: string, wantRomanized: boolean, fetchImpl: typeof fetch, source: string): Promise<Raw> {
+  const params = new URLSearchParams({ client: 'gtx', sl: source, tl: target, dj: '1' });
   params.append('dt', 't');
   if (wantRomanized) params.append('dt', 'rm');
   const res = await fetchImpl(`${ENDPOINT}?${params}`, {
@@ -172,17 +172,19 @@ export async function googleLines(
   target: string,
   wantRomanized: boolean,
   fetchImpl: typeof fetch = fetch,
-  opts: { translation?: boolean } = {},
+  /** source: the lines' language when known (default 'auto': Google detects one for the whole request). */
+  opts: { translation?: boolean; source?: string } = {},
 ): Promise<GoogleResult> {
+  const source = opts.source ?? 'auto';
   try {
-    return await mainLines(lines, target, wantRomanized, fetchImpl);
+    return await mainLines(lines, target, wantRomanized, fetchImpl, source);
   } catch (e) {
     // Any failure of the main endpoint (a block, a server error, a dropped connection): the
     // translation comes from the backup. Romanizing only: nothing the backup can do.
     if (opts.translation === false) throw e;
     let translated: string[];
     try {
-      translated = await tracked('google', () => widgetTranslate(lines, target, fetchImpl));
+      translated = await tracked('google', () => widgetTranslate(lines, target, fetchImpl, source));
     } catch {
       throw e;
     }
@@ -195,6 +197,7 @@ async function mainLines(
   target: string,
   wantRomanized: boolean,
   fetchImpl: typeof fetch,
+  source = 'auto',
 ): Promise<GoogleResult> {
   const idx = lines.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
   const work = idx.map((i) => lines[i].trim());
@@ -205,7 +208,7 @@ async function mainLines(
   let romanizationLost = false;
   let at = 0;
   for (const chunk of chunks(work)) {
-    const raw = await request(chunk.join('\n'), target, wantRomanized, fetchImpl);
+    const raw = await request(chunk.join('\n'), target, wantRomanized, fetchImpl, source);
     // Line by line from the sentences; an answer without them (or older tests) by its line breaks.
     const byLines = splitLines(raw.translated);
     const tr = raw.sentences.some((s) => s.orig != null)
@@ -231,7 +234,7 @@ async function mainLines(
   // for line (it takes and returns a list). If that can't be had, they stay without a
   // translation, and the result isn't kept: asked again another time, not now.
   try {
-    const more = await widgetTranslate(unplaced.map((i) => lines[i].trim()), target, fetchImpl);
+    const more = await widgetTranslate(unplaced.map((i) => lines[i].trim()), target, fetchImpl, source);
     unplaced.forEach((i, k) => (translated[i] = more[k] ?? ''));
     return { translated, romanized, ...lost, ...(unplaced.some((i) => !translated[i]) ? { incomplete: true as const } : {}) };
   } catch {
