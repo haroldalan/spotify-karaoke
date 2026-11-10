@@ -57,11 +57,10 @@ export interface NativeResult {
   lines: LyricLine[];
   synced: boolean;
   source: string;
-  /** Line i of Spotify's answer is line i of ours (same timings): the display can map text to text. */
+  /** The copy matches Spotify's lines one for one (overlay holds it): it can go over them. */
   aligned: boolean;
-  /** How many of Spotify's lines with words were put back in their script, of how many. */
-  replaced?: number;
-  total?: number;
+  /** The copy's text line for line with Spotify's answer (Spotify's line i is overlay[i]), when aligned. */
+  overlay?: string[];
 }
 
 /** Processed versions of a song's lines, index-aligned with the input. null: not applicable. */

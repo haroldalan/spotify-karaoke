@@ -2,25 +2,20 @@
 // hai") although the song is written in its own script (मेरा दिल तेरा है). Romanization and
 // translation from the real script are far better, and the script is what fans expect.
 //
-// Decided line by line, never for the whole song (PROBLEM.md: songs mix languages; Spotify
-// romanizes some lines and not others; English lines belong in Latin script):
-// - Lines are paired by start time (both copies timed to the same recording), or by position
-//   when the copies have the same lines and no timings to go by.
-// - A line is replaced only when Spotify's is romanized (Latin letters, not English), the
-//   copy's is in the song's script, and the copy romanized by us reads like Spotify's line.
-//   Every other line stays exactly as Spotify has it, with Spotify's timings.
-// - A copy is refused when too few of the lines both have in comparable form agree (another
-//   version, or pairs out of step).
-// - Every copy (YouTube Music's licensed one, each distinct LRCLIB one) is tried; the one that
-//   improves the most lines wins.
-// When lines can't be paired, a synced copy of a song Spotify has wholly in Latin letters,
-// close in length and reading like it as a whole, is used with its own timings. Anything less
-// is refused: romanized lyrics in sync beat native lyrics out of sync.
+// Whole copies are judged, never patched line by line (the owner's call, 2026-11-10): one
+// source per song. Asked only when enough of Spotify's lines look romanized. A copy (YouTube
+// Music's licensed one, each distinct LRCLIB upload) qualifies when
+// - it is in the song's script (most of its lines),
+// - it is the same song: most of Spotify's romanized lines are found in it, in order, by
+//   content (and by time when both are timed), its romanization by us reading like them,
+// - it doesn't trade synced lyrics for unsynced ones.
+// It is used as it is, with its own timings. Licensed beats crowd-sourced; then the copy
+// that covers more of the song. A copy whose lines match Spotify's one for one can also be
+// put over Spotify's lines when it arrives after Spotify drew them (overlay).
 import type { LyricLine, NativeResult, TrackMeta } from '../../shared/types';
 export type { NativeResult };
-import { expectedScript, isLatinLine, scriptShare, songScript, type Script } from '../../shared/scripts';
-import { isEnglishLine } from '../../shared/english';
-import { hasRomanizedPart } from '../../shared/lineMix';
+import { expectedScript, scriptShare, songScript, type Script } from '../../shared/scripts';
+import { hasRomanizedPart, looksRomanized } from '../../shared/lineMix';
 import { cacheGet, cacheSet, once } from '../cache';
 import { hash } from '../../shared/hash';
 import { romanizeLines } from '../text/romanize';
@@ -44,13 +39,14 @@ export interface NativeSources {
   romanize: (lines: string[], script: Script) => Promise<(string | null)[]>;
 }
 
-/** A line's romanized copy must read at least this much like Spotify's line to replace it. */
+/** A copy's line, romanized by us, must read at least this much like Spotify's to count as found. */
 const LINE_MIN = 0.45;
-/** Of the lines both copies have in comparable form, at least this share must agree. */
-const AGREE_MIN = 0.6;
-/** The copy's line must have at least this share of its letters in the song's script. */
+/** At least this share of Spotify's romanized lines must be found in the copy: the same song. */
+const COVER_MIN = 0.6;
+/** A line is in the song's script when at least this share of its letters are. */
 const SCRIPT_MIN = 0.5;
-const SONG_MIN = 0.5;
+/** At least this share of the copy's lines must be in the song's script. */
+const SCRIPT_FIT_MIN = 0.5;
 /** How early a native line may start relative to the Spotify line it belongs to. */
 const TIME_SLACK_MS = 1500;
 /** Distinct copies tried at most (LRCLIB often holds a dozen identical uploads). */
@@ -156,55 +152,25 @@ function pairByAlignment(req: NativeRequest, cand: { lines: LyricLine[]; synced:
   return groups;
 }
 
-const pairByPosition = (spotify: Worded): number[][] => spotify.map((_, k) => [k]);
+/** A copy's fit: the result, and how good it is. */
+export type Fitted = NativeResult & { coverage: number; scriptFit: number };
 
-/** A copy fitted line by line: which lines it improves, and how well they agree. */
-interface LineFit {
-  text: string[];
-  replaced: number;
-  /** Mean similarity of the replaced lines. */
-  score: number;
-}
-
-function fitLines(req: NativeRequest, native: Worded, spotify: Worded, rom: string[], pairs: number[][], script: Script): LineFit | null {
-  const text = [...req.lines];
-  let comparable = 0;
-  let replaced = 0;
-  let sum = 0;
-  spotify.forEach((x, j) => {
-    const g = [...pairs[j]];
-    if (!g.length) return;
-    // A copy line that makes the group read less like Spotify's line isn't part of it (a
-    // neighbour's line the timing let in): left out.
-    const groupSim = (ks: number[]) => similarity(ks.map((k) => rom[k]).join(' '), x.l);
-    for (let changed = true; changed && g.length > 1;) {
-      changed = false;
-      for (let q = 0; q < g.length && g.length > 1; q++) {
-        const without = g.filter((_, w) => w !== q);
-        if (groupSim(without) > groupSim(g) + 0.02) { g.splice(q, 1); changed = true; break; }
-      }
+/** Whether Spotify's line j is found in the copy: its paired lines read like it, and each belongs. */
+function found(spotifyLine: string, group: number[], rom: string[]): boolean {
+  const g = [...group];
+  if (!g.length) return false;
+  const groupSim = (ks: number[]) => similarity(ks.map((k) => rom[k]).join(' '), spotifyLine);
+  // A copy line that makes the group read less like Spotify's line isn't part of it.
+  for (let changed = true; changed && g.length > 1;) {
+    changed = false;
+    for (let q = 0; q < g.length && g.length > 1; q++) {
+      if (groupSim(g.filter((_, w) => w !== q)) > groupSim(g) + 0.02) { g.splice(q, 1); changed = true; break; }
     }
-    const nat = g.map((k) => native[k].l).join(' ');
-    // Only a romanized line of Spotify's against a line of the copy in the song's script.
-    // Spotify's lines in another script, and English lines, stay as they are.
-    if (!isLatinLine(x.l) || isEnglishLine(x.l) || scriptShare(nat, script) < SCRIPT_MIN) return;
-    comparable++;
-    // The group as a whole reads like Spotify's line, and every line in it is part of it (no
-    // neighbour's line carried along).
-    const sim = groupSim(g);
-    if (sim < LINE_MIN || g.some((k) => containment(rom[k], x.l) < MEMBER_MIN)) return;
-    replaced++;
-    sum += sim;
-    text[x.i] = nat;
-  });
-  if (!replaced || replaced / comparable < AGREE_MIN) return null;
-  return { text, replaced, score: sum / replaced };
+  }
+  return groupSim(g) >= LINE_MIN && g.every((k) => containment(rom[k], spotifyLine) >= MEMBER_MIN);
 }
 
-/** A copy's fit: the result, and how good it is (more lines improved, then closer). */
-export type Fitted = NativeResult & { score: number };
-
-/** Tries one candidate against Spotify's lines. */
+/** Judges one copy as the song's lyrics, whole. */
 export async function fit(
   req: NativeRequest,
   cand: { lines: LyricLine[]; synced: boolean; source: string },
@@ -214,38 +180,39 @@ export async function fit(
   const native = worded(cand.lines.map((l) => l.text));
   const spotify = worded(req.lines);
   if (!native.length || !spotify.length) return null;
+  // Never synced lyrics traded for unsynced ones.
+  if (req.synced && !cand.synced) return null;
   if (songScript(native.map((x) => x.l)) !== script) return null;
+  const scriptFit = native.filter((x) => scriptShare(x.l, script) >= SCRIPT_MIN).length / native.length;
+  if (scriptFit < SCRIPT_FIT_MIN) return null;
   const rom = (await romanize(native.map((x) => x.l), script)).map((r, k) => r ?? native[k].l);
 
-  // Pairings to try: by content in order (and time, when both are timed), and by position
-  // when the copies have the same lines. The one that improves more lines wins.
-  const pairings: number[][][] = [pairByAlignment(req, cand, native, spotify, rom)];
-  if (native.length === spotify.length) pairings.push(pairByPosition(spotify));
-  let best: LineFit | null = null;
-  for (const p of pairings) {
-    const f = fitLines(req, native, spotify, rom, p, script);
-    if (f && (!best || f.replaced > best.replaced || (f.replaced === best.replaced && f.score > best.score))) best = f;
+  // The same song: Spotify's romanized lines found in the copy, in order.
+  const romanizedLines = spotify.map((x, j) => (looksRomanized(x.l) ? j : -1)).filter((j) => j >= 0);
+  if (!romanizedLines.length) return null;
+  const pairs = pairByAlignment(req, cand, native, spotify, rom);
+  const coverage = romanizedLines.filter((j) => found(spotify[j].l, pairs[j], rom)).length / romanizedLines.length;
+  if (coverage < COVER_MIN) return null;
+
+  // One for one with Spotify's lines: can also go over them if it comes late.
+  let overlay: string[] | undefined;
+  if (native.length === spotify.length) {
+    const byPosition = romanizedLines.filter((j) => found(spotify[j].l, [j], rom)).length / romanizedLines.length;
+    if (byPosition >= COVER_MIN) {
+      overlay = [...req.lines];
+      spotify.forEach((x, k) => (overlay![x.i] = native[k].l));
+    }
   }
-  const lineFit: Fitted | null = best && {
-    lines: best.text.map((t, i) => ({ startMs: req.times[i] ?? 0, text: t })),
-    synced: req.synced,
+  return {
+    // The copy as it is: its own timings when synced (both unsynced: no timings to keep).
+    lines: cand.lines,
+    synced: cand.synced,
     source: cand.source,
-    aligned: true,
-    replaced: best.replaced,
-    total: spotify.length,
-    score: best.score,
+    aligned: !!overlay,
+    ...(overlay ? { overlay } : {}),
+    coverage,
+    scriptFit,
   };
-  // The copy whole, with its own timings: only for a song Spotify has wholly in Latin letters
-  // (no line in another script to lose), close in length and reading like it as a whole. Kept
-  // when it restores more lines than pairing could (pairing keeps Spotify's timing on a tie).
-  const tolerance = Math.max(2, Math.round(spotify.length * 0.15));
-  let whole: Fitted | null = null;
-  if (cand.synced && spotify.every((x) => isLatinLine(x.l)) && Math.abs(native.length - spotify.length) <= tolerance) {
-    const score = similarity(rom.join(' '), spotify.map((x) => x.l).join(' '));
-    if (score >= SONG_MIN) whole = { lines: cand.lines, synced: true, source: cand.source, aligned: false, replaced: spotify.length, total: spotify.length, score };
-  }
-  if (lineFit && whole) return better(lineFit, whole) ? whole : lineFit;
-  return lineFit ?? whole;
 }
 
 /** searchNative's answer: complete is false when a source failed, so "none" isn't final. */
@@ -254,12 +221,14 @@ export interface NativeSearch {
   complete: boolean;
 }
 
-/** Better of two fits: more lines improved, then line for line over own timing, then closer. */
+/** Better of two copies: licensed beats crowd-sourced; then the one covering more of the song. */
 function better(a: Fitted | null, b: Fitted): boolean {
   if (!a) return true;
-  if ((b.replaced ?? 0) !== (a.replaced ?? 0)) return (b.replaced ?? 0) > (a.replaced ?? 0);
-  if (b.aligned !== a.aligned) return b.aligned;
-  return b.score > a.score;
+  const licensed = (f: Fitted) => f.source !== 'LRCLIB';
+  if (licensed(a) !== licensed(b)) return licensed(b);
+  if (Math.abs(b.coverage - a.coverage) > 0.02) return b.coverage > a.coverage;
+  if (b.scriptFit !== a.scriptFit) return b.scriptFit > a.scriptFit;
+  return b.aligned && !a.aligned;
 }
 
 export async function searchNative(req: NativeRequest, sources: NativeSources): Promise<NativeSearch> {
@@ -271,8 +240,8 @@ export async function searchNative(req: NativeRequest, sources: NativeSources): 
   const ytP = sources.ytm ? sources.ytm(req.meta).catch(() => { complete = false; return null; }) : Promise.resolve(null);
   const lrP = sources.lrclib(req.meta).catch(() => { complete = false; return []; });
   const [yt, lrAll] = await Promise.all([ytP, lrP]);
-  // YouTube Music's (licensed) copy first, then LRCLIB's with a known duration, synced first;
-  // identical uploads tried once.
+  // LRCLIB's copies need a known duration (matched to this recording); synced first; identical
+  // uploads judged once.
   const lr = lrAll.filter((c) => c.durationKnown).sort((a, b) => Number(b.synced) - Number(a.synced));
   const copies = [...(yt ? [yt] : []), ...lr.map((c) => ({ ...c, source: 'LRCLIB' }))];
   const seen = new Set<string>();
@@ -286,7 +255,7 @@ export async function searchNative(req: NativeRequest, sources: NativeSources): 
     if (r && better(best, r)) best = r;
   }
   if (!best) return { result: null, complete };
-  const { score: _score, ...result } = best;
+  const { coverage: _c, scriptFit: _s, ...result } = best;
   return { result, complete };
 }
 

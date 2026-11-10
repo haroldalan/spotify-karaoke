@@ -32,7 +32,7 @@ export interface PageStatus {
     /** An instrumental (Spotify or LRCLIB says so): there are no lyrics to find. */
     instrumental: boolean;
     /** The lyrics on screen came from us: found, restored to their own script, or a synced copy. */
-    ours: { kind: Exclude<LyricsKind, 'spotify'>; source: string; restoredLines?: { replaced: number; total: number } } | null;
+    ours: { kind: Exclude<LyricsKind, 'spotify'>; source: string } | null;
     /** The listener sent this song back to Spotify ("Wrong lyrics?"). */
     spotifyOnly: boolean;
     /** Lyrics the extension leaves as they are (see plainSong); null when it changes them or doesn't know yet. */
@@ -136,10 +136,7 @@ export async function startContent(): Promise<void> {
   /** Songs whose lyrics view came back empty this session, by id. */
   const missing = new Map<string, TrackMeta>();
   /** Where each song's lyrics on screen came from. */
-  /** A restore that kept some of Spotify's lines: how many it put back in their script, of how many. */
-  const linesOf = (r: { replaced?: number; total?: number }) =>
-    r.replaced != null && r.total != null && r.replaced < r.total ? { restoredLines: { replaced: r.replaced, total: r.total } } : {};
-  const kinds = new Map<string, { kind: LyricsKind; source: string; restoredLines?: { replaced: number; total: number } }>();
+  const kinds = new Map<string, { kind: LyricsKind; source: string }>();
   /** Track id -> its lyrics in the store (for the popup's row). */
   const songOf = new Map<string, Song>();
   const remember = (id: string, song: Song) => {
@@ -147,8 +144,6 @@ export async function startContent(): Promise<void> {
     songOf.set(id, song);
     if (songOf.size > 300) songOf.delete(songOf.keys().next().value!);
   };
-  /** Native-script copies found in time, until the page says it put them on screen. */
-  const restored = new Map<string, { shown: string[]; native: string[]; language: string | null; aligned: boolean }>();
   /** The no-lyrics notice's state for a song (searching, nothing, found). */
   let notice: { id: string; caption: string; searching?: boolean; found?: boolean } | null = null;
   /** Songs whose "Add lyrics to LRCLIB" was followed this session. */
@@ -196,18 +191,14 @@ export async function startContent(): Promise<void> {
         call('restoreNative', req).then(
           (r) => {
             if (!r) return r;
-            const copy = { shown: req.lines, native: r.lines.map((l) => l.text), language: req.meta.languages[0] ?? null, aligned: r.aligned };
-            // Too late for the page: Spotify already drew its romanized lines. A line-for-line
-            // copy goes on screen now (the owner's call, 2026-11-10), over Spotify's lines;
-            // one with its own line breaks can't, and waits for the song's next load.
-            if (kinds.get(req.meta.id)?.kind === 'spotify' && r.aligned) {
-              store.addRestored(copy.shown, copy.native, copy.language);
-              kinds.set(req.meta.id, { kind: 'restored', source: r.source, ...linesOf(r) });
-              return r;
+            // Too late for the page: Spotify already drew its romanized lines. A copy that
+            // matches them one for one goes on screen now (the owner's call, 2026-11-10), over
+            // Spotify's lines; any other waits for the song's next load. In time, the page
+            // shows the copy itself (onLyrics).
+            if (kinds.get(req.meta.id)?.kind === 'spotify' && r.aligned && r.overlay) {
+              remember(req.meta.id, store.addRestored(req.lines, r.overlay, req.meta.languages[0] ?? null));
+              kinds.set(req.meta.id, { kind: 'restored', source: r.source });
             }
-            // In time: kept until the page says it used it (onLyrics).
-            restored.set(req.meta.id, copy);
-            if (restored.size > 20) restored.delete(restored.keys().next().value!);
             return r;
           },
           () => null,
@@ -227,14 +218,11 @@ export async function startContent(): Promise<void> {
       onLyrics: (l) => {
         pageSeenAt = lyricsSeenAt = Date.now();
         missing.delete(l.id);
-        kinds.set(l.id, { kind: l.kind ?? 'spotify', source: l.source, ...(l.restoredLines ? { restoredLines: l.restoredLines } : {}) });
+        kinds.set(l.id, { kind: l.kind ?? 'spotify', source: l.source });
         if (kinds.size > 300) kinds.delete(kinds.keys().next().value!);
+        // A restored copy on screen is a song in its own script: our romanization of it is the
+        // main line, not Spotify's romanized lines.
         remember(l.id, store.addSong(l.lines, l.language));
-        const r = restored.get(l.id);
-        restored.delete(l.id);
-        // Our native-script copy is on screen: Spotify's own romanized lines (aligned with
-        // it) become this song's romanization.
-        if (r && l.kind === 'restored' && r.aligned) remember(l.id, store.addRestored(r.shown, r.native, r.language));
       },
       onMissing: (m) => {
         pageSeenAt = Date.now();
@@ -434,7 +422,7 @@ export async function startContent(): Promise<void> {
             // synced copy) mean there are lyrics.
             noLyrics: (noLyrics.has(m.id) || missing.has(m.id)) && !kinds.has(m.id),
             instrumental: instrumental.has(m.id) || m.languages.includes('zxx'),
-            ours: k && k.kind !== 'spotify' ? { kind: k.kind, source: k.source, ...(k.restoredLines ? { restoredLines: k.restoredLines } : {}) } : null,
+            ours: k && k.kind !== 'spotify' ? { kind: k.kind, source: k.source } : null,
             spotifyOnly: spotifyOnly.has(m.id),
             plain: songOf.has(m.id) ? plainSong(songOf.get(m.id)!, settings.targetLang) : null,
           }
@@ -500,7 +488,6 @@ export async function startContent(): Promise<void> {
           build: BUILD,
           playing: m,
           kinds: Object.fromEntries(kinds),
-          restoredWaiting: [...restored.keys()],
           noLyrics: [...noLyrics],
           instrumental: [...instrumental],
           missing: [...missing.keys()],
@@ -529,7 +516,6 @@ export async function startContent(): Promise<void> {
         instrumental.delete(id);
         missing.delete(id);
         finding.delete(id);
-        restored.delete(id);
         kinds.delete(id);
         bridge.setConfig(pageConfig());
         return toBackground('forget', { id });

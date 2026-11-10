@@ -220,11 +220,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
         if (ahead) note(`native ${id} asked ahead of play`);
         note(`native ${id} ${native ? (native.aligned ? 'aligned' : 'own-timing') + ' ' + native.source : 'none/late'}`);
         if (native) {
-          const partial = native.replaced != null && native.total != null && native.replaced < native.total;
-          emit('lyrics', {
-            id, lines: native.lines.map((x) => x.text), language: lang, source: native.source, kind: 'restored',
-            ...(partial ? { restoredLines: { replaced: native.replaced, total: native.total } } : {}),
-          });
+          emit('lyrics', { id, lines: native.lines.map((x) => x.text), language: lang, source: native.source, kind: 'restored' });
           return json(buildColorLyrics(native, lang, raw), res);
         }
       }

@@ -102,9 +102,9 @@ describe('decoration', () => {
     // Nothing to romanize: the original, as Spotify draws it.
     expect(decoration('hello', { romanized: null }, s({ twoLines: false }))).toEqual(NONE);
   });
-  it('two lines off on a restored song: Spotify\'s romanization alone, or the translation alone', () => {
-    const restored = { romanized: 'tera hai', translated: { en: 'is yours' } };
-    expect(decoration('तेरा है', restored, s({ twoLines: false }), true)).toEqual(NONE);
+  it('two lines off on a copy over Spotify\'s lines: our romanization alone, or the translation alone', () => {
+    const restored = { romanized: 'teraa hai', translated: { en: 'is yours' } };
+    expect(shown('तेरा है', restored, { twoLines: false }, true, 'tera hai')).toEqual({ main: 'teraa hai', beneath: [] });
     expect(shown('तेरा है', restored, { mode: 'translated', twoLines: false }, true, 'tera hai')).toEqual({ main: 'is yours', beneath: [] });
   });
   it('all three lines win over two lines off', () => {
@@ -137,11 +137,13 @@ describe('decoration', () => {
     expect(decoration('hello', { romanized: null }, s({ mode: 'romanized' }))).toEqual(NONE);
     expect(decoration('hello', undefined, s({ mode: 'translated' }))).toEqual(NONE);
   });
-  it('a restored song: Spotify shows its romanization, ours is the original script', () => {
-    const restored = { romanized: 'tera hai', translated: { en: 'is yours' } };
-    expect(shown('तेरा है', restored, { mode: 'romanized' }, true, 'tera hai')).toEqual({ main: 'tera hai', beneath: ['तेरा है'] });
+  it('a copy over Spotify\'s lines: Spotify\'s romanization hidden, ours and the original script shown', () => {
+    const restored = { romanized: 'teraa hai', translated: { en: 'is yours' } };
+    expect(shown('तेरा है', restored, { mode: 'romanized' }, true, 'tera hai')).toEqual({ main: 'teraa hai', beneath: ['तेरा है'] });
     expect(shown('तेरा है', restored, { mode: 'original' }, true, 'tera hai')).toEqual({ main: 'तेरा है', beneath: [] });
-    expect(shown('तेरा है', restored, { mode: 'translated', allLines: true }, true, 'tera hai')).toEqual({ main: 'is yours', beneath: ['तेरा है', 'tera hai'] });
+    expect(shown('तेरा है', restored, { mode: 'translated', allLines: true }, true, 'tera hai')).toEqual({ main: 'is yours', beneath: ['तेरा है', 'teraa hai'] });
+    // Ours not ready: Spotify's stands in.
+    expect(shown('तेरा है', { romanized: null, translated: {} }, { mode: 'romanized' }, true, 'tera hai')).toEqual({ main: 'तेरा है', beneath: [] });
   });
   it('shows the translation as the main line even when it equals the romanization, and never twice', () => {
     // A name, a number or a vocalise: both come out the same. Found by reading the code (2026-11-10):
@@ -151,8 +153,8 @@ describe('decoration', () => {
     expect(decoration('ரப்பா', same, s({ mode: 'translated', allLines: true }))).toMatchObject({ big: 'b', b: 'Rabba', a: null });
     expect(decoration('ரப்பா', same, s({ mode: 'original', allLines: true }))).toMatchObject({ big: 'c', a: 'Rabba', b: null });
     expect(decoration('ரப்பா', same, s({ mode: 'romanized', allLines: true }))).toMatchObject({ big: 'a', a: 'Rabba', b: null });
-    // A restored song (Spotify's text is the romanization): same.
-    expect(decoration('ரப்பா', same, s({ mode: 'translated' }), true)).toMatchObject({ big: 'b', b: 'Rabba' });
+    // A copy over Spotify's lines: the translation is the main line, shown once.
+    expect(shown('ரப்பா', same, { mode: 'translated' }, true, 'Rappa')).toEqual({ main: 'Rabba', beneath: ['ரப்பா'] });
   });
   it('turns right-to-left lines left-to-right when the main line is Latin', () => {
     expect(decoration('أحبك', { romanized: "'uhibuk" }, s({ mode: 'romanized' })).dir).toBe('ltr');

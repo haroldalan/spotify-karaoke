@@ -254,11 +254,7 @@ function renderSong(page: PageStatus, note = '') {
     return;
   }
   if (c.ours) {
-    // A restore that kept some of Spotify's lines (English, or already in another script) says how many it changed.
-    const part = c.ours.kind === 'restored' && c.ours.restoredLines
-      ? `Original script restored on ${c.ours.restoredLines.replaced} of ${c.ours.restoredLines.total} lines, from ${c.ours.source}.`
-      : `${FROM[c.ours.kind] ?? 'Lyrics from'} ${c.ours.source}.`;
-    songRow(title, part, [], { label: 'Wrong lyrics?', run: choose(true) });
+    songRow(title, `${FROM[c.ours.kind] ?? 'Lyrics from'} ${c.ours.source}.`, [], { label: 'Wrong lyrics?', run: choose(true) });
     return;
   }
   // Nothing on screen yet: where to look (a first-time user doesn't know).

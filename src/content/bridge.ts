@@ -8,8 +8,7 @@ export interface BridgeHandlers {
   findLyrics(meta: TrackMeta): Promise<FoundLyrics | null>;
   restoreNative(req: { meta: TrackMeta; lines: string[]; times: number[]; synced: boolean }): Promise<NativeResult | null>;
   onMeta(meta: TrackMeta): void;
-  /** `lines`: for a restored song, how many of Spotify's lines were put back in their script, of how many. */
-  onLyrics(l: { id: string; lines: string[]; language: string | null; source: string; kind: LyricsKind; restoredLines?: { replaced: number; total: number } }): void;
+  onLyrics(l: { id: string; lines: string[]; language: string | null; source: string; kind: LyricsKind }): void;
   /** Spotify had no lyrics for a song and asked for them: whether we found any. */
   onMissing(m: { id: string; found: boolean }): void;
   onError(message: string): void;

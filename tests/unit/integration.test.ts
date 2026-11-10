@@ -94,31 +94,30 @@ describe('page hook: integration', () => {
   });
 });
 
-describe('native restoration: pairing by time', () => {
+describe('native restoration: a copy with its own line breaks', () => {
   const romanize = (lines: string[], script: any) => romanizeLines(lines, script, { google: async () => null });
   const meta: TrackMeta = { id: 'x'.repeat(22), name: 'S', artists: ['A'], album: '', durationMs: 200000, languages: ['hi'], hasLyrics: true };
 
-  it('keeps Spotify\'s lines and timings when the native copy splits lines differently', async () => {
+  it('is taken whole, with its own timings, when Spotify\'s lines are found in it', async () => {
     const req = { meta, lines: ['Mera dil tera hai tu kahan hai yaar', 'Phir bhi mujhe tujhse pyaar hai'], times: [1000, 9000], synced: true };
-    const cand = {
-      lines: [
-        { startMs: 1100, text: 'मेरा दिल तेरा है' }, { startMs: 4800, text: 'तू कहाँ है यार' },
-        { startMs: 9050, text: 'फिर भी मुझे तुझसे प्यार है' },
-      ],
-      synced: true,
-      source: 'LRCLIB',
-    };
-    const r = await fit(req, cand, 'Deva', romanize);
-    expect(r).toMatchObject({ aligned: true, synced: true });
-    expect(r?.lines).toEqual([{ startMs: 1000, text: 'मेरा दिल तेरा है तू कहाँ है यार' }, { startMs: 9000, text: 'फिर भी मुझे तुझसे प्यार है' }]);
+    const lines = [
+      { startMs: 1100, text: 'मेरा दिल तेरा है' }, { startMs: 4800, text: 'तू कहाँ है यार' },
+      { startMs: 9050, text: 'फिर भी मुझे तुझसे प्यार है' },
+    ];
+    const r = await fit(req, { lines, synced: true, source: 'LRCLIB' }, 'Deva', romanize);
+    expect(r).toMatchObject({ aligned: false, synced: true });
+    expect(r?.lines).toEqual(lines);
   });
 });
 
 describe('restored songs', () => {
-  it('show Spotify\'s own romanization, line for line', () => {
-    const store = new LineStore(async () => ({ script: 'Deva', romanized: ['ours'], translated: null }), { ...DEFAULT_SETTINGS, mode: 'romanized' });
+  it('show our romanization of the line\'s own script, with Spotify\'s only standing in until it arrives', async () => {
+    const store = new LineStore(async () => ({ script: 'Deva', romanized: ['meraa dil teraa hai'], translated: null }), { ...DEFAULT_SETTINGS, mode: 'romanized' });
     const song = store.addRestored(['Mera dil tera hai'], ['मेरा दिल तेरा है'], 'hi');
-    expect(store.resolve(song, 'मेरा दिल तेरा है')?.info.romanized).toBe('Mera dil tera hai');
+    expect(store.resolve(song, 'Mera dil tera hai')?.info.romanized).toBe('Mera dil tera hai');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(store.resolve(song, 'Mera dil tera hai')?.info.romanized).toBe('meraa dil teraa hai');
+    expect(store.resolve(song, 'मेरा दिल तेरा है')?.info.romanized).toBe('meraa dil teraa hai');
   });
 });
 

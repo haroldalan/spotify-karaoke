@@ -12,7 +12,8 @@ export function read(spotifyText: string, d: Decoration): Read {
     { key: 'b', text: d.b, order: 3 },
   ];
   const main = slots.find((s) => s.key === d.big)!.text ?? '';
-  const beneath = slots.filter((s) => s.key !== d.big && s.text).sort((x, y) => x.order - y.order).map((s) => s.text!);
+  // A slot may hold several lines (one per line break: white-space: pre-line).
+  const beneath = slots.filter((s) => s.key !== d.big && s.text).sort((x, y) => x.order - y.order).flatMap((s) => s.text!.split('\n'));
   return { main, beneath };
 }
 

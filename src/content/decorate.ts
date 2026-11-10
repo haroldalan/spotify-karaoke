@@ -99,7 +99,19 @@ export function decoration(original: string, info: LineInfo | undefined, s: Sett
     if (big === 'O' && !showR && !showT) return NONE;
     return { a: showR ? rom : null, b, big: big === 'O' ? 'c' : big === 'R' ? 'a' : 'b', hide: !showO, alias: false, dir };
   }
-  // Spotify's text is the romanization; the original script goes in ::before.
+  // Spotify's text on screen is its romanization of the line (a copy put over Spotify's lines).
+  // Ours is the romanization: Spotify's text is hidden, the main line goes in ::before and the
+  // lines beneath, in their fixed order, in ::after.
+  if (rom) {
+    const main = big === 'R' ? rom : big === 'T' ? tr! : original;
+    const beneath = [
+      showO && big !== 'O' ? original : null,
+      showR && big !== 'R' ? rom : null,
+      showT && big !== 'T' ? tr : null,
+    ].filter((x): x is string => !!x);
+    return { a: main, b: beneath.length ? beneath.join('\n') : null, big: 'a', hide: true, alias: false, dir };
+  }
+  // Ours isn't ready: Spotify's romanization stands in, the original script in ::before.
   if (big === 'R' && !showO && !showT) return NONE;
   return { a: showO ? original : null, b, big: big === 'O' ? 'a' : big === 'R' ? 'c' : 'b', hide: !showR, alias: true, dir };
 }

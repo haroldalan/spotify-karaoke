@@ -34,25 +34,35 @@ describe('expectedScript', () => {
   });
 });
 
-describe('fit', () => {
-  it('aligned: keeps Spotify timings and empty lines, swaps the text', async () => {
-    const r = await fit(req(spotifyHindi), { lines: nativeHindi.map((text) => ({ startMs: 0, text })), synced: false, source: 'LRCLIB' }, 'Deva', romanize);
-    expect(r?.aligned).toBe(true);
-    expect(r?.lines.map((l) => l.text)).toEqual([nativeHindi[0], '', nativeHindi[1], nativeHindi[2]]);
-    expect(r?.lines.map((l) => l.startMs)).toEqual([1000, 2000, 3000, 4000]);
+const timed = (lines: string[], step = 1000, offset = 0) => lines.map((text, i) => ({ startMs: offset + step * (i + 1), text }));
+
+describe('fit: a whole copy, judged', () => {
+  it('takes a synced copy whole, with its own timings', async () => {
+    const r = await fit(req(spotifyHindi), { lines: timed(nativeHindi, 900, 50), synced: true, source: 'LRCLIB' }, 'Deva', romanize);
+    expect(r?.lines).toEqual(timed(nativeHindi, 900, 50));
+    expect(r?.synced).toBe(true);
   });
-  it('own timing: a synced copy with a line more', async () => {
-    const lines = [...nativeHindi, 'फिर भी मुझे तुझसे प्यार है'].map((text, i) => ({ startMs: 500 * (i + 1), text }));
-    const r = await fit(req(spotifyHindi), { lines, synced: true, source: 'LRCLIB' }, 'Deva', romanize);
+  it('one for one with Spotify\'s lines: an overlay for when it arrives after Spotify drew its own', async () => {
+    const r = await fit(req(spotifyHindi), { lines: timed(nativeHindi), synced: true, source: 'LRCLIB' }, 'Deva', romanize);
+    expect(r?.aligned).toBe(true);
+    expect(r?.overlay).toEqual([nativeHindi[0], '', nativeHindi[1], nativeHindi[2]]);
+  });
+  it('a copy with a line more is still the song (its own timings), but no overlay', async () => {
+    const r = await fit(req(spotifyHindi), { lines: timed([...nativeHindi, 'फिर भी मुझे तुझसे प्यार है']), synced: true, source: 'LRCLIB' }, 'Deva', romanize);
     expect(r).toMatchObject({ aligned: false, synced: true });
-    expect(r?.lines[0].startMs).toBe(500);
+    expect(r?.overlay).toBeUndefined();
+  });
+  it('never trades synced lyrics for unsynced ones; both unsynced is fine', async () => {
+    const cand = { lines: nativeHindi.map((text) => ({ startMs: 0, text })), synced: false, source: 'LRCLIB' };
+    expect(await fit(req(spotifyHindi), cand, 'Deva', romanize)).toBeNull();
+    expect((await fit(req(spotifyHindi, ['hi'], false), cand, 'Deva', romanize))?.synced).toBe(false);
   });
   it('refuses another song in the right script', async () => {
     const other = ['कभी कभी मेरे दिल में ख़याल आता है', 'के जैसे तुझको बनाया गया है', 'मेरे लिए'];
-    expect(await fit(req(spotifyHindi), { lines: other.map((text) => ({ startMs: 0, text })), synced: true, source: 'LRCLIB' }, 'Deva', romanize)).toBeNull();
+    expect(await fit(req(spotifyHindi), { lines: timed(other), synced: true, source: 'LRCLIB' }, 'Deva', romanize)).toBeNull();
   });
   it('refuses a copy in the wrong script', async () => {
-    expect(await fit(req(spotifyHindi), { lines: spotifyHindi.map((text) => ({ startMs: 0, text })), synced: true, source: 'LRCLIB' }, 'Deva', romanize)).toBeNull();
+    expect(await fit(req(spotifyHindi), { lines: timed(spotifyHindi), synced: true, source: 'LRCLIB' }, 'Deva', romanize)).toBeNull();
   });
 });
 
@@ -61,9 +71,9 @@ describe('searchNative', () => {
     lrclib: async () => cands,
     romanize,
   });
-  const good = { lines: nativeHindi.map((text) => ({ startMs: 0, text })), synced: false, durationKnown: true };
+  const good = { lines: timed(nativeHindi), synced: true, durationKnown: true };
   it('restores romanized Hindi', async () => {
-    expect((await searchNative(req(spotifyHindi), sources([good]))).result?.aligned).toBe(true);
+    expect((await searchNative(req(spotifyHindi), sources([good]))).result?.lines).toEqual(timed(nativeHindi));
   });
   it('needs a known duration for crowd-sourced copies', async () => {
     expect((await searchNative(req(spotifyHindi), sources([{ ...good, durationKnown: false }]))).result).toBeNull();
@@ -75,15 +85,15 @@ describe('searchNative', () => {
     expect((await searchNative(req(spotifyHindi, ['es']), spy)).result).toBeNull();
     expect(asked).toBe(false);
   });
-  it('tries licensed lyrics first', async () => {
-    const ytm = async () => ({ lines: nativeHindi.map((text) => ({ startMs: 0, text })), synced: false, source: 'LyricFind via YouTube Music' });
+  it('prefers licensed lyrics over crowd-sourced ones that also fit', async () => {
+    const ytm = async () => ({ lines: timed(nativeHindi), synced: true, source: 'LyricFind via YouTube Music' });
     expect((await searchNative(req(spotifyHindi), { ...sources([good]), ytm })).result?.source).toBe('LyricFind via YouTube Music');
   });
   it('asks both sources at once: a first play has seconds, not minutes', async () => {
     const order: string[] = [];
     const ytm = async () => { order.push('ytm start'); await new Promise((r) => setTimeout(r, 30)); order.push('ytm end'); return null; };
     const lrclib = async () => { order.push('lrclib start'); return [good]; };
-    expect((await searchNative(req(spotifyHindi), { lrclib, ytm, romanize })).result?.aligned).toBe(true);
+    expect((await searchNative(req(spotifyHindi), { lrclib, ytm, romanize })).result).not.toBeNull();
     expect(order.indexOf('lrclib start')).toBeLessThan(order.indexOf('ytm end'));
   });
   it('says the search was incomplete when YouTube Music fails, so "none" is not final', async () => {
@@ -95,72 +105,51 @@ describe('searchNative', () => {
 });
 
 // Made-up lines (not lyrics of any song), in the shapes Spotify serves multilingual songs.
-describe('line by line: multilingual songs', () => {
+describe('multilingual songs: one whole copy', () => {
   const tamilSong = {
     spotify: [
-      'naan unnai kaadhalikkiren',       // romanized Tamil: restored
-      'nee enakku uyir',                 // romanized Tamil: restored
-      'चल तू खोने दे',                     // Hindi, already in its script: kept
-      'all night long we dance',         // English: kept
-      'en nenjil nee mattum',            // romanized Tamil: restored
-      'naan unnai paarthen 10,000 वाला',  // Tamil and Hindi in one line: kept
+      'naan unnai kaadhalikkiren',
+      'nee enakku uyir',
+      'चल तू खोने दे',                     // Hindi, in its own script on Spotify
+      'all night long we dance',         // English
+      'en nenjil nee mattum',
+      'naan unnai paarthen 10,000 वाला',
     ],
     native: [
       'நான் உன்னை காதலிக்கிறேன்',
       'நீ எனக்கு உயிர்',
       'சல் தூ கோனே தே',                  // the copy writes the Hindi line in Tamil script
-      'ஆல் நைட் லாங் வி டான்ஸ்',           // and the English line too
+      'all night long we dance',
       'என் நெஞ்சில் நீ மட்டும்',
       'நான் உன்னை பார்த்தேன் 10,000 வாலா',
     ],
   };
+  const tamilReq = () => req(tamilSong.spotify, ['ta']);
 
-  it('restores only the romanized lines; Hindi in its own script, English and mixed lines stay', async () => {
-    const r = await fit(req(tamilSong.spotify, ['ta']), { lines: tamilSong.native.map((text, i) => ({ startMs: 1000 * (i + 1), text })), synced: true, source: 'LRCLIB' }, 'Taml', romanize);
-    expect(r?.lines.map((l) => l.text)).toEqual([
-      tamilSong.native[0], tamilSong.native[1], tamilSong.spotify[2], tamilSong.spotify[3], tamilSong.native[4], tamilSong.spotify[5],
-    ]);
-    expect(r).toMatchObject({ aligned: true, replaced: 3, total: 6 });
-    expect(r?.lines.map((l) => l.startMs)).toEqual([1000, 2000, 3000, 4000, 5000, 6000]); // Spotify's timings
+  it('takes the copy as it is when it is the same song, other scripts included (one source per song)', async () => {
+    const r = await fit(tamilReq(), { lines: timed(tamilSong.native), synced: true, source: 'LRCLIB' }, 'Taml', romanize);
+    expect(r?.lines.map((l) => l.text)).toEqual(tamilSong.native);
   });
 
-  it('pairs by time when the copy has an extra line', async () => {
+  it('is judged the same song when Spotify\'s romanized lines are found in it, with an extra line in between', async () => {
     const native = [...tamilSong.native.slice(0, 2), 'இசை', ...tamilSong.native.slice(2)];
-    const times = [1000, 2000, 2600, 3000, 4000, 5000, 6000];
-    const r = await fit(req(tamilSong.spotify, ['ta']), { lines: native.map((text, i) => ({ startMs: times[i], text })), synced: true, source: 'LRCLIB' }, 'Taml', romanize);
-    expect(r?.lines[0].text).toBe(tamilSong.native[0]);
-    expect(r?.lines[4].text).toBe(tamilSong.native[4]);
-    expect(r?.lines[3].text).toBe(tamilSong.spotify[3]);
+    const r = await fit(tamilReq(), { lines: timed(native), synced: true, source: 'LRCLIB' }, 'Taml', romanize);
+    expect(r?.lines.map((l) => l.text)).toEqual(native);
+    expect(r?.overlay).toBeUndefined();
   });
 
-  it('keeps an English chorus in English in a romanized Hindi song', async () => {
-    const spotify = ['Mera dil tera hai, tu kahan hai yaar', 'Baby I love you, yeah', 'Phir bhi mujhe tujhse pyaar hai'];
-    const native = ['मेरा दिल तेरा है, तू कहाँ है यार', 'बेबी आई लव यू, येह', 'फिर भी मुझे तुझसे प्यार है'];
-    const r = await fit(req(spotify), { lines: native.map((text) => ({ startMs: 0, text })), synced: false, source: 'LRCLIB' }, 'Deva', romanize);
-    expect(r?.lines.map((l) => l.text)).toEqual([native[0], spotify[1], native[2]]);
-    expect(r).toMatchObject({ replaced: 2, total: 3 });
+  it('refuses a copy that has too few of Spotify\'s romanized lines (another version)', async () => {
+    const other = ['வேறு வரி ஒன்று', 'வேறு வரி இரண்டு', tamilSong.native[2], tamilSong.native[3], 'வேறு வரி மூன்று', tamilSong.native[5]];
+    expect(await fit(tamilReq(), { lines: timed(other), synced: true, source: 'LRCLIB' }, 'Taml', romanize)).toBeNull();
   });
 
-  it('takes from a copy in another order only the lines that verify against their own line', async () => {
-    const shifted = [tamilSong.native[1], tamilSong.native[4], tamilSong.native[2], tamilSong.native[3], tamilSong.native[0], tamilSong.native[5]];
-    const r = await fit(req(tamilSong.spotify, ['ta']), { lines: shifted.map((text) => ({ startMs: 0, text })), synced: false, source: 'LRCLIB' }, 'Taml', romanize);
-    // Every line it changed is that line in Tamil script; none took a neighbour's.
-    r?.lines.forEach((l, i) => expect([tamilSong.spotify[i], tamilSong.native[i]]).toContain(l.text));
-  });
-
-  it('never carries a neighbour\'s line into a line (a timing that lets two in)', async () => {
-    const lines = [...nativeHindi, 'फिर भी मुझे तुझसे प्यार है'].map((text, i) => ({ startMs: 500 * (i + 1), text }));
-    const r = await fit(req(spotifyHindi), { lines, synced: true, source: 'LRCLIB' }, 'Deva', romanize);
-    r?.lines.forEach((l, i) => expect(['', spotifyHindi[i], ...nativeHindi]).toContain(l.text));
-  });
-
-  it('picks the copy that improves the most lines, not the first that fits', async () => {
-    const partial = tamilSong.native.map((t, i) => (i === 1 ? 'வேறு வரி' : t)); // one line differs
-    const full = { lines: tamilSong.native.map((text, i) => ({ startMs: 1000 * (i + 1), text })), synced: true, durationKnown: true };
-    const part = { lines: partial.map((text, i) => ({ startMs: 1000 * (i + 1), text })), synced: true, durationKnown: true };
-    const { result } = await searchNative(req(tamilSong.spotify, ['ta']), { lrclib: async () => [part, full], romanize });
-    expect(result?.lines[1].text).toBe(tamilSong.native[1]);
-    expect(result).toMatchObject({ replaced: 3, total: 6 });
+  it('among crowd-sourced copies, picks the one that covers more of the song', async () => {
+    const partial = tamilSong.native.map((t, i) => (i === 1 ? 'வேறு வரி' : t));
+    const { result } = await searchNative(tamilReq(), {
+      lrclib: async () => [{ lines: timed(partial), synced: true, durationKnown: true }, { lines: timed(tamilSong.native), synced: true, durationKnown: true }],
+      romanize,
+    });
+    expect(result?.lines.map((l) => l.text)).toEqual(tamilSong.native);
   });
 
   it('asks no source for a Korean song Spotify has in Hangul with English verses', async () => {
@@ -171,11 +160,11 @@ describe('line by line: multilingual songs', () => {
     expect(asked).toBe(false);
   });
 
-  it('tries identical uploads once', async () => {
+  it('judges identical uploads once', async () => {
     let calls = 0;
     const counting: NativeSources['romanize'] = async (lines, script) => { calls++; return romanize(lines, script); };
-    const copy = { lines: tamilSong.native.map((text, i) => ({ startMs: 1000 * (i + 1), text })), synced: true, durationKnown: true };
-    await searchNative(req(tamilSong.spotify, ['ta']), { lrclib: async () => [copy, { ...copy }, { ...copy }], romanize: counting });
+    const copy = { lines: timed(tamilSong.native), synced: true, durationKnown: true };
+    await searchNative(tamilReq(), { lrclib: async () => [copy, { ...copy }, { ...copy }], romanize: counting });
     expect(calls).toBe(1);
   });
 });

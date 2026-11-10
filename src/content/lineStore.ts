@@ -197,10 +197,11 @@ export class LineStore {
       aliased = i >= 0;
     }
     if (i < 0) return null;
-    // A restored song's romanization is Spotify's own (licensed, written by people) when
-    // it was restored line for line; ours otherwise.
+    // The romanization is ours, from the line in its own script: Spotify's (crowd-entered,
+    // inconsistent, often wrong) only stands in while ours is on its way, on a copy put over
+    // Spotify's lines.
     const spotifys = song.shown?.[i];
-    const romanized = spotifys && spotifys !== song.lines[i] ? spotifys : song.romanized?.[i] ?? null;
+    const romanized = song.romanized?.[i] ?? (aliased && spotifys && spotifys !== song.lines[i] ? spotifys : null);
     const info: LineInfo = { romanized, translated: {} };
     for (const [lang, tr] of Object.entries(song.translated)) info.translated![lang] = tr[i] ?? null;
     return { song, original: song.lines[i], aliased, info };

@@ -25,8 +25,10 @@ to sing along.
    lyrics view, in time with the music.
 5. **The right script (bonus).** When Spotify serves romanized lyrics for a song written
    in its own script (common for Hindi, Punjabi, Thai), restore the original script, so
-   romanization and translation work from the real text. Only when the copy found
-   matches the song (duration within 3 s, its lines verified against Spotify's).
+   romanization and translation work from the real text. A whole copy, never patched
+   line by line: the best one that is the same song (duration within 3 s, Spotify's
+   romanized lines found in it), licensed before crowd-sourced, synced never traded
+   for unsynced.
 
 ## Lines, not songs
 
@@ -35,14 +37,25 @@ K-pop mixes Korean and English, Spotify romanizes some lines and not others, and
 lines belong in Latin script. So every decision about script or language is made per line,
 and a song-level question is answered from the mix of its lines:
 
-- A line is restored to its script only when Spotify's is romanized (Latin letters, not
-  English), the copy's is in the song's script, and the copy, romanized, reads like it.
-- Spotify's line is the default. A line already in another script, an English line, or a
-  line in doubt stays exactly as Spotify has it: the worst case is Spotify as it is.
-- Lines are paired by content in order (and by time when both copies are timed), never
-  trusted by position alone; the copy that improves the most lines wins.
+- A song is worth a native-script copy when enough of its lines look romanized (Latin
+  letters, not English), not only when all of them do.
+- Copies are judged by their lines: Spotify's romanized lines must be found in the copy,
+  in order, by content (and by time when both are timed). The chosen copy is used whole.
 - "Already in Latin" and "already in the target language" count English lines.
-- The listener is told what was done ("restored on 38 of 46 lines") and can undo it.
+
+## Romanization: whose
+
+The romanized line is ours, made from the line in its own script, in this order:
+
+1. The local engine for the line's script (tamil-romanizer, the Indic engine, Revised
+   Romanization for Hangul, pinyin, the Japanese dictionary, Cyrillic and Thai engines).
+2. Google, for scripts without a good local engine (Arabic, Hebrew, Lao, Khmer, Burmese,
+   Sinhala, Ethiopic), and for Japanese words the dictionary can't read.
+3. Spotify's romanized text, only when no text in the song's own script exists (or while
+   ours is on its way). Crowd-entered, inconsistent and often wrong: never preferred.
+4. A generic transliteration: a stopgap, asked again later.
+
+An engine that turns out weak is replaced, not patched.
 
 ## What "works" means
 
