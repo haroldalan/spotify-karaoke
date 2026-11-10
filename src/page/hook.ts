@@ -93,7 +93,21 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     if (ready || msg.kind === 'hello') win.postMessage(msg, win.location.origin);
     else outbox.push(msg);
   };
-  const emit = (type: string, data: unknown) => post({ tag: TAG, dir: 'up', kind: 'event', type, data });
+  /**
+   * The last reports about songs. A copy of the content script that takes over in this page
+   * (after an extension update) starts knowing nothing about the song playing or the one
+   * already fetched: when it says it is ready, it is told again.
+   */
+  const recent: Up[] = [];
+  const RECENT_MAX = 12;
+  const emit = (type: string, data: unknown) => {
+    const msg: Up = { tag: TAG, dir: 'up', kind: 'event', type, data };
+    if (type !== 'error') {
+      recent.push(msg);
+      if (recent.length > RECENT_MAX) recent.shift();
+    }
+    post(msg);
+  };
   const call = (type: string, data: unknown, timeoutMs: number) =>
     new Promise<unknown>((resolve) => {
       const id = nextId++;
@@ -113,6 +127,8 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
       if (!ready) {
         ready = true;
         for (const m of outbox.splice(0)) win.postMessage(m, win.location.origin);
+      } else if (msg.kind === 'ready') {
+        for (const m of recent) win.postMessage(m, win.location.origin);
       }
     } else if (msg.kind === 'reply') {
       replies.get(msg.id)?.(msg.data);

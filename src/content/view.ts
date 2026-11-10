@@ -4,7 +4,7 @@
 // Lines are handled per list (their parent element, one per song panel): each list is
 // matched to the song it shares the most lines with, and decorated from that song only.
 import type { Settings } from '../shared/types';
-import { LINE_SELECTOR, NONE, apply, decoration, lineText, clear } from './decorate';
+import { LINE_SELECTOR, NONE, apply, decoration, lineText, clear, shows } from './decorate';
 import type { LineStore, Song } from './lineStore';
 
 /** Where the switcher goes: centred under Spotify's lyrics header (3.1.6's spot). */
@@ -43,6 +43,13 @@ export class View {
   /** Whether anyone needs the switcher's spot (only when the switcher is shown). */
   private wantAnchor = true;
   private readonly onResize = () => this.schedule();
+  /** A panel finished fading in or out: which list is on screen may have changed. */
+  private readonly onFade = (e: Event) => {
+    const t = e.target;
+    if ((e as TransitionEvent).propertyName === 'opacity' && t instanceof (this.doc.defaultView ?? window).Element && t.querySelector(LINE_SELECTOR)) this.schedule();
+  };
+  /** Line elements a pass has already been over. */
+  private seen = new WeakSet<Element>();
 
   constructor(private store: LineStore, settings: Settings, private doc: Document = document) {
     this.settings = settings;
@@ -61,6 +68,7 @@ export class View {
   start() {
     this.observer.observe(this.doc.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['aria-checked'] });
     (this.doc.defaultView ?? window).addEventListener('resize', this.onResize);
+    this.doc.addEventListener('transitionend', this.onFade, true);
     this.schedule();
   }
 
@@ -101,12 +109,14 @@ export class View {
     let lineCount = 0;
     for (const els of lists.values()) {
       const inCard = !!els[0]?.closest(CARD);
-      if (!inCard) lineCount += els.length;
       const texts = els.map(lineText);
       let song = this.store.songFor(texts);
       // Never seen through the network: read the whole list off the screen.
       if (!song && texts.some((t) => t)) song = this.store.addSong(texts);
-      const visible = els.find((el) => (el as HTMLElement).offsetParent !== null);
+      // On screen: laid out, and not inside a panel Spotify has faded out. It keeps the last
+      // song's lyrics mounted, fully transparent, under its "no lyrics" message.
+      const visible = els.find(onScreen);
+      if (!inCard && visible) lineCount += els.length;
       const box = visible ? scrollBox(visible) : null;
       const rect = box?.getBoundingClientRect();
       const compact = inCard || (!!rect && rect.width > 0 && rect.width < COMPACT_WIDTH);
@@ -115,13 +125,23 @@ export class View {
         const area = rect ? rect.width * rect.height : 0;
         if (!main || area > main.area) main = { song, line: visible, area };
       }
+      const next = els.map((_, i) => {
+        const r = song ? this.store.resolve(song, texts[i]) : null;
+        return r ? decoration(r.original, r.info, this.settings, r.aliased) : NONE;
+      });
+      // Lines already on screen are about to change height (a mode switch, a translation
+      // arriving): the line being sung stays where it is. Not for elements new to us: Spotify
+      // replaces a line's element when it becomes the current or a past line, and scrolls
+      // to it smoothly at that moment; a scroll of ours would cut that short.
+      const changes = els.some((el, i) => this.seen.has(el) && (el.hasAttribute('data-sk-compact') !== compact || !shows(el, next[i])));
+      const settle = changes && box ? holdLine(els, box) : null;
       els.forEach((el, i) => {
         if (compact) el.setAttribute('data-sk-compact', '');
         else el.removeAttribute('data-sk-compact');
-        const r = song ? this.store.resolve(song, texts[i]) : null;
-        if (!r) return apply(el, NONE);
-        apply(el, decoration(r.original, r.info, this.settings, r.aliased));
+        apply(el, next[i]);
+        this.seen.add(el);
       });
+      settle?.();
     }
     const anchor = !this.wantAnchor ? null : main ? this.anchorFor(main.line) : this.emptyViewAnchor();
     for (const fn of this.listeners) fn({ lineCount, anchor, song: main?.song ?? null });
@@ -180,8 +200,59 @@ export class View {
     this.observer.disconnect();
     this.resizeObserver?.disconnect();
     (this.doc.defaultView ?? window).removeEventListener('resize', this.onResize);
+    this.doc.removeEventListener('transitionend', this.onFade, true);
     clear(this.doc);
   }
+}
+
+/** Laid out and not transparent (itself or through an ancestor). */
+function onScreen(el: Element): boolean {
+  if ((el as HTMLElement).offsetParent === null) return false;
+  const check = (el as Element & { checkVisibility?: (o: object) => boolean }).checkVisibility;
+  return typeof check === 'function' ? check.call(el, { opacityProperty: true, visibilityProperty: true }) : true;
+}
+
+const HAS_WORDS = /\p{L}/u;
+
+/**
+ * The line Spotify highlights: the last one before the run of lines still to come (Spotify
+ * gives past, current and coming lines different classes). null when it can't be told: no
+ * line sung yet, or lyrics that aren't synced.
+ */
+export function currentLine(els: Element[]): Element | null {
+  const worded = els.filter((el) => HAS_WORDS.test(el.textContent ?? ''));
+  if (worded.length < 2) return null;
+  const coming = worded[worded.length - 1].className;
+  let i = worded.length - 1;
+  while (i >= 0 && worded[i].className === coming) i--;
+  return i >= 0 ? worded[i] : null;
+}
+
+/**
+ * Call before changing a list's lines; call the result after. It scrolls the box by however
+ * far the line being sung moved, so that line doesn't move on screen.
+ *
+ * Why: Spotify follows the song only while the highlighted line is in view. Our lines change
+ * height when the mode changes or a translation arrives; that used to push the highlighted
+ * line out of view, and Spotify then stopped following until its Sync button was pressed
+ * (found live, 2026-11-10). When the highlighted line isn't in view (the listener scrolled
+ * away), the first line in view is held instead: what they are reading stays put.
+ */
+function holdLine(els: Element[], box: Element): (() => void) | null {
+  if (box.scrollHeight <= box.clientHeight) return null;
+  const view = box.getBoundingClientRect();
+  const inView = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    return r.height > 0 && r.bottom > view.top && r.top < view.bottom;
+  };
+  const current = currentLine(els);
+  const held = current && inView(current) ? current : els.find(inView);
+  if (!held) return null;
+  const top = held.getBoundingClientRect().top;
+  return () => {
+    const moved = held.getBoundingClientRect().top - top;
+    if (Math.abs(moved) >= 1) box.scrollTop += moved;
+  };
 }
 
 /** Nearest scrolling ancestor: the lyrics view's visible box. */

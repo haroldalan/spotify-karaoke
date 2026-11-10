@@ -64,11 +64,11 @@ function startsSyllable(s: string, j: number): boolean {
 /** Normalizes a word: drops tone marks, and letters made silent by the thanthakhat (์). */
 function normalizeWord(word: string): string {
   // เเ (two sara e) is a common typing of แ.
-  let s = word.replace(/[่-๋ํฺ]/g, '').replace(/เเ/g, 'แ');
+  let s = word.replace(/[\u0E48-\u0E4B\u0E4D\u0E3A]/g, '').replace(/เเ/g, 'แ');
   if (s.includes('์')) {
-    s = s.replace(/[ก-ฮ][ิุ]?์/g, '');
+    s = s.replace(/[\u0E01-\u0E2E][\u0E34\u0E38]?์/g, '');
     // จันทร์, ศาสตร์: the letter before the silent one is silent too when the syllable is already closed.
-    s = s.replace(/([ัาิีึืุูอ])([ก-ฮ])[ก-ฮ]$/, '$1$2');
+    s = s.replace(/([\u0E31\u0E32\u0E34\u0E35\u0E36\u0E37\u0E38\u0E39\u0E2D])([\u0E01-\u0E2E])[\u0E01-\u0E2E]$/, '$1$2');
   }
   return s;
 }
@@ -229,7 +229,7 @@ function getSegmenter(): Intl.Segmenter | null {
   return segmenter;
 }
 
-const THAI_RE = /[฀-๿]/;
+const THAI_RE = /[\u0E00-\u0E7F]/;
 
 function romanizeWordSafe(word: string): string {
   try {

@@ -4,8 +4,8 @@ export function normalizeTitle(s: string): string {
   return s
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/\s*[-–—]\s*(from|feat\.?|ft\.?|remaster(ed)?|live|radio edit|single version|mono|stereo)\b.*$/i, '')
-    .replace(/\s*[([（【][^)\]）】]*(feat|ft\.|from|remaster|version|edit|live|original|soundtrack|ost)[^)\]）】]*[)\]）】]/gi, '')
+    .replace(/\s*[-\u2013\u2014]\s*(from|feat\.?|ft\.?|remaster(ed)?|live|radio edit|single version|mono|stereo)\b.*$/i, '')
+    .replace(/\s*[([\uFF08\u3010][^)\]\uFF09\u3011]*(feat|ft\.|from|remaster|version|edit|live|original|soundtrack|ost)[^)\]\uFF09\u3011]*[)\]\uFF09\u3011]/gi, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 }

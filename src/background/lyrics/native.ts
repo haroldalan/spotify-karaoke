@@ -43,7 +43,7 @@ const TIME_SLACK_MS = 1500;
 /** Consonant skeleton: what survives every romanization scheme ("thangamae" ~ "thangame"). */
 export function skeleton(s: string): string {
   return s
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036F]/g, '')
     .toLowerCase()
     .replace(/[^a-z]/g, '')
     .replace(/([kgcjtdpbs])h/g, '$1')

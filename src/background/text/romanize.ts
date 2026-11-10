@@ -19,7 +19,7 @@ const ru = new CyrillicToTranslit();
 const uk = new CyrillicToTranslit({ preset: 'uk' });
 
 function stripMarks(s: string): string {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').normalize('NFC');
+  return s.normalize('NFD').replace(/[\u0300-\u036F]/g, '').normalize('NFC');
 }
 
 /** A kanji left in a Japanese romanization: the dictionary had no reading for it. */
@@ -54,9 +54,9 @@ async function localLines(lines: string[], script: Script, deps: RomanizeDeps): 
       return lines.map((l) => pinyin(l, { toneType: 'symbol', type: 'string', nonZh: 'consecutive' }).replace(/\s{2,}/g, ' ').trim());
     case 'Kore':
       // The library throws on anything outside its ranges (emoji, "…"): romanize Hangul runs only.
-      return lines.map((l) => l.replace(/[가-힯ᄀ-ᇿ㄰-㆏]+/g, (run) => romanizeHangul(run)));
+      return lines.map((l) => l.replace(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]+/g, (run) => romanizeHangul(run)));
     case 'Cyrl':
-      return lines.map((l) => (/[єїіґЄЇІҐ]/.test(l) ? uk : ru).transform(l));
+      return lines.map((l) => (/[\u0454\u0457\u0456\u0491\u0404\u0407\u0406\u0490]/.test(l) ? uk : ru).transform(l));
     case 'Taml':
       return lines.map((l) => romanizeTamil(l));
     case 'Thai':

@@ -116,4 +116,25 @@ describe('decoration', () => {
   it('turns right-to-left lines left-to-right when the main line is Latin', () => {
     expect(decoration('أحبك', { romanized: "'uhibuk" }, s({ mode: 'romanized' })).dir).toBe('ltr');
   });
+  it('turns only right-to-left lines: every other script keeps Spotify\'s direction and alignment', () => {
+    // Found live (2026-11-10): the right-to-left class had come to cover every script up to U+FDFF.
+    const lines: [string, string][] = [
+      ['தங்கபூவே', 'thangapoove'], ['तेरा है', 'tera hai'], ['ਤੇਰੇ ਵਰਗਾ', 'tere warga'], ['君を愛してる', 'kimi o aishiteru'],
+      ['사랑해', 'saranghae'], ['我爱你', 'wo ai ni'], ['Я тебя люблю', 'Ya tebya lyublyu'], ['รักเธอ', 'rak thoe'], ['Σ\u2019 αγαπώ', "S' agapo"],
+    ];
+    for (const [original, romanized] of lines) {
+      expect(decoration(original, { romanized }, s({ mode: 'romanized' })).dir, original).toBeNull();
+      expect(decoration(original, { romanized, translated: { en: 'I love you' } }, s({ mode: 'translated', allLines: true })).dir, original).toBeNull();
+    }
+  });
+  it('turns a right-to-left line whenever its main line is not right-to-left, whatever that script is', () => {
+    const arabic = { romanized: "'uhibuk", translated: { en: 'I love you', hi: 'मैं तुमसे प्यार करता हूँ', ja: '愛してる', iw: 'אני אוהב אותך' } };
+    for (const targetLang of ['en', 'hi', 'ja']) expect(decoration('أحبك', arabic, s({ mode: 'translated', targetLang })).dir, targetLang).toBe('ltr');
+    // Hebrew presentation forms and Arabic presentation forms count as right-to-left too.
+    expect(decoration('\uFB1D\uFB2A', { romanized: 'yish' }, s({ mode: 'romanized' })).dir).toBe('ltr');
+    expect(decoration('\uFE8D\uFEDF', { romanized: 'al' }, s({ mode: 'romanized' })).dir).toBe('ltr');
+    // A right-to-left main line stays as Spotify lays it out.
+    expect(decoration('أحبك', arabic, s({ mode: 'translated', targetLang: 'iw' })).dir).toBeNull();
+    expect(decoration('أحبك', arabic, s({ mode: 'original', allLines: true })).dir).toBeNull();
+  });
 });

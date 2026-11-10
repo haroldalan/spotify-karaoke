@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { LineStore, MAX_SONGS } from '../../src/content/lineStore';
-import { View } from '../../src/content/view';
+import { View, currentLine } from '../../src/content/view';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
 import { readEl } from '../helpers/lines';
 
@@ -75,6 +75,20 @@ describe('View', () => {
     expect(readEl(list[1]).main).toBe('दिल मेरा');
   });
 
+  it('reads a song it has never seen off the screen even when it shares a stray line with a known song', async () => {
+    // After an extension update the new copy knows only the song it found on screen; the next
+    // song (fetched before the update) reaches it through the DOM alone.
+    const { store, view } = setup({ mode: 'romanized' });
+    store.addSong(['我爱你', '♪', '永远', 'Oh yeah'], 'zh');
+    await flush();
+    const [next] = lyricsDom(['さよなら', '♪', 'ありがとう', 'Oh yeah', 'またね']);
+    view.pass();
+    await flush();
+    view.pass();
+    expect(readEl(next[0]).main).toBe('ja(さよなら)');
+    expect(readEl(next[4]).main).toBe('ja(またね)');
+  });
+
   it('never lends a restored line to another song that shares a romanized line', async () => {
     const { store, view } = setup({ mode: 'original' });
     store.addRestored(['tera hai', 'dil mera'], ['तेरा है', 'दिल मेरा'], 'hi');
@@ -133,5 +147,130 @@ describe('LineStore', () => {
     release();
     await flush();
     expect(store.status(a).pending).toBe(false);
+  });
+});
+
+/**
+ * A lyrics list in a scrolling box with a stand-in layout: 40 px per line, 80 px when
+ * decorated (two lines of text). Classes as Spotify sets them: past, current, coming.
+ */
+function scrollingLyrics(texts: string[], states: string[], scrollTop: number) {
+  document.body.innerHTML = `<div id="box" style="overflow-y: scroll"><div class="list">${texts
+    .map((t, i) => `<div data-testid="lyrics-line" class="line ${states[i]}"><div>${t}</div></div>`)
+    .join('')}</div></div>`;
+  const box = document.getElementById('box')!;
+  const lines = [...document.querySelectorAll('[data-testid="lyrics-line"]')] as HTMLElement[];
+  const state = { scrollTop };
+  const height = (el: Element) => (el.hasAttribute('data-sk-big') ? 80 : 40);
+  Object.defineProperty(box, 'scrollTop', { get: () => state.scrollTop, set: (v: number) => { state.scrollTop = v; } });
+  Object.defineProperty(box, 'clientHeight', { value: 200 });
+  Object.defineProperty(box, 'scrollHeight', { value: 2000 });
+  box.getBoundingClientRect = () => ({ top: 0, bottom: 200, left: 0, right: 500, width: 500, height: 200 }) as DOMRect;
+  lines.forEach((el, i) => {
+    Object.defineProperty(el, 'offsetParent', { value: box });
+    el.getBoundingClientRect = () => {
+      const top = lines.slice(0, i).reduce((n, x) => n + height(x), 0) - state.scrollTop;
+      return { top, bottom: top + height(el), left: 0, right: 500, width: 500, height: height(el) } as DOMRect;
+    };
+  });
+  return { box, lines, state };
+}
+
+describe('the line being sung holds still', () => {
+  const zh = ['我爱你', '永远', '再见', '你好', '谢谢', '朋友', '明天'];
+
+  it('finds the line Spotify highlights: the last one before the lines still to come', () => {
+    const { lines } = scrollingLyrics(zh, ['past', 'past', 'now', 'coming', 'coming', 'coming', 'coming'], 0);
+    expect(currentLine(lines)).toBe(lines[2]);
+    // Nothing sung yet, or lyrics that aren't synced: every line looks the same.
+    expect(currentLine(scrollingLyrics(zh, zh.map(() => 'coming'), 0).lines)).toBeNull();
+    // A wordless last line (♪) has a class of its own: it is not the run of coming lines.
+    const withNote = scrollingLyrics([...zh, '♪'], ['past', 'now', 'coming', 'coming', 'coming', 'coming', 'coming', 'note'], 0);
+    expect(currentLine(withNote.lines)).toBe(withNote.lines[1]);
+  });
+
+  it('scrolls by however far the highlighted line moved when the mode changes line heights', async () => {
+    const { store, view, settings } = setup({ mode: 'original' });
+    store.addSong(zh, 'zh');
+    await flush();
+    const { lines, state } = scrollingLyrics(zh, ['past', 'past', 'now', 'coming', 'coming', 'coming', 'coming'], 40);
+    view.pass();
+    const top = lines[2].getBoundingClientRect().top;
+    expect(top).toBe(40);
+    // Original -> Romanized: the two lines above it double in height.
+    const romanized = { ...settings, mode: 'romanized' as const };
+    store.setSettings(romanized);
+    await flush();
+    view.setSettings(romanized);
+    view.pass();
+    expect(lines[0].dataset.skBig).toBe('a');
+    expect(lines[2].getBoundingClientRect().top).toBe(top);
+    expect(state.scrollTop).toBe(120);
+    // And back: they shrink again.
+    view.setSettings(settings);
+    view.pass();
+    expect(lines[0].dataset.skBig).toBeUndefined();
+    expect(lines[2].getBoundingClientRect().top).toBe(top);
+    expect(state.scrollTop).toBe(40);
+    // A pass that changes nothing never touches the scroll position.
+    state.scrollTop = 55;
+    view.pass();
+    expect(state.scrollTop).toBe(55);
+  });
+
+  it('never scrolls for elements new to it: Spotify replaces a line when it becomes current, and scrolls to it itself', async () => {
+    const { store, view } = setup({ mode: 'romanized' });
+    store.addSong(zh, 'zh');
+    await flush();
+    const { lines, state } = scrollingLyrics(zh, ['past', 'past', 'now', 'coming', 'coming', 'coming', 'coming'], 40);
+    view.pass(); // first sight of every element: decorated, heights change, no scroll of ours
+    expect(lines[0].dataset.skBig).toBe('a');
+    expect(state.scrollTop).toBe(40);
+    // Spotify re-renders two lines as new, undecorated elements (the one just sung, the one sung now).
+    for (const i of [1, 2]) {
+      lines[i].removeAttribute('data-sk-big');
+      lines[i].removeAttribute('data-sk-a');
+    }
+    const fresh = new WeakSet([lines[1], lines[2]]);
+    // Stand-in for "new elements": a second view has never seen any of them.
+    const second = new View(store, { ...DEFAULT_SETTINGS, mode: 'romanized' });
+    second.pass();
+    expect(fresh.has(lines[1]) && lines[1].dataset.skBig).toBe('a');
+    expect(state.scrollTop).toBe(40);
+  });
+
+  it('counts only lyrics on screen: a faded-out panel left under Spotify\'s "no lyrics" message is not the lyrics view', async () => {
+    const { store, view } = setup({ mode: 'romanized' });
+    store.addSong(zh, 'zh');
+    await flush();
+    const { lines } = scrollingLyrics(zh, zh.map(() => 'coming'), 0);
+    let state: { lineCount: number; song: unknown } = { lineCount: -1, song: null };
+    view.onUpdate((s) => { state = s; });
+    view.pass();
+    expect(state.lineCount).toBe(zh.length);
+    expect(state.song).not.toBeNull();
+    // Spotify fades the panel out (opacity 0 on an ancestor) and leaves it mounted.
+    for (const el of lines) (el as unknown as { checkVisibility: () => boolean }).checkVisibility = () => false;
+    view.pass();
+    expect(state.lineCount).toBe(0);
+    expect(state.song).toBeNull();
+    // Still decorated: if the panel fades back in, it is right at once.
+    expect(lines[0].dataset.skBig).toBe('a');
+  });
+
+  it('holds what the listener is reading when the highlighted line is out of view', async () => {
+    const { store, view, settings } = setup({ mode: 'original' });
+    store.addSong(zh, 'zh');
+    await flush();
+    // The listener scrolled back to the top; the song is at its last lines, below the box.
+    const { lines, state } = scrollingLyrics(zh, ['past', 'past', 'past', 'past', 'past', 'past', 'now'], 0);
+    view.pass();
+    const romanized = { ...settings, mode: 'romanized' as const };
+    store.setSettings(romanized);
+    await flush();
+    view.setSettings(romanized);
+    view.pass();
+    expect(lines[0].getBoundingClientRect().top).toBe(0);
+    expect(state.scrollTop).toBe(0);
   });
 });

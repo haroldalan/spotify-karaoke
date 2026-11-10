@@ -6,33 +6,33 @@ export type Script =
   | 'Geor' | 'Armn' | 'Ethi' | 'Other';
 
 const RANGES: [Script, RegExp][] = [
-  ['Jpan', /[぀-ヿㇰ-ㇿｦ-ﾟ]/], // kana
-  ['Hani', /[㐀-䶿一-鿿豈-﫿]/],
-  ['Kore', /[ᄀ-ᇿ㄰-㆏가-힯]/],
-  ['Cyrl', /[Ѐ-ӿ]/],
-  ['Grek', /[Ͱ-Ͽἀ-῿]/],
-  ['Arab', /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/],
-  ['Hebr', /[֐-׿]/],
-  ['Thai', /[฀-๿]/],
-  ['Laoo', /[຀-໿]/],
-  ['Khmr', /[ក-៿]/],
-  ['Mymr', /[က-႟]/],
-  ['Deva', /[ऀ-ॿ]/],
-  ['Beng', /[ঀ-৿]/],
-  ['Guru', /[਀-੿]/],
-  ['Gujr', /[઀-૿]/],
-  ['Orya', /[଀-୿]/],
-  ['Taml', /[஀-௿]/],
-  ['Telu', /[ఀ-౿]/],
-  ['Knda', /[ಀ-೿]/],
-  ['Mlym', /[ഀ-ൿ]/],
-  ['Sinh', /[඀-෿]/],
-  ['Geor', /[Ⴀ-ჿ]/],
-  ['Armn', /[԰-֏]/],
-  ['Ethi', /[ሀ-፿]/],
+  ['Jpan', /[\u3040-\u30FF\u31F0-\u31FF\uFF66-\uFF9F]/], // kana
+  ['Hani', /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/],
+  ['Kore', /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/],
+  ['Cyrl', /[\u0400-\u04FF]/],
+  ['Grek', /[\u0370-\u03FF\u1F00-\u1FFF]/],
+  ['Arab', /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/],
+  ['Hebr', /[\u0590-\u05FF]/],
+  ['Thai', /[\u0E00-\u0E7F]/],
+  ['Laoo', /[\u0E80-\u0EFF]/],
+  ['Khmr', /[\u1780-\u17FF]/],
+  ['Mymr', /[\u1000-\u109F]/],
+  ['Deva', /[\u0900-\u097F]/],
+  ['Beng', /[\u0980-\u09FF]/],
+  ['Guru', /[\u0A00-\u0A7F]/],
+  ['Gujr', /[\u0A80-\u0AFF]/],
+  ['Orya', /[\u0B00-\u0B7F]/],
+  ['Taml', /[\u0B80-\u0BFF]/],
+  ['Telu', /[\u0C00-\u0C7F]/],
+  ['Knda', /[\u0C80-\u0CFF]/],
+  ['Mlym', /[\u0D00-\u0D7F]/],
+  ['Sinh', /[\u0D80-\u0DFF]/],
+  ['Geor', /[\u10A0-\u10FF]/],
+  ['Armn', /[\u0530-\u058F]/],
+  ['Ethi', /[\u1200-\u137F]/],
 ];
 
-const LATIN = /[A-Za-zÀ-ɏ]/;
+const LATIN = /[A-Za-z\u00C0-\u024F]/;
 
 export function charScript(ch: string): Script | null {
   if (LATIN.test(ch)) return 'Latn';

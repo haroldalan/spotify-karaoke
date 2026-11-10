@@ -112,7 +112,7 @@ export function iastToAscii(s: string, script: Script): string {
   };
   t = t.replace(/m̐|[^\x00-\x7f]/g, (c) => map[c] ?? c);
   // Remaining combining marks (e.g. from nukta letters).
-  return t.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return t.normalize('NFD').replace(/[\u0300-\u036F]/g, '');
 }
 
 // Precomposed nukta letters (Unicode composition exclusions: NFC always splits them into
@@ -151,7 +151,7 @@ export function romanizeIndic(line: string, script: Script): string {
     .map((token) => {
       if (![...token].some(inScript)) return token;
       let w = token;
-      if (script === 'Mlym') w = w.replace(/[ൺ-ൿ]/g, (c) => CHILLU[c] ?? c);
+      if (script === 'Mlym') w = w.replace(/[\u0D7A-\u0D7F]/g, (c) => CHILLU[c] ?? c);
       w = w.replace(chandrabindu, anusvara); // ँ: a nasal vowel, read like anusvara ("hoon", "haan")
       if (script === 'Deva') w = hindiFlaps(w);
       w = deleteSchwas(w, script);

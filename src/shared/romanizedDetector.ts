@@ -109,7 +109,7 @@ function tokenize(lines: readonly string[]): string[] {
   return lines
     .join(' ')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036F]/g, '')
     .toLowerCase()
     .split(/[^a-z]+/)
     .filter(t => t.length > 1);

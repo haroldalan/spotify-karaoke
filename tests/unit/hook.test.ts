@@ -145,6 +145,21 @@ describe('page hook: lyrics Spotify has', () => {
     expect(await (await pending).json()).toEqual(roman);
   });
 
+  it('tells a content script that takes over (after an update) about the songs it missed', async () => {
+    const roman = fixture('color-lyrics-romanized-hindi.json');
+    const page = fakePage({ routes: { 'metadata/4': () => json(fixture('metadata-hindi.json')), 'color-lyrics': () => json(roman) }, answer: () => null });
+    await page.fetch(HINDI_META);
+    await page.fetch(lyricsUrl(HINDI_ID));
+    await tick();
+    const before = page.events.map((e) => e.type);
+    expect(before).toEqual(['meta', 'lyrics']);
+    // A new copy of the content script announces itself to the hook that is already running.
+    page.connect();
+    await tick();
+    expect(page.events.map((e) => e.type)).toEqual(['meta', 'lyrics', 'meta', 'lyrics']);
+    expect(page.events[3].data).toMatchObject({ id: HINDI_ID, kind: 'spotify' });
+  });
+
   it('leaves a song the listener sent back to Spotify exactly as Spotify has it', async () => {
     const roman = fixture('color-lyrics-romanized-hindi.json');
     const page = fakePage({

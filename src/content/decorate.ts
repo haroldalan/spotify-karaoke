@@ -40,6 +40,9 @@ ${L}[data-sk-compact]:not([data-sk-big="c"]) > *,
 ${L}[data-sk-compact]:not([data-sk-big="a"])::before,
 ${L}[data-sk-compact]:not([data-sk-big="b"])::after { display: none !important; }
 ${L}[data-sk-dir="ltr"] { direction: ltr; text-align: start; }
+/* The browser's own scroll anchoring holds the top visible line when ours change height; the
+   line that must hold still is the one being sung (see holdLine in view.ts). */
+${L} { overflow-anchor: none; }
 `;
 
 export interface Decoration {
@@ -58,7 +61,10 @@ export interface Decoration {
 
 export const NONE: Decoration = { a: null, b: null, big: null, hide: false, alias: false, dir: null };
 
-const RTL = /[֐-ࣿיִ-﷿ﹰ-﻿]/;
+// Hebrew, Arabic, Syriac, Thaana, NKo (U+0590-08FF) and the Hebrew/Arabic presentation forms.
+// Escapes on purpose: a literal U+FB1D was once rewritten as two characters, which stretched the
+// class over every script up to U+FDFF.
+const RTL = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
 
 /**
  * What a line should show under these settings. Pure. Two lines (the main line, the original
@@ -100,6 +106,19 @@ function setAttr(el: Element, name: string, value: string | null) {
 /** The line's own text (our ::before/::after content is not part of textContent). */
 export function lineText(el: Element): string {
   return (el.textContent ?? '').trim();
+}
+
+/** Whether the line already shows this decoration (nothing to write, nothing moves). */
+export function shows(el: Element, d: Decoration): boolean {
+  const on = !!d.big;
+  return (
+    el.getAttribute('data-sk-a') === d.a &&
+    el.getAttribute('data-sk-b') === d.b &&
+    el.getAttribute('data-sk-big') === d.big &&
+    el.hasAttribute('data-sk-hide') === (d.hide && on) &&
+    el.hasAttribute('data-sk-alias') === (d.alias && on) &&
+    el.getAttribute('data-sk-dir') === (on ? d.dir : null)
+  );
 }
 
 export function apply(el: Element, d: Decoration) {

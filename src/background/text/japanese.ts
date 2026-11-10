@@ -91,11 +91,14 @@ function joinsPrevious(t: JapaneseToken, prev: JapaneseToken | undefined): boole
 
 const tokenKana = (t: JapaneseToken) => (t.reading && t.reading !== '*' ? t.reading : t.surface_form);
 /** Long vowels as plain letters, the way lyric sites write them: "mirukii", "toukyou" (not ī, ō). */
-const LONG_VOWELS: Record<string, string> = { ā: 'aa', ī: 'ii', ū: 'uu', ē: 'ee', ō: 'ou', Ā: 'Aa', Ī: 'Ii', Ū: 'Uu', Ē: 'Ee', Ō: 'Ou' };
+const LONG_VOWELS: Record<string, string> = {
+  '\u0101': 'aa', '\u012B': 'ii', '\u016B': 'uu', '\u0113': 'ee', '\u014D': 'ou',
+  '\u0100': 'Aa', '\u012A': 'Ii', '\u016A': 'Uu', '\u0112': 'Ee', '\u014C': 'Ou',
+};
 const kanaToRomaji = (kana: string): string =>
   (Kuroshiro as unknown as { Util: { kanaToRomaji(s: string, system: string): string } }).Util
     .kanaToRomaji(kana, 'hepburn')
-    .replace(/[āīūēōĀĪŪĒŌ]/g, (c) => LONG_VOWELS[c]);
+    .replace(/[\u0101\u012B\u016B\u0113\u014D\u0100\u012A\u016A\u0112\u014C]/g, (c) => LONG_VOWELS[c]);
 
 /** Romanizes one tokenized line. */
 export function romanizeJapaneseTokens(tokens: JapaneseToken[]): string {

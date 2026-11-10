@@ -128,13 +128,18 @@ export class LineStore {
 
   /**
    * The song a list of lines on screen belongs to: the one sharing the most lines with it,
-   * the most recently seen on a tie. null: no known song shares a line.
+   * the most recently seen on a tie. null: no known song has at least half of the list's
+   * lines. A list that shares only a stray line with a known song ("♪", "Oh yeah") is a song
+   * we haven't seen: bound to the other one, none of its own lines would be decorated (found
+   * live 2026-11-10, on the song after an extension update).
    */
   songFor(texts: string[]): Song | null {
     const score = new Map<string, number>();
+    let total = 0;
     for (const t of texts) {
       const n = normalizeLine(t);
       if (!n) continue;
+      total++;
       for (const key of this.index.get(n) ?? []) score.set(key, (score.get(key) ?? 0) + 1);
     }
     let best: Song | null = null;
@@ -149,7 +154,7 @@ export class LineStore {
         bestRank = rank;
       }
     }
-    return best;
+    return best && bestScore * 2 >= total ? best : null;
   }
 
   /** A line of a song, as shown on screen. */
