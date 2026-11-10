@@ -26,7 +26,14 @@ const browser = await puppeteer.launch({
   pipe: true,
   enableExtensions: true,
   defaultViewport: null,
-  args: ['--no-first-run', '--no-default-browser-check', '--window-size=1400,950', '--autoplay-policy=no-user-gesture-required'],
+  args: [
+    '--no-first-run', '--no-default-browser-check', '--window-size=1400,950', '--autoplay-policy=no-user-gesture-required',
+    // SK_MOCK_GOOGLE=1: Google Translate's two hosts go to tools/live/mock-google.mjs on this
+    // machine (self-signed), so request headers can be checked without contacting Google.
+    ...(process.env.SK_MOCK_GOOGLE
+      ? ['--host-resolver-rules=MAP translate.googleapis.com 127.0.0.1:8443, MAP translate-pa.googleapis.com 127.0.0.1:8443', '--ignore-certificate-errors']
+      : []),
+  ],
 });
 
 let extId = null;
@@ -166,6 +173,25 @@ const handlers = {
   async clearLogs() { logs.length = 0; return 'ok'; },
   async url() { return (await spotifyPage()).url(); },
   async targets() { return { extId, targets: browser.targets().map((t) => `${t.type()} ${t.url().slice(0, 120)}`) }; },
+  /**
+   * The extension worker's outgoing requests (URL, Origin, Referer, User-Agent as sent) while
+   * `js` runs in the Spotify page, for `ms` milliseconds. From Chrome's network log.
+   */
+  async swNetwork({ js, ms = 4000, match = '' }) {
+    const target = browser.targets().find((t) => t.type() === 'service_worker' && t.url().includes(extId));
+    if (!target) throw new Error('extension worker not running');
+    const cdp = await target.createCDPSession();
+    const seen = new Map();
+    const pick = (h = {}) => Object.fromEntries(Object.entries(h).filter(([k]) => /^(origin|referer|user-agent|sec-fetch-site|sec-fetch-mode)$/i.test(k)));
+    cdp.on('Network.requestWillBeSent', (e) => { if (!match || e.request.url.includes(match)) seen.set(e.requestId, { url: e.request.url.slice(0, 80), method: e.request.method, headers: pick(e.request.headers) }); });
+    cdp.on('Network.requestWillBeSentExtraInfo', (e) => { const r = seen.get(e.requestId); if (r) r.sentHeaders = pick(e.headers); });
+    await cdp.send('Network.enable');
+    const page = await spotifyPage();
+    await page.evaluate(js);
+    await new Promise((r) => setTimeout(r, ms));
+    await cdp.detach();
+    return [...seen.values()];
+  },
   /** Screenshots a page in a separate tab (e.g. the popup: {"url":"popup"}), then closes it. */
   async shotTab({ url, file, width = 360, height = 600 }) {
     const page = await browser.newPage();

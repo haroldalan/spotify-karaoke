@@ -55,7 +55,7 @@ reveals your IP address to the service that receives it.
 |:---|:---|
 | `storage`, `unlimitedStorage` | Your settings and the caches above |
 | `scripting` | When the extension is installed or updated, adds it to Spotify tabs that are already open, so they work without a reload |
-| `declarativeNetRequestWithHostAccess` | Sets the request headers YouTube Music expects, and leaves out the extension's Origin and Referer on requests to YouTube Music and LRCLIB, on the extension's own background requests only; never on your tabs or any other site |
+| `declarativeNetRequestWithHostAccess` | Sets the request headers YouTube Music expects, and leaves out the extension's Origin and Referer (which would identify the extension) on requests to YouTube Music, Google Translate and LRCLIB, on the extension's own background requests only; never on your tabs or any other site |
 | Host access to the services above and open.spotify.com | Run inside Spotify's web player and reach the listed services |
 
 ## Third parties

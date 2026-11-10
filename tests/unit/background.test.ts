@@ -213,30 +213,75 @@ describe('YouTube Music parsing', () => {
 });
 
 describe('Background network header rules', () => {
-  it('limit the rules to this extension\'s own origin host; YouTube Music and LRCLIB only, never Google Translate', async () => {
+  const install = async () => {
     const rules: any[] = [];
+    const removed: number[][] = [];
     (globalThis as any).chrome = {
       runtime: { id: 'spotify-karaoke@example.com', getURL: (p: string) => `moz-extension://6f2a7c1e-uuid-0000/${p.replace(/^\//, '')}` },
       tabs: { TAB_ID_NONE: -1 },
-      declarativeNetRequest: { updateSessionRules: async (o: any) => { rules.push(...o.addRules); } },
+      declarativeNetRequest: {
+        updateSessionRules: async (o: any) => { removed.push(o.removeRuleIds); rules.push(...o.addRules); },
+        getSessionRules: async () => rules,
+      },
     };
     vi.resetModules();
-    const { installHeaderRules, RULE_IDS } = await import('../../src/background/net');
-    await installHeaderRules();
-    expect(rules.map((r) => r.id)).toEqual([RULE_IDS.YTM_WEB, RULE_IDS.YTM_ANDROID, RULE_IDS.LRCLIB]);
-    expect(rules.some((r) => /translate/.test(r.condition.urlFilter))).toBe(false);
+    const net = await import('../../src/background/net');
+    await net.installHeaderRules();
+    return { rules, removed, net };
+  };
+  const done = () => { delete (globalThis as any).chrome; };
+
+  it('are scoped to this extension\'s own background requests (the uuid in Firefox, never a tab)', async () => {
+    const { rules, net } = await install();
+    expect(rules.map((r) => r.id)).toEqual([net.RULE_IDS.YTM_WEB, net.RULE_IDS.YTM_ANDROID, net.RULE_IDS.GOOGLE_TRANSLATE, net.RULE_IDS.LRCLIB]);
     for (const r of rules) {
       expect(r.condition.initiatorDomains).toEqual(['6f2a7c1e-uuid-0000']); // not the add-on id, which Firefox refuses as a domain
       expect(r.condition.tabIds).toEqual([-1]);
+      expect(r.condition.resourceTypes).toEqual(['xmlhttprequest', 'other']);
     }
+    done();
+  });
 
-    // LRCLIB strips origin/referer
-    const lrcRule = rules.find((r) => r.id === RULE_IDS.LRCLIB);
-    expect(lrcRule.condition.urlFilter).toBe('||lrclib.net/api/');
-    expect(lrcRule.action.requestHeaders).toContainEqual({ header: 'origin', operation: 'remove' });
-    expect(lrcRule.action.requestHeaders).toContainEqual({ header: 'referer', operation: 'remove' });
+  it('leave out only Origin and Referer on Google Translate\'s main endpoint: no User-Agent, nothing else', async () => {
+    const { rules, net } = await install();
+    const gt = rules.find((r) => r.id === net.RULE_IDS.GOOGLE_TRANSLATE);
+    expect(gt.condition.urlFilter).toBe('||translate.googleapis.com/translate_a/');
+    expect(gt.action).toEqual({
+      type: 'modifyHeaders',
+      requestHeaders: [{ header: 'origin', operation: 'remove' }, { header: 'referer', operation: 'remove' }],
+    });
+    done();
+  });
 
-    delete (globalThis as any).chrome;
+  it('never touch the backup endpoint, and set a User-Agent only for YouTube Music\'s Android client', async () => {
+    const { rules, net } = await install();
+    expect(rules.some((r) => /translate-pa|translate_http/.test(r.condition.urlFilter))).toBe(false);
+    const setsUa = rules.filter((r) => r.action.requestHeaders.some((h: any) => h.header === 'user-agent'));
+    expect(setsUa.map((r) => r.id)).toEqual([net.RULE_IDS.YTM_ANDROID]);
+    expect(setsUa[0].condition.urlFilter).toContain('music.youtube.com');
+    done();
+  });
+
+  it('LRCLIB: Origin and Referer left out, its Lrclib-Client header untouched', async () => {
+    const { rules, net } = await install();
+    const lrc = rules.find((r) => r.id === net.RULE_IDS.LRCLIB);
+    expect(lrc.condition.urlFilter).toBe('||lrclib.net/api/');
+    expect(lrc.action.requestHeaders).toEqual([{ header: 'origin', operation: 'remove' }, { header: 'referer', operation: 'remove' }]);
+    done();
+  });
+
+  it('replace their own earlier copies on install, and are installed again when one is missing', async () => {
+    const { rules, removed, net } = await install();
+    expect(removed[0]).toEqual(Object.values(net.RULE_IDS));
+    net.resetRulesReadyForTest();
+    await net.ensureHeaderRules(); // all present: nothing installed again
+    expect(removed).toHaveLength(1);
+    rules.splice(rules.findIndex((r) => r.id === net.RULE_IDS.GOOGLE_TRANSLATE), 1);
+    net.resetRulesReadyForTest();
+    await net.ensureHeaderRules();
+    expect(removed).toHaveLength(2);
+    expect(rules.some((r) => r.id === net.RULE_IDS.GOOGLE_TRANSLATE)).toBe(true);
+    done();
   });
 });
 

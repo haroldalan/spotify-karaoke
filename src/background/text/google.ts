@@ -7,6 +7,7 @@ import { tracked } from '../health';
 import { RateLimited } from './googleErrors';
 import { ensureWidgetPauseLoaded, widgetBlockedUntil, widgetTranslate } from './googleWidget';
 import { loadPause, nextPause, savePause } from './pause';
+import { ensureHeaderRules } from '../net';
 
 export { RateLimited };
 
@@ -68,6 +69,8 @@ async function request(text: string, target: string, wantRomanized: boolean, fet
 }
 
 async function send(text: string, target: string, wantRomanized: boolean, fetchImpl: typeof fetch, source: string): Promise<Raw> {
+  // The header rules (net.ts: this request leaves out the extension's Origin and Referer).
+  if (typeof chrome !== 'undefined' && fetchImpl === fetch) await ensureHeaderRules();
   const params = new URLSearchParams({ client: 'gtx', sl: source, tl: target, dj: '1' });
   params.append('dt', 't');
   if (wantRomanized) params.append('dt', 'rm');

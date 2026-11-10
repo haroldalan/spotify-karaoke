@@ -5,8 +5,12 @@
 // User-Agent (the owner's decision, 2026-11-09). LRCLIB doesn't need them (it is told who we
 // are by its Lrclib-Client header).
 //
-// Google Translate's requests are left as the browser sends them: while Google is refusing
-// this network, making them look like another client would be getting around its block.
+// Google Translate (translate.googleapis.com): the extension's Origin and Referer are left
+// out, as for LRCLIB, on privacy grounds. Chrome adds Origin (chrome-extension://<our id>) to
+// every cross-origin POST; the endpoint doesn't need it (host permission: no CORS; no
+// credentials ride on these requests) and it tells Google, on every request, that this
+// address runs this extension. Nothing else changes: the User-Agent stays the browser's, the
+// request never claims to be another client, and the backup endpoint is not touched.
 //
 // All rules are strictly scoped to:
 //   - Background requests (tabIds: [-1], never touching user tabs)
@@ -19,6 +23,7 @@ export const ANDROID_MARK = 'sk_client=android';
 export const RULE_IDS = {
   YTM_WEB: 101,
   YTM_ANDROID: 102,
+  GOOGLE_TRANSLATE: 103,
   LRCLIB: 104,
 } as const;
 
@@ -38,8 +43,7 @@ export async function installHeaderRules(): Promise<void> {
   const types = ['xmlhttprequest', 'other'] as chrome.declarativeNetRequest.ResourceType[];
 
   await dnr.updateSessionRules({
-    // 103 was a Google Translate rule (removed): taken out of browsers that installed it.
-    removeRuleIds: [...Object.values(RULE_IDS), 103],
+    removeRuleIds: Object.values(RULE_IDS),
     addRules: [
       // 101: YouTube Music web requests - remove Origin and Referer
       {
@@ -67,6 +71,19 @@ export async function installHeaderRules(): Promise<void> {
           ],
         },
         condition: { urlFilter: `||music.youtube.com/youtubei/*${ANDROID_MARK}`, tabIds: noTab, initiatorDomains: ours, resourceTypes: types },
+      },
+      // 103: Google Translate (translate.googleapis.com) - remove Origin/Referer only
+      {
+        id: RULE_IDS.GOOGLE_TRANSLATE,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType,
+          requestHeaders: [
+            { header: 'origin', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
+            { header: 'referer', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
+          ],
+        },
+        condition: { urlFilter: '||translate.googleapis.com/translate_a/', tabIds: noTab, initiatorDomains: ours, resourceTypes: types },
       },
       // 104: LRCLIB (lrclib.net) - remove Origin/Referer (keeps custom Lrclib-Client intact)
       {
