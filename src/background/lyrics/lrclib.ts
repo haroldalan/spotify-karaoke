@@ -2,6 +2,7 @@
 import type { TrackMeta } from '../../shared/types';
 import { durationOk, isMatch } from './match';
 import { tracked } from '../health';
+import { ensureHeaderRules } from '../net';
 
 const BASE = 'https://lrclib.net/api';
 // LRCLIB asks clients to identify themselves; browsers can't set User-Agent, so it accepts this header.
@@ -26,6 +27,7 @@ export interface LrclibResult {
 
 function getJson<T>(url: string, fetchImpl: typeof fetch): Promise<T | null> {
   return tracked('lrclib', async () => {
+    if (typeof chrome !== 'undefined' && fetchImpl === fetch) await ensureHeaderRules();
     // No request waits longer than 10 s: a hung source must not hold a lyrics lookup.
     const res = await fetchImpl(url, { headers: HEADERS, ...(typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? { signal: AbortSignal.timeout(10_000) } : {}) });
     if (res.status === 404) return null;

@@ -8,7 +8,7 @@ import { ensurePauseLoaded, googleBlockedUntil } from './text/google';
 import { japaneseAnalyzer } from './text/japanese';
 import { restoreNative } from './lyrics/native';
 import { processLines } from './text/process';
-import { ytmHeaderRules } from './lyrics/ytm';
+import { installHeaderRules } from './net';
 import { DEVKIT } from '../devkit/protocol';
 import { logged, serveDevkitBackground } from '../devkit/background';
 
@@ -39,7 +39,7 @@ async function addToOpenTabs(): Promise<void> {
 }
 
 export function startBackground(): void {
-  void ytmHeaderRules().then(
+  void installHeaderRules().then(
     () => { (globalThis as { __skRules?: string }).__skRules = 'ok'; },
     (e) => {
       (globalThis as { __skRules?: string }).__skRules = `failed: ${String(e?.message || e)}`;

@@ -12,6 +12,7 @@ import type { LyricLine, TrackMeta } from '../../shared/types';
 import { isMatch, parseClock } from './match';
 import { tracked } from '../health';
 import { cacheGet, cacheSet } from '../cache';
+import { ANDROID_MARK, ensureHeaderRules, installHeaderRules } from '../net';
 
 /** No request waits longer than this: a hung source must not hold a lyrics lookup. */
 const TIMEOUT_MS = 10_000;
@@ -49,69 +50,14 @@ async function webClientVersion(fetchImpl: typeof fetch): Promise<string> {
   return value;
 }
 const ANDROID = { client: { clientName: 'ANDROID_MUSIC', clientVersion: '7.21.50', hl: 'en', gl: 'US', osName: 'Android', osVersion: '12' } };
-const ANDROID_UA = 'com.google.android.apps.youtube.music/7.21.50 (Linux; U; Android 12; en_US; Pixel 6) gzip';
 const SONGS_ONLY = 'EgWKAQIIAWAB';
-/** Marks Android-client requests so the header rule can tell them apart. */
-const ANDROID_MARK = 'sk_client=android';
 
 type Json = Record<string, unknown>;
 type Client = 'web' | 'android';
 
-/** Session rules for declarativeNetRequest. Call at every service worker start. */
+/** Session rules for declarativeNetRequest. Call at every service worker start. Kept for backwards compatibility. */
 export async function ytmHeaderRules(): Promise<void> {
-  const dnr = chrome.declarativeNetRequest;
-  if (!dnr?.updateSessionRules) return;
-  // Only this extension's own background requests: never a tab, never another extension or site worker.
-  const noTab = [chrome.tabs?.TAB_ID_NONE ?? -1];
-  // The extension's own origin host: the extension id in Chrome and Edge, the internal uuid
-  // in Firefox (where runtime.id is the add-on id, which is not a valid domain there).
-  const ours = [new URL(chrome.runtime.getURL('/')).hostname];
-  const types = ['xmlhttprequest', 'other'] as chrome.declarativeNetRequest.ResourceType[];
-  await dnr.updateSessionRules({
-    removeRuleIds: [101, 102],
-    addRules: [
-      {
-        id: 101,
-        priority: 1,
-        action: {
-          type: 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType,
-          requestHeaders: [
-            { header: 'origin', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
-            { header: 'referer', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
-          ],
-        },
-        condition: { urlFilter: '||music.youtube.com/youtubei/', tabIds: noTab, initiatorDomains: ours, resourceTypes: types },
-      },
-      {
-        id: 102,
-        priority: 2,
-        action: {
-          type: 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType,
-          requestHeaders: [
-            { header: 'origin', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
-            { header: 'referer', operation: 'remove' as chrome.declarativeNetRequest.HeaderOperation },
-            { header: 'user-agent', operation: 'set' as chrome.declarativeNetRequest.HeaderOperation, value: ANDROID_UA },
-          ],
-        },
-        condition: { urlFilter: `||music.youtube.com/youtubei/*${ANDROID_MARK}`, tabIds: noTab, initiatorDomains: ours, resourceTypes: types },
-      },
-    ],
-  });
-}
-
-let rulesReady: Promise<void> | null = null;
-/** Makes sure the header rules exist (once per worker lifetime; again after a failure). */
-function ensureRules(): Promise<void> {
-  rulesReady ??= (async () => {
-    const dnr = chrome.declarativeNetRequest;
-    if (!dnr?.getSessionRules) return;
-    const ids = new Set((await dnr.getSessionRules()).map((r) => r.id));
-    if (!ids.has(101) || !ids.has(102)) await ytmHeaderRules();
-  })().catch((e) => {
-    rulesReady = null;
-    throw e;
-  });
-  return rulesReady;
+  await installHeaderRules();
 }
 
 function call(endpoint: string, body: Json, client: Client, fetchImpl: typeof fetch): Promise<Json> {
@@ -119,7 +65,7 @@ function call(endpoint: string, body: Json, client: Client, fetchImpl: typeof fe
 }
 
 async function callUntracked(endpoint: string, body: Json, client: Client, fetchImpl: typeof fetch): Promise<Json> {
-  if (typeof chrome !== 'undefined' && fetchImpl === fetch) await ensureRules();
+  if (typeof chrome !== 'undefined' && fetchImpl === fetch) await ensureHeaderRules();
   const mark = client === 'android' ? `&${ANDROID_MARK}` : '';
   const res = await fetchImpl(`${BASE}/${endpoint}?prettyPrint=false${mark}`, {
     method: 'POST',

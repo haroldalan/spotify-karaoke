@@ -212,8 +212,8 @@ describe('YouTube Music parsing', () => {
   });
 });
 
-describe('YouTube Music header rules', () => {
-  it('limit the rules to this extension\'s own origin host (the id in Chrome, the uuid in Firefox)', async () => {
+describe('Background network header rules', () => {
+  it('limit the rules to this extension\'s own origin host; YouTube Music and LRCLIB only, never Google Translate', async () => {
     const rules: any[] = [];
     (globalThis as any).chrome = {
       runtime: { id: 'spotify-karaoke@example.com', getURL: (p: string) => `moz-extension://6f2a7c1e-uuid-0000/${p.replace(/^\//, '')}` },
@@ -221,13 +221,21 @@ describe('YouTube Music header rules', () => {
       declarativeNetRequest: { updateSessionRules: async (o: any) => { rules.push(...o.addRules); } },
     };
     vi.resetModules();
-    const { ytmHeaderRules } = await import('../../src/background/lyrics/ytm');
-    await ytmHeaderRules();
-    expect(rules.map((r) => r.id)).toEqual([101, 102]);
+    const { installHeaderRules, RULE_IDS } = await import('../../src/background/net');
+    await installHeaderRules();
+    expect(rules.map((r) => r.id)).toEqual([RULE_IDS.YTM_WEB, RULE_IDS.YTM_ANDROID, RULE_IDS.LRCLIB]);
+    expect(rules.some((r) => /translate/.test(r.condition.urlFilter))).toBe(false);
     for (const r of rules) {
       expect(r.condition.initiatorDomains).toEqual(['6f2a7c1e-uuid-0000']); // not the add-on id, which Firefox refuses as a domain
       expect(r.condition.tabIds).toEqual([-1]);
     }
+
+    // LRCLIB strips origin/referer
+    const lrcRule = rules.find((r) => r.id === RULE_IDS.LRCLIB);
+    expect(lrcRule.condition.urlFilter).toBe('||lrclib.net/api/');
+    expect(lrcRule.action.requestHeaders).toContainEqual({ header: 'origin', operation: 'remove' });
+    expect(lrcRule.action.requestHeaders).toContainEqual({ header: 'referer', operation: 'remove' });
+
     delete (globalThis as any).chrome;
   });
 });
