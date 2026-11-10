@@ -91,7 +91,7 @@ const handlers = {
    * milliseconds, saved as JPEGs in `dir` (named by ms since the start). For pop-in and
    * animation checks that DOM reads can't see (e.g. during Spotify's view transitions).
    */
-  async frames({ js, ms = 800, dir }) {
+  async frames({ js, click, ms = 800, dir }) {
     const page = await spotifyPage();
     const out = path.resolve(dir || path.join(root, '.live/frames'));
     fs.mkdirSync(out, { recursive: true });
@@ -106,7 +106,9 @@ const handlers = {
     await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: 1400, everyNthFrame: 1 });
     await new Promise((r) => setTimeout(r, 300));
     t0 = Date.now();
-    await page.evaluate(js);
+    // A real mouse click ({x, y}), e.g. on our controls in their closed shadow root; or page js.
+    if (click) await page.mouse.click(click.x, click.y);
+    else await page.evaluate(js);
     await new Promise((r) => setTimeout(r, ms));
     await cdp.send('Page.stopScreencast');
     await cdp.detach();
