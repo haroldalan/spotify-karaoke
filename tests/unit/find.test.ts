@@ -17,8 +17,12 @@ describe('searchLyrics', () => {
     expect(r.found?.lines.map((l) => l.startMs)).toEqual([0, 0]);
   });
   it('says "not found" only when every source answered', async () => {
-    expect(await searchLyrics(meta, { lrclib: async () => null })).toEqual({ found: null, complete: true });
-    expect(await searchLyrics(meta, { lrclib: async () => { throw new Error('offline'); } })).toEqual({ found: null, complete: false });
+    expect(await searchLyrics(meta, { lrclib: async () => null })).toEqual({ found: null, complete: true, instrumental: false });
+    expect(await searchLyrics(meta, { lrclib: async () => { throw new Error('offline'); } })).toEqual({ found: null, complete: false, instrumental: false });
+  });
+  it('tells an instrumental (LRCLIB says so) from a song nothing was found for', async () => {
+    const inst = async () => ({ synced: null, plain: null, instrumental: true });
+    expect(await searchLyrics(meta, { lrclib: inst })).toMatchObject({ found: null, complete: true, instrumental: true });
   });
   it('ranks licensed synced first, crowd-sourced synced next, licensed plain above crowd-sourced plain', async () => {
     const yt = (synced: boolean) => async () => ({ lines: [{ startMs: synced ? 500 : 0, text: 'yt' }], synced, source: 'LyricFind via YouTube Music' });

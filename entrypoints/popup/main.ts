@@ -242,7 +242,7 @@ function renderSong(page: PageStatus, note = '') {
     return;
   }
   if (c.noLyrics) {
-    songRow(title, note || 'No lyrics found.', [
+    songRow(title, note || (c.instrumental ? 'An instrumental: no lyrics to show.' : 'No lyrics found.'), [
       {
         label: 'Search again',
         run: () => {

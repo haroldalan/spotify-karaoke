@@ -17,8 +17,8 @@ export interface Api {
     sources: Partial<Record<'lrclib' | 'ytm' | 'google', { ok: boolean; at: number; detail?: string }>>;
     googleBlockedUntil: number;
   };
-  /** Tracks known to have no lyrics anywhere. */
-  knownNoLyrics: (req: Record<string, never>) => string[];
+  /** Tracks known to have no lyrics anywhere, and which of them are instrumentals. */
+  knownNoLyrics: (req: Record<string, never>) => { none: string[]; instrumental: string[] };
   /** Romanize and/or translate a song's lines. */
   process: (req: { lines: string[]; language?: string | null; romanize: boolean; translateTo: string | null }) => Processed;
   /** Get ready for a song in this language (Japanese: load the dictionary now). */

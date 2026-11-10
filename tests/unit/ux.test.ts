@@ -138,6 +138,15 @@ describe('search again', () => {
     expect(found?.lines[0].text).toBe('now');
     expect(await knownNoLyrics()).toEqual([]);
   });
+
+  it('remembers instrumentals apart, and Search again forgets that too', async () => {
+    const { findLyrics, retryLyrics, knownNoLyrics, knownInstrumental } = await import('../../src/background/lyrics/find');
+    await findLyrics(meta, { lrclib: async () => ({ synced: null, plain: null, instrumental: true }) });
+    expect(await knownNoLyrics()).toEqual([meta.id]);
+    expect(await knownInstrumental()).toEqual([meta.id]);
+    await retryLyrics(meta, { lrclib: async () => null });
+    expect(await knownInstrumental()).toEqual([]);
+  });
 });
 
 describe('page hook: reports empty lookups', () => {

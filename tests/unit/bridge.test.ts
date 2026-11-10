@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Bridge, type BridgeHandlers } from '../../src/content/bridge';
 import { TAG } from '../../src/page/channel';
 
-const config = { noLyrics: [] as string[], spotifyOnly: [] as string[] };
+const config = { instrumental: [] as string[], spotifyOnly: [] as string[] };
 const meta = { id: '33BdipYlRY2WBvIBNk4Wmn', name: 'まどろみ', artists: ['Naoko Gushima'], album: 'Best', durationMs: 250040, languages: ['ja'], hasLyrics: false };
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const bridges: Bridge[] = [];

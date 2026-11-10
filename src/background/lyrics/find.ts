@@ -31,6 +31,8 @@ export interface SearchResult {
   found: FoundLyrics | null;
   /** False when a source failed, so "not found" is not final. */
   complete: boolean;
+  /** Nothing found, and LRCLIB lists the song as an instrumental. */
+  instrumental?: boolean;
 }
 
 const hasWords = (lines: { text: string }[]) => lines.some((l) => l.text);
@@ -46,7 +48,7 @@ export async function searchLyrics(meta: TrackMeta, sources: Sources = DEFAULT_S
   if (lrSynced && hasWords(lrSynced)) return { found: { lines: lrSynced, synced: true, source: 'LRCLIB' }, complete };
   if (yt && hasWords(yt.lines)) return { found: { lines: yt.lines, synced: false, source: yt.source }, complete };
   if (lr?.plain) return { found: { lines: plainLines(lr.plain), synced: false, source: 'LRCLIB' }, complete };
-  return { found: null, complete };
+  return { found: null, complete, instrumental: !!lr?.instrumental };
 }
 
 interface Stored {
@@ -83,6 +85,25 @@ async function noteNone(id: string, none: boolean, at: number) {
   await cacheSet(NONE_IDS, ids);
 }
 
+const INSTRUMENTAL_IDS = 'instrumental-ids';
+
+/** Remembers which tracks LRCLIB lists as instrumentals (pages leave Spotify's view as it is). */
+async function noteInstrumental(id: string, yes: boolean, at: number) {
+  const ids = (await cacheGet<Record<string, number>>(INSTRUMENTAL_IDS)) ?? {};
+  if (yes) ids[id] = at;
+  else if (!(id in ids)) return;
+  else delete ids[id];
+  const keys = Object.keys(ids).sort((a, b) => ids[a] - ids[b]);
+  for (const k of keys.slice(0, Math.max(0, keys.length - NONE_IDS_MAX))) delete ids[k];
+  await cacheSet(INSTRUMENTAL_IDS, ids);
+}
+
+/** Tracks known (within NONE_TTL) to be instrumentals. */
+export async function knownInstrumental(now = Date.now()): Promise<string[]> {
+  const ids = (await cacheGet<Record<string, number>>(INSTRUMENTAL_IDS)) ?? {};
+  return Object.keys(ids).filter((id) => now - ids[id] < NONE_TTL);
+}
+
 /** Tracks known (within NONE_TTL) to have no lyrics anywhere. */
 export async function knownNoLyrics(now = Date.now()): Promise<string[]> {
   const ids = (await cacheGet<Record<string, number>>(NONE_IDS)) ?? {};
@@ -96,6 +117,7 @@ export const lyricsKey = (meta: TrackMeta) => `lyr3:${meta.id}:${hash(`${meta.na
 export async function retryLyrics(meta: TrackMeta, sources: Sources = DEFAULT_SOURCES): Promise<FoundLyrics | null> {
   await cacheDelete(lyricsKey(meta));
   await noteNone(meta.id, false, Date.now());
+  await noteInstrumental(meta.id, false, Date.now());
   return findLyrics(meta, sources);
 }
 
@@ -104,12 +126,13 @@ export function findLyrics(meta: TrackMeta, sources: Sources = DEFAULT_SOURCES, 
   return once(key, async () => {
     const cached = await cacheGet<Stored>(key);
     if (cached && isFresh(cached, now())) return cached.found;
-    const { found, complete } = await searchLyrics(meta, sources).catch(() => ({ found: null, complete: false }));
+    const { found, complete, instrumental } = await searchLyrics(meta, sources).catch((): SearchResult => ({ found: null, complete: false }));
     const keep = better(found, cached?.found ?? null);
     // Kept older lyrics after an incomplete search: ask again soon rather than in a week.
     const at = keep && keep !== found && !complete ? now() - (keep.synced ? SYNCED_TTL : UNSYNCED_TTL) + UNREACHABLE_TTL : now();
     await cacheSet<Stored>(key, { found: keep, at, complete });
     await noteNone(meta.id, !keep && complete, at);
+    await noteInstrumental(meta.id, !keep && complete && !!instrumental, at);
     return keep;
   });
 }

@@ -15,8 +15,11 @@ export type Down =
 
 /** What the page script needs to know from the extension. */
 export interface PageConfig {
-  /** Tracks known to have no lyrics anywhere: don't claim lyrics for them. */
-  noLyrics: string[];
+  /**
+   * Instrumentals (LRCLIB says so): don't claim lyrics for them. Songs nothing was found for
+   * are still claimed, so their lyrics view opens on our notice (Search again, Add lyrics).
+   */
+  instrumental: string[];
   /** Tracks the listener sent back to Spotify ("Not this song"): leave them as Spotify has them. */
   spotifyOnly: string[];
 }

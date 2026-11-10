@@ -1,7 +1,7 @@
 import { serve } from '../shared/messages';
 import { saveSettings } from '../shared/settings';
 import type { Mode } from '../shared/types';
-import { findLyrics, knownNoLyrics, retryLyrics } from './lyrics/find';
+import { findLyrics, knownInstrumental, knownNoLyrics, retryLyrics } from './lyrics/find';
 import { cacheBytes, cacheClear } from './cache';
 import { getHealth } from './health';
 import { ensurePauseLoaded, googleBlockedUntil } from './text/google';
@@ -48,7 +48,7 @@ export function startBackground(): void {
   );
   const handlers: Parameters<typeof serve>[0] = {
     findLyrics,
-    knownNoLyrics: () => knownNoLyrics(),
+    knownNoLyrics: async () => ({ none: await knownNoLyrics(), instrumental: await knownInstrumental() }),
     retryLyrics: (meta) => retryLyrics(meta),
     storage: async () => ({ bytes: await cacheBytes() }),
     clearCache: async () => { await cacheClear(); return true as const; },

@@ -68,11 +68,13 @@ const OPS: Record<string, Op> = {
     const keys = await cacheKeys(id);
     for (const k of keys) await cacheDelete(k);
     // Also off the "no lyrics anywhere" list, or pages keep not claiming lyrics for it.
-    const ids = (await cacheGet<Record<string, number>>('no-lyrics-ids')) ?? {};
-    const listed = id in ids;
-    if (listed) {
+    let listed = false;
+    for (const list of ['no-lyrics-ids', 'instrumental-ids']) {
+      const ids = (await cacheGet<Record<string, number>>(list)) ?? {};
+      if (!(id in ids)) continue;
+      listed = true;
       delete ids[id];
-      await cacheSet('no-lyrics-ids', ids);
+      await cacheSet(list, ids);
     }
     devLog(`dev forget ${id}: ${keys.length} entries${listed ? ', off the no-lyrics list' : ''}`);
     return { id, removed: keys, noLyricsList: listed };

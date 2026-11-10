@@ -29,12 +29,26 @@ describe('page hook: track metadata', () => {
     expect((await res.json()).has_lyrics).toBe(true);
   });
 
-  it('claims nothing for a song known to have none, or one the listener sent back to Spotify', async () => {
-    for (const config of [{ noLyrics: [NO_LYRICS_ID] }, { spotifyOnly: [NO_LYRICS_ID] }]) {
+  it('claims nothing for an instrumental, or a song the listener sent back to Spotify', async () => {
+    for (const config of [{ instrumental: [NO_LYRICS_ID] }, { spotifyOnly: [NO_LYRICS_ID] }]) {
       const page = fakePage({ routes: { 'metadata/4': () => json(fixture('metadata-no-lyrics.json')) }, config });
       await tick(); // let the content script's settings arrive
       expect((await (await page.fetch(NO_LYRICS_META)).json()).has_lyrics).toBeUndefined();
     }
+  });
+
+  it('claims nothing for a song Spotify says has no words (language zxx)', async () => {
+    const meta = fixture('metadata-no-lyrics.json');
+    meta.language_of_performance = ['zxx'];
+    const page = fakePage({ routes: { 'metadata/4': () => json(meta) } });
+    await tick();
+    expect((await (await page.fetch(NO_LYRICS_META)).json()).has_lyrics).toBeUndefined();
+  });
+
+  it('still claims lyrics for a song nothing was found for before: its view opens on Search again', async () => {
+    const page = fakePage({ routes: { 'metadata/4': () => json(fixture('metadata-no-lyrics.json')) } });
+    await tick();
+    expect((await (await page.fetch(NO_LYRICS_META)).json()).has_lyrics).toBe(true);
   });
 
   it('passes errors and other URLs through untouched', async () => {

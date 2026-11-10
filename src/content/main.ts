@@ -29,6 +29,8 @@ export interface PageStatus {
     artists: string[];
     /** No source has lyrics for it. */
     noLyrics: boolean;
+    /** An instrumental (Spotify or LRCLIB says so): there are no lyrics to find. */
+    instrumental: boolean;
     /** The lyrics on screen came from us: found, restored to their own script, or a synced copy. */
     ours: { kind: Exclude<LyricsKind, 'spotify'>; source: string } | null;
     /** The listener sent this song back to Spotify ("Wrong lyrics?"). */
@@ -115,14 +117,17 @@ export async function startContent(): Promise<void> {
   // Settings and the song lists reach the page before Spotify's first requests are decided.
   const [loaded, known, sentBack] = await Promise.all([
     loadSettings(),
-    Promise.race([call('knownNoLyrics', {}), new Promise<string[]>((r) => setTimeout(() => r([]), 500))]).catch(() => [] as string[]),
+    Promise.race([call('knownNoLyrics', {}), new Promise<{ none: string[]; instrumental: string[] }>((r) => setTimeout(() => r({ none: [], instrumental: [] }), 500))])
+      .catch(() => ({ none: [] as string[], instrumental: [] as string[] })),
     loadSpotifyOnly(),
   ]);
   if (signal.aborted || takenOver) return;
   let settings = loaded;
   /** The non-translated mode last chosen: what "Original" on a Latin-script song goes back to. */
   let lastPlain: Mode = settings.mode === 'translated' ? 'romanized' : settings.mode;
-  const noLyrics = new Set<string>(known);
+  const noLyrics = new Set<string>(known.none);
+  /** LRCLIB lists them as instrumentals: the page leaves Spotify's view as it is. */
+  const instrumental = new Set<string>(known.instrumental);
   let spotifyOnly = new Set<string>(sentBack);
   /** As the page loaded: a choice undone before reloading needs no reload. */
   const spotifyOnlyAtLoad = new Set<string>(sentBack);
@@ -151,7 +156,7 @@ export async function startContent(): Promise<void> {
   let reloadTimer: ReturnType<typeof setInterval> | undefined;
   let pageSeenAt = 0;
   let lyricsSeenAt = 0;
-  const pageConfig = () => ({ noLyrics: [...noLyrics], spotifyOnly: [...spotifyOnly] });
+  const pageConfig = () => ({ instrumental: [...instrumental], spotifyOnly: [...spotifyOnly] });
 
   const store = new LineStore((req) => call('process', req), settings);
 
@@ -162,7 +167,13 @@ export async function startContent(): Promise<void> {
         (found) => {
           if (!found) {
             noLyrics.add(meta.id);
-            bridge.setConfig(pageConfig());
+            // Nothing found: an instrumental, by LRCLIB's word? Then later plays leave Spotify's view alone.
+            void call('knownNoLyrics', {}).then((k) => {
+              if (!k.instrumental.includes(meta.id) || instrumental.has(meta.id)) return;
+              instrumental.add(meta.id);
+              bridge.setConfig(pageConfig());
+              render();
+            }).catch(() => {});
           }
           return found;
         },
@@ -301,6 +312,7 @@ export async function startContent(): Promise<void> {
     const found = await call('retryLyrics', meta).catch(() => null);
     if (found) {
       noLyrics.delete(meta.id);
+      instrumental.delete(meta.id);
       finding.delete(meta.id);
       bridge.setConfig(pageConfig());
       // Spotify keeps its earlier "no lyrics" for this song until the page loads again
@@ -336,7 +348,8 @@ export async function startContent(): Promise<void> {
     // Back from adding lyrics: searching is the next step.
     if (added.has(meta.id)) return { key: meta.id, caption: 'Added them? Search again to show them.', actions: [{ ...search, primary: true }, add] };
     // Spotify's own message already says there are no lyrics: only the ways forward here.
-    return { key: meta.id, caption: mine?.caption ?? '', actions: [search, { ...add, primary: true }] };
+    const said = instrumental.has(meta.id) ? 'LRCLIB lists this song as an instrumental.' : '';
+    return { key: meta.id, caption: mine?.caption || said, actions: [search, { ...add, primary: true }] };
   }
 
   function render() {
@@ -414,6 +427,7 @@ export async function startContent(): Promise<void> {
             // Lyrics on screen (Spotify's own, unsynced, are recorded as "none" by the search for a
             // synced copy) mean there are lyrics.
             noLyrics: (noLyrics.has(m.id) || missing.has(m.id)) && !kinds.has(m.id),
+            instrumental: instrumental.has(m.id) || m.languages.includes('zxx'),
             ours: k && k.kind !== 'spotify' ? { kind: k.kind, source: k.source } : null,
             spotifyOnly: spotifyOnly.has(m.id),
             plain: songOf.has(m.id) ? plainSong(songOf.get(m.id)!, settings.targetLang) : null,
@@ -441,7 +455,7 @@ export async function startContent(): Promise<void> {
       if (!m || (req.id && req.id !== m.id)) { reply({ ok: false }); return false; }
       void setSpotifyOnly(m.id, req.on).then((ids) => {
         spotifyOnly = new Set(ids);
-        if (!req.on) { noLyrics.delete(m.id); finding.delete(m.id); }
+        if (!req.on) { noLyrics.delete(m.id); instrumental.delete(m.id); finding.delete(m.id); }
         bridge.setConfig(pageConfig());
         // Undone before reloading: what's on screen is already right.
         if (spotifyOnly.has(m.id) === spotifyOnlyAtLoad.has(m.id)) {
@@ -482,6 +496,7 @@ export async function startContent(): Promise<void> {
           kinds: Object.fromEntries(kinds),
           restoredWaiting: [...restored.keys()],
           noLyrics: [...noLyrics],
+          instrumental: [...instrumental],
           missing: [...missing.keys()],
           spotifyOnly: [...spotifyOnly],
           notice,
@@ -505,6 +520,7 @@ export async function startContent(): Promise<void> {
         const id = (args as { id?: string } | undefined)?.id ?? currentMeta()?.id;
         if (!id) throw new Error('forget: no track playing; pass an id');
         noLyrics.delete(id);
+        instrumental.delete(id);
         missing.delete(id);
         finding.delete(id);
         restored.delete(id);
