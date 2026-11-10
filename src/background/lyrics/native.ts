@@ -7,7 +7,8 @@
 // Music's licensed one, each distinct LRCLIB upload) qualifies when
 // - it is in the song's script (most of its lines),
 // - it is the same song: most of Spotify's romanized lines are found in it, in order, by
-//   content (and by time when both are timed), its romanization by us reading like them,
+//   content (and by time when both are timed), its romanization by us reading like them;
+//   or, when the two break their lines differently, by the whole text (wholeText below),
 // - it doesn't trade synced lyrics for unsynced ones.
 // It is used as it is, with its own timings. Licensed beats crowd-sourced; then the copy
 // that covers more of the song. A copy whose lines match Spotify's one for one can also be
@@ -152,6 +153,89 @@ function pairByAlignment(req: NativeRequest, cand: { lines: LyricLine[]; synced:
   return groups;
 }
 
+// ─── The same song, judged by the whole text ────────────────────────────────────
+//
+// Line by line (above) asks for each of Spotify's lines to be paired with the copy's. Two
+// transcriptions of one song often break their lines differently: one joins what the other
+// splits ("is besangi duniya ke sangi" + "ham naa hote yaara" in one line), writes a chorus
+// once or every time, adds ad-libs. Each of those costs paired lines, though the song is the
+// same. The whole text doesn't care where lines break: the copy is the same song when
+// - most of Spotify's romanized text is in it (its consonant trigrams, as a set: a chorus
+//   written once still counts),
+// - most of the copy's own text is in Spotify's (another version, or a different song that
+//   shares a few lines, has much of its own),
+// - most of Spotify's romanized lines are each found inside one or two consecutive copy
+//   lines (whole lines, not scattered trigrams).
+// The metadata already matched (title, artist, duration) before any copy got here.
+
+/** Share of Spotify's romanized text (distinct trigrams) found in the copy. */
+const WHOLE_COVER_MIN = 0.7;
+/** Share of the copy's own text (in the song's script) found in Spotify's. */
+const WHOLE_OWN_MIN = 0.6;
+/** Share of Spotify's romanized lines found inside one or two consecutive copy lines. */
+const WHOLE_LINES_MIN = 0.6;
+/** A line counts as found when this share of its trigrams is in the copy lines. */
+const WHOLE_LINE_IN = 0.6;
+/**
+ * Both timed: at least this share of the found lines must start within TIME_SLACK_MS of the
+ * copy line they were found in. A copy that joins two of Spotify's lines starts the first
+ * half on time and only the second half early (one joining every pair: half on time). A copy
+ * timed to another recording (a video's intro, a live cut) is off on almost every line, and
+ * would play out of sync.
+ */
+const WHOLE_TIMED_MIN = 0.4;
+
+function trigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i + 3 <= s.length; i++) out.add(s.slice(i, i + 3));
+  return out;
+}
+
+/** Share of a's trigrams in b (0 when a has none). */
+function setIn(a: Set<string>, b: Set<string>): number {
+  if (!a.size) return 0;
+  let n = 0;
+  for (const g of a) if (b.has(g)) n++;
+  return n / a.size;
+}
+
+export interface WholeText { cover: number; own: number; lines: number; /** Both timed: share of found lines on time; null otherwise. */ timed: number | null }
+
+/** Start times, when both copies are timed: Spotify's romanized line (by its place in romanizedLines), the copy's line. */
+export interface WholeTimes { spotify: (n: number) => number; copy: (k: number) => number }
+
+/** Whole-text measures for a copy, or null when they fall short. */
+function wholeText(spotify: Worded, romanizedLines: number[], native: Worded, rom: string[], script: Script, times?: WholeTimes): WholeText | null {
+  const m = wholeMeasures(spotify, romanizedLines, native, rom, script, times);
+  const onTime = m.timed === null || m.timed >= WHOLE_TIMED_MIN;
+  return m.cover >= WHOLE_COVER_MIN && m.own >= WHOLE_OWN_MIN && m.lines >= WHOLE_LINES_MIN && onTime ? m : null;
+}
+
+/** The whole-text measures (exported for tests and for measuring real songs). */
+export function wholeMeasures(spotify: Worded, romanizedLines: number[], native: Worded, rom: string[], script: Script, times?: WholeTimes): WholeText {
+  const sk = (s: string) => skeleton(s);
+  const spotifyRom = romanizedLines.map((j) => sk(spotify[j].l));
+  const copyAll = rom.map(sk);
+  const copyText = trigrams(copyAll.join(''));
+  const cover = setIn(trigrams(spotifyRom.join('')), copyText);
+  // The copy's own lines (in the song's script) against all of Spotify's, English included.
+  const own = setIn(trigrams(native.map((x, k) => (scriptShare(x.l, script) >= SCRIPT_MIN ? copyAll[k] : '')).join('')), trigrams(spotify.map((x) => sk(x.l)).join('')));
+  // Each Spotify line inside one copy line, or two consecutive ones (the copy split it).
+  const windows = copyAll.map((s, k) => trigrams(s + (copyAll[k + 1] ?? '')));
+  const judged = spotifyRom.map((s, n) => ({ s, n })).filter((x) => x.s.length >= 3);
+  let located = 0;
+  let onTime = 0;
+  for (const { s, n } of judged) {
+    const g = trigrams(s);
+    const ks = windows.map((w, k) => (setIn(g, w) >= WHOLE_LINE_IN ? k : -1)).filter((k) => k >= 0);
+    if (!ks.length) continue;
+    located++;
+    if (times && ks.some((k) => Math.abs(times.copy(k) - times.spotify(n)) <= TIME_SLACK_MS)) onTime++;
+  }
+  const lines = judged.length ? located / judged.length : 0;
+  return { cover, own, lines, timed: times ? (located ? onTime / located : 0) : null };
+}
+
 /** A copy's fit: the result, and how good it is. */
 export type Fitted = NativeResult & { coverage: number; scriptFit: number };
 
@@ -191,8 +275,17 @@ export async function fit(
   const romanizedLines = spotify.map((x, j) => (looksRomanized(x.l) ? j : -1)).filter((j) => j >= 0);
   if (!romanizedLines.length) return null;
   const pairs = pairByAlignment(req, cand, native, spotify, rom);
-  const coverage = romanizedLines.filter((j) => found(spotify[j].l, pairs[j], rom)).length / romanizedLines.length;
-  if (coverage < COVER_MIN) return null;
+  let coverage = romanizedLines.filter((j) => found(spotify[j].l, pairs[j], rom)).length / romanizedLines.length;
+  if (coverage < COVER_MIN) {
+    // Line by line fell short: judged by the whole text instead, which doesn't care where
+    // either copy breaks its lines (2026-11-10). Never refuses what line by line takes.
+    const times: WholeTimes | undefined = req.synced && cand.synced
+      ? { spotify: (n) => req.times[spotify[romanizedLines[n]].i] ?? 0, copy: (k) => cand.lines[native[k].i].startMs }
+      : undefined;
+    const whole = wholeText(spotify, romanizedLines, native, rom, script, times);
+    if (!whole) return null;
+    coverage = whole.cover;
+  }
 
   // One for one with Spotify's lines: can also go over them if it comes late.
   let overlay: string[] | undefined;
@@ -278,6 +371,11 @@ const DEFAULT_SOURCES: NativeSources = {
   romanize: (lines, script) => romanizeLines(lines, script, { google: async () => { throw new Error('local only'); } }),
 };
 
+/**
+ * Bump when the judging takes copies it used to refuse: a song remembered as "none" by an
+ * older judge is looked up again (once). A found copy stays found. 2: the whole-text check.
+ */
+const JUDGE_VERSION = 2;
 const FOUND_TTL = 30 * 24 * 3600_000;
 const NONE_TTL = 3 * 24 * 3600_000;
 /** A source failed: look again soon. */
@@ -286,10 +384,11 @@ const UNREACHABLE_TTL = 30 * 60_000;
 export function restoreNative(req: NativeRequest, sources: NativeSources = DEFAULT_SOURCES): Promise<NativeResult | null> {
   const key = `nat:${req.meta.id}:${hash(`${req.meta.name}\n${req.lines.join('\n')}`)}`;
   return once(key, async () => {
-    const cached = await cacheGet<NativeResult | { none: true }>(key);
-    if (cached) return 'none' in cached ? null : cached;
+    const cached = await cacheGet<NativeResult | { none: true; judge?: number }>(key);
+    if (cached && !('none' in cached)) return cached;
+    if (cached && 'none' in cached && (cached.judge ?? 1) >= JUDGE_VERSION) return null;
     const { result, complete } = await searchNative(req, sources).catch(() => ({ result: null, complete: false }));
-    await cacheSet(key, result ?? { none: true }, result ? FOUND_TTL : complete ? NONE_TTL : UNREACHABLE_TTL);
+    await cacheSet(key, result ?? { none: true, judge: JUDGE_VERSION }, result ? FOUND_TTL : complete ? NONE_TTL : UNREACHABLE_TTL);
     return result;
   });
 }

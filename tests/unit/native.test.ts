@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fit, searchNative, similarity, skeleton, type NativeRequest, type NativeSources } from '../../src/background/lyrics/native';
+import { fit, searchNative, similarity, skeleton, wholeMeasures, type NativeRequest, type NativeSources } from '../../src/background/lyrics/native';
 import { romanizeLines } from '../../src/background/text/romanize';
 import { expectedScript } from '../../src/shared/scripts';
 import type { TrackMeta } from '../../src/shared/types';
@@ -166,5 +166,85 @@ describe('multilingual songs: one whole copy', () => {
     const copy = { lines: timed(tamilSong.native), synced: true, durationKnown: true };
     await searchNative(tamilReq(), { lrclib: async () => [copy, { ...copy }, { ...copy }], romanize: counting });
     expect(calls).toBe(1);
+  });
+});
+
+// Made-up lines (not lyrics of any song): one song, transcribed with different line breaks.
+describe('the same song, judged by the whole text', () => {
+  const spotify = [
+    'saari raat jaage hum tere liye',
+    'chanda bhi so gaya sitaare bhi',
+    'dil ki baat kahi na jaaye',
+    'aankhon se hi samjha de',
+    'saari raat jaage hum tere liye',
+    'chanda bhi so gaya sitaare bhi',
+    'pal pal teri yaad sataaye',
+    'phir bhi muskura de',
+  ];
+  // The copy joins each pair of Spotify's lines into one (as LyricFind often does).
+  const joined = [
+    'सारी रात जागे हम तेरे लिए चंदा भी सो गया सितारे भी',
+    'दिल की बात कही ना जाए आँखों से ही समझा दे',
+    'सारी रात जागे हम तेरे लिए चंदा भी सो गया सितारे भी',
+    'पल पल तेरी याद सताए फिर भी मुस्कुरा दे',
+  ];
+  const spotifyReq = (): NativeRequest => ({ ...req(spotify), times: spotify.map((_, i) => 4000 * (i + 1)) });
+  const joinedCopy = () => ({ lines: joined.map((text, k) => ({ startMs: 4000 * (2 * k + 1), text })), synced: true, source: 'LyricFind via YouTube Music' });
+
+  it('takes a copy that joins lines Spotify splits (its own timings, no overlay)', async () => {
+    const r = await fit(spotifyReq(), joinedCopy(), 'Deva', romanize);
+    expect(r?.lines.map((l) => l.text)).toEqual(joined);
+    expect(r).toMatchObject({ synced: true, aligned: false });
+    expect(r?.overlay).toBeUndefined();
+  });
+
+  it('measures the joined copy as the song, and another song as not', async () => {
+    const w = (ls: string[]) => ls.map((l, i) => ({ l, i }));
+    const rom = async (ls: string[]) => (await romanize(ls, 'Deva')).map((r, k) => r ?? ls[k]);
+    const same = wholeMeasures(w(spotify), spotify.map((_, j) => j), w(joined), await rom(joined), 'Deva');
+    expect(same.cover).toBeGreaterThan(0.8);
+    expect(same.own).toBeGreaterThan(0.8);
+    expect(same.lines).toBeGreaterThan(0.8);
+    const other = ['कभी कभी मेरे दिल में ख़याल आता है', 'के जैसे तुझको बनाया गया है', 'मेरे लिए'];
+    const diff = wholeMeasures(w(spotify), spotify.map((_, j) => j), w(other), await rom(other), 'Deva');
+    expect(Math.max(diff.cover, diff.own, diff.lines)).toBeLessThan(0.4);
+  });
+
+  it('refuses the same text timed to another recording (every line 30 s late): it would play out of sync', async () => {
+    const late = { lines: joined.map((text, k) => ({ startMs: 4000 * (2 * k + 1) + 30_000, text })), synced: true, source: 'LRCLIB' };
+    expect(await fit(spotifyReq(), late, 'Deva', romanize)).toBeNull();
+  });
+
+  it('a timing check only when both are timed: an unsynced request takes the joined copy', async () => {
+    const r = await fit({ ...spotifyReq(), synced: false }, { ...joinedCopy(), lines: joinedCopy().lines.map((l) => ({ ...l, startMs: l.startMs + 30_000 })) }, 'Deva', romanize);
+    expect(r?.lines.map((l) => l.text)).toEqual(joined);
+  });
+
+  it('refuses a copy with much of its own (another version: half the song is other lines)', async () => {
+    const padded = [...joined.slice(0, 2), 'बादल बरसे भीगी रातें', 'नदिया किनारे बैठे हम', 'मौसम ने ली अंगड़ाई', 'गलियों में शोर मचा'];
+    const copy = { lines: padded.map((text, k) => ({ startMs: 4000 * (k + 1), text })), synced: true, source: 'LRCLIB' };
+    expect(await fit(spotifyReq(), copy, 'Deva', romanize)).toBeNull();
+  });
+
+  it('a song remembered as "none" by the older judge is looked up once more; a new "none" is kept', async () => {
+    const { installChromeStorage } = await import('../helpers/chrome');
+    installChromeStorage();
+    const { cacheSet } = await import('../../src/background/cache');
+    const { hash } = await import('../../src/shared/hash');
+    const { restoreNative } = await import('../../src/background/lyrics/native');
+    const r = spotifyReq();
+    const key = `nat:${r.meta.id}:${hash(`${r.meta.name}\n${r.lines.join('\n')}`)}`;
+    await cacheSet(key, { none: true }, 3600_000);
+    let asked = 0;
+    const src: NativeSources = { lrclib: async () => [], ytm: async () => { asked++; return joinedCopy(); }, romanize };
+    expect((await restoreNative(r, src))?.lines.map((l) => l.text)).toEqual(joined);
+    expect(asked).toBe(1);
+    // A "none" from this judge stands: not asked again.
+    const other = { ...r, lines: [...r.lines, 'ek aur line'] };
+    const none: NativeSources = { lrclib: async () => [], ytm: async () => { asked++; return null; }, romanize };
+    expect(await restoreNative(other, none)).toBeNull();
+    expect(await restoreNative(other, none)).toBeNull();
+    expect(asked).toBe(2);
+    delete (globalThis as any).chrome;
   });
 });

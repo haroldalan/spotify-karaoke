@@ -43,10 +43,17 @@ We only change what goes into it and how its text is drawn:
 When Spotify serves a song's lyrics romanized (Latin lines, but the track's
 `language_of_performance` is Hindi, Tamil, ...), the page script asks for a copy in the
 song's own script: YouTube Music and LRCLIB at the same time, YouTube Music's copy tried
-first. A copy must prove it is the same song: romanized by us, it has to read like Spotify's
-lines (consonant-skeleton similarity). Same number of lines: Spotify's timings are kept and
-only the text changes ("aligned"). Otherwise only a synced copy close in length is used,
-with its own timings.
+first. Not when most of Spotify's lines are already in that script: the lines that look
+romanized are then hooks or ad-libs ("ddu-du ddu-du"), not a romanized song. A copy must
+prove it is the same song: romanized by us, it has to read like Spotify's lines
+(consonant-skeleton similarity), line by line, or, when the two break their lines
+differently (one joins what the other splits, a chorus written once), as a whole text: most
+of Spotify's text in the copy, most of the copy's in Spotify's, most of Spotify's lines each
+inside one or two of the copy's, and, both timed, enough of them starting on time (a copy
+timed to another recording would play out of sync). A song remembered as having no copy is
+looked up again once when the judging changes (`JUDGE_VERSION`). The copy is shown as it is,
+with its own lines and timings. Same number of lines ("aligned"): it can also go over
+Spotify's lines, on Spotify's timings, when it arrives after Spotify drew them.
 
 The page script holds Spotify's response for 1.5 s for the song playing, and up to 12 s for
 a song Spotify fetches ahead of time (nobody is reading it yet; once it starts playing, at
