@@ -35,10 +35,11 @@ ${L}[data-sk-big]:not([data-sk-big="b"])::after {
 }
 /* The translation beneath reads differently from the lines in the song's own words. */
 ${L}[data-sk-big]:not([data-sk-big="b"])::after { font-weight: 400; opacity: 0.8; margin-top: 0.35em; }
-/* Spotify's small lyrics card (sidebar) and narrow views: the main line only. */
-${L}[data-sk-compact]:not([data-sk-big="c"]) > *,
-${L}[data-sk-compact]:not([data-sk-big="a"])::before,
-${L}[data-sk-compact]:not([data-sk-big="b"])::after { display: none !important; }
+/* Spotify's small lyrics card (sidebar) and narrow views: the main line only. A line we don't
+   decorate keeps its own text: it has no slots to choose between. */
+${L}[data-sk-compact][data-sk-big]:not([data-sk-big="c"]) > *,
+${L}[data-sk-compact][data-sk-big]:not([data-sk-big="a"])::before,
+${L}[data-sk-compact][data-sk-big]:not([data-sk-big="b"])::after { display: none !important; }
 ${L}[data-sk-dir="ltr"] { direction: ltr; text-align: start; }
 /* The browser's own scroll anchoring holds the top visible line when ours change height; the
    line that must hold still is the one being sung (see holdLine in view.ts). */
@@ -83,8 +84,11 @@ export function decoration(original: string, info: LineInfo | undefined, s: Sett
   // The original is always on screen: as the main line, or beneath it. Romanization and
   // translation join it beneath only when all three lines are on.
   const showO = true;
-  const showR = !!rom && (big === 'R' || s.allLines);
-  const showT = !!tr && tr !== rom && (big === 'T' || s.allLines);
+  // A translation equal to the romanization (a name, a number, a vocalise) is shown once: as the
+  // main line when it is the main line, otherwise not beneath the romanization again.
+  const same = !!tr && tr === rom;
+  const showR = !!rom && (big === 'R' || (s.allLines && !(big === 'T' && same)));
+  const showT = !!tr && (big === 'T' || (s.allLines && !same));
   const bigText = big === 'R' ? rom! : big === 'T' ? tr! : original;
   const dir = RTL.test(original) && !RTL.test(bigText) ? 'ltr' : null;
   const b = showT ? tr : null;

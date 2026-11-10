@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { LineStore, MAX_SONGS } from '../../src/content/lineStore';
 import { View, currentLine } from '../../src/content/view';
 import { DEFAULT_SETTINGS, type Settings } from '../../src/shared/types';
+import { STYLE } from '../../src/content/decorate';
 import { readEl } from '../helpers/lines';
 
 const flush = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
@@ -290,5 +291,28 @@ describe('the line being sung holds still', () => {
     view.pass();
     expect(lines[0].getBoundingClientRect().top).toBe(0);
     expect(state.scrollTop).toBe(0);
+  });
+});
+
+describe('the stylesheet in compact lists (Spotify\'s sidebar card, the mini player, narrow windows)', () => {
+  /** What a line's own text is drawn as, with the stylesheet applied. */
+  function display(attrs: Record<string, string>): string {
+    document.head.innerHTML = `<style>${STYLE}</style>`;
+    document.body.innerHTML = '<div id="card"><div data-testid="lyrics-line"><div>Oh, yeah</div></div></div>';
+    const line = document.querySelector('[data-testid="lyrics-line"]')!;
+    for (const [k, v] of Object.entries(attrs)) line.setAttribute(k, v);
+    return getComputedStyle(line.firstElementChild!).display;
+  }
+
+  it('leaves the text of an undecorated line alone (Original mode, English lines, notes)', () => {
+    // Found live (2026-11-10): every card line carries data-sk-compact, decorated or not, and
+    // the rule hid the text of every line that was not the main line of its own slot.
+    expect(display({ 'data-sk-compact': '' })).not.toBe('none');
+  });
+
+  it('draws only the main slot of a decorated line', () => {
+    expect(display({ 'data-sk-compact': '', 'data-sk-big': 'c' })).not.toBe('none'); // Spotify\'s own text is the main line
+    expect(display({ 'data-sk-compact': '', 'data-sk-big': 'a', 'data-sk-a': 'oh yeah' })).toBe('none'); // ::before is
+    expect(display({ 'data-sk-compact': '', 'data-sk-big': 'b', 'data-sk-b': 'oh yeah' })).toBe('none'); // ::after is
   });
 });

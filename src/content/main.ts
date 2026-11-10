@@ -133,6 +133,8 @@ export async function startContent(): Promise<void> {
   /** Songs whose "Add lyrics to LRCLIB" was followed this session. */
   const added = new Set<string>();
   let reload: ReloadOffer = null;
+  /** The song the reload offer is about: it is that song's offer, not the next one's. */
+  let reloadFor: string | null = null;
   let reloadTimer: ReturnType<typeof setInterval> | undefined;
   let pageSeenAt = 0;
   let lyricsSeenAt = 0;
@@ -245,9 +247,10 @@ export async function startContent(): Promise<void> {
   }
 
   // ── Reloading: Spotify shows newly found lyrics (or drops ours) only after one ──
-  function offerReload(reason: 'found' | 'choice') {
+  function offerReload(reason: 'found' | 'choice', id: string) {
     cancelReload();
     reload = { scheduled: false, reason };
+    reloadFor = id;
     render();
   }
   function cancelReload() {
@@ -286,7 +289,7 @@ export async function startContent(): Promise<void> {
       // Spotify keeps its earlier "no lyrics" for this song until the page loads again
       // (reopening the lyrics view doesn't ask again: checked live 2026-11-09).
       notice = { id: meta.id, caption: '', found: true };
-      offerReload('found');
+      offerReload('found', meta.id);
     } else {
       notice = { id: meta.id, caption: 'Still none to be found.' };
     }
@@ -303,7 +306,7 @@ export async function startContent(): Promise<void> {
     const search = { label: 'Search again', run: () => void searchAgain(meta) };
     const add = { label: 'Add lyrics to LRCLIB', href: lrclibUploadUrl(meta), run: () => { added.add(meta.id); } };
     const mine = notice?.id === meta.id ? notice : null;
-    if (mine?.found && reload) {
+    if (mine?.found && reload && reloadFor === meta.id) {
       return {
         caption: reload.scheduled ? 'Spotify reloads when this song ends.' : 'Lyrics found. Spotify shows them after a reload, which stops the music.',
         actions: reloadActions(),
@@ -380,7 +383,9 @@ export async function startContent(): Promise<void> {
             spotifyOnly: spotifyOnly.has(m.id),
           }
         : null;
-      reply({ build: BUILD, current, reload, pageSeenAt, lyricsSeenAt, linesOnScreen: lastView.lineCount } satisfies PageStatus);
+      // An offer made for another song is not this song's: its Undo would act on the wrong one.
+      const offer = reload && m && reloadFor === m.id ? reload : null;
+      reply({ build: BUILD, current, reload: offer, pageSeenAt, lyricsSeenAt, linesOnScreen: lastView.lineCount } satisfies PageStatus);
       return false;
     }
     if (req.sk === 'search-again') {
@@ -406,7 +411,7 @@ export async function startContent(): Promise<void> {
           cancelReload();
           reload = null;
           render();
-        } else offerReload('choice');
+        } else offerReload('choice', m.id);
         reply({ ok: true, reload });
       }, () => reply({ ok: false }));
       return true;

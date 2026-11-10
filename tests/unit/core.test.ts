@@ -113,6 +113,17 @@ describe('decoration', () => {
     expect(shown('तेरा है', restored, { mode: 'original' }, true, 'tera hai')).toEqual({ main: 'तेरा है', beneath: [] });
     expect(shown('तेरा है', restored, { mode: 'translated', allLines: true }, true, 'tera hai')).toEqual({ main: 'is yours', beneath: ['तेरा है', 'tera hai'] });
   });
+  it('shows the translation as the main line even when it equals the romanization, and never twice', () => {
+    // A name, a number or a vocalise: both come out the same. Found by reading the code (2026-11-10):
+    // the translation was dropped as a duplicate, leaving the large slot empty.
+    const same = { romanized: 'Rabba', translated: { en: 'Rabba' } };
+    expect(decoration('ரப்பா', same, s({ mode: 'translated' }))).toMatchObject({ big: 'b', b: 'Rabba', a: null });
+    expect(decoration('ரப்பா', same, s({ mode: 'translated', allLines: true }))).toMatchObject({ big: 'b', b: 'Rabba', a: null });
+    expect(decoration('ரப்பா', same, s({ mode: 'original', allLines: true }))).toMatchObject({ big: 'c', a: 'Rabba', b: null });
+    expect(decoration('ரப்பா', same, s({ mode: 'romanized', allLines: true }))).toMatchObject({ big: 'a', a: 'Rabba', b: null });
+    // A restored song (Spotify's text is the romanization): same.
+    expect(decoration('ரப்பா', same, s({ mode: 'translated' }), true)).toMatchObject({ big: 'b', b: 'Rabba' });
+  });
   it('turns right-to-left lines left-to-right when the main line is Latin', () => {
     expect(decoration('أحبك', { romanized: "'uhibuk" }, s({ mode: 'romanized' })).dir).toBe('ltr');
   });
