@@ -27,9 +27,63 @@ describe('Google backoff', () => {
     }) as typeof fetch;
     await expect(googleLines(['a'], 'en', false, sorry)).rejects.toBeInstanceOf(RateLimited);
     expect(redirect).toBe('manual');
+    // The backup couldn't read its key from this fake either: both paused.
     expect(googleBlockedUntil()).toBeGreaterThan(Date.now());
+    const sent = calls;
     await expect(googleLines(['a'], 'en', false, sorry)).rejects.toBeInstanceOf(RateLimited);
-    expect(calls).toBe(1);
+    expect(calls).toBe(sent); // nothing left while paused
+  });
+
+  /** Google with the main endpoint sending us to its CAPTCHA page, and the widget working. */
+  function blockedMain(widget: 'ok' | 'limited' = 'ok') {
+    const asked: string[] = [];
+    const impl = (async (u: string | URL, init?: RequestInit) => {
+      const url = String(u);
+      if (url.includes('translate_a/single')) {
+        asked.push('main');
+        return Object.defineProperty(new Response(null, { status: 200 }), 'type', { value: 'opaqueredirect' });
+      }
+      if (url.includes('translate_http')) {
+        asked.push('script');
+        return new Response(`a={"X-Goog-Api-Key":"AIzaTESTKEYTESTKEYTESTKEYTESTKEYTESTKEY"}`, { status: 200 });
+      }
+      if (url.includes('translateHtml')) {
+        asked.push('widget');
+        if (widget === 'limited') return new Response('', { status: 429 });
+        expect((init?.headers as Record<string, string>)['x-goog-api-key']).toBe('AIzaTESTKEYTESTKEYTESTKEYTESTKEYTESTKEY');
+        const [[texts, , target]] = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify([texts.map((t: string) => `${target}:${t}&#39;s`), texts.map(() => 'ta')]), { status: 200 });
+      }
+      return new Response('', { status: 599 });
+    }) as typeof fetch;
+    return { impl, asked };
+  }
+
+  it('translates through Google\'s website widget while the main endpoint is paused', async () => {
+    const { googleLines, googleBlockedUntil, mainBlockedUntil } = await import('../../src/background/text/google');
+    const g = blockedMain();
+    const r = await googleLines(['வணக்கம்', '', 'நன்றி'], 'en', true, g.impl);
+    expect(r).toEqual({ translated: ["en:வணக்கம்'s", '', "en:நன்றி's"], romanized: [null, null, null], backup: true });
+    expect(mainBlockedUntil()).toBeGreaterThan(Date.now());
+    expect(googleBlockedUntil()).toBe(0); // translations aren't paused: the backup works
+    await googleLines(['வணக்கம்'], 'en', true, g.impl);
+    expect(g.asked).toEqual(['main', 'script', 'widget', 'widget']); // main not asked again; key read once
+  });
+
+  it('never uses the backup to romanize only', async () => {
+    const { googleLines, RateLimited } = await import('../../src/background/text/google');
+    const g = blockedMain();
+    await expect(googleLines(['வணக்கம்'], 'en', true, g.impl, { translation: false })).rejects.toBeInstanceOf(RateLimited);
+    expect(g.asked).toEqual(['main']);
+  });
+
+  it('pauses translations when the widget is rate-limited too', async () => {
+    const { googleLines, googleBlockedUntil, RateLimited } = await import('../../src/background/text/google');
+    const g = blockedMain('limited');
+    await expect(googleLines(['வணக்கம்'], 'en', false, g.impl)).rejects.toBeInstanceOf(RateLimited);
+    expect(googleBlockedUntil()).toBeGreaterThan(Date.now());
+    await expect(googleLines(['வணக்கம்'], 'en', false, g.impl)).rejects.toBeInstanceOf(RateLimited);
+    expect(g.asked).toEqual(['main', 'script', 'widget']);
   });
 
   it('stops asking for a while after a 429, then tries again', async () => {
@@ -39,8 +93,9 @@ describe('Google backoff', () => {
     const limited = (async () => { calls++; return new Response('', { status: 429 }); }) as typeof fetch;
     await expect(googleLines(['a'], 'en', false, limited)).rejects.toBeInstanceOf(RateLimited);
     expect(googleBlockedUntil()).toBeGreaterThan(Date.now());
+    const sent = calls; // the main endpoint, and the backup's attempt
     await expect(googleLines(['a'], 'en', false, limited)).rejects.toBeInstanceOf(RateLimited);
-    expect(calls).toBe(1); // the second request never left
+    expect(calls).toBe(sent); // the second request never left
     vi.setSystemTime(Date.now() + 61_000);
     const ok = (async () => new Response(JSON.stringify({ sentences: [{ trans: 'b' }] }))) as typeof fetch;
     expect((await googleLines(['a'], 'en', false, ok)).translated).toEqual(['b']);

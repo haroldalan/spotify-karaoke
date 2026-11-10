@@ -2,11 +2,14 @@
 // Lines are sent joined by newlines and split back; when the line count doesn't survive,
 // the batch is retried line by line.
 import { tracked } from '../health';
+import { RateLimited } from './googleErrors';
+import { widgetBlockedUntil, widgetTranslate } from './googleWidget';
+
+export { RateLimited };
 
 const ENDPOINT = 'https://translate.googleapis.com/translate_a/single';
 const MAX_CHARS = 4000;
 
-export class RateLimited extends Error {}
 
 // After a 429, or a redirect to Google's "unusual traffic" page (google.com/sorry, a
 // CAPTCHA no extension can answer), wait before asking again: 1, 2, 4 ... up to 30 minutes.
@@ -15,9 +18,16 @@ export class RateLimited extends Error {}
 let blockedUntil = 0;
 let strikes = 0;
 
-/** When Google may be asked again (0: now). */
-export function googleBlockedUntil(): number {
+/** When the main endpoint may be asked again (0: now). */
+export function mainBlockedUntil(): number {
   return blockedUntil > Date.now() ? blockedUntil : 0;
+}
+
+/** Until when translations are paused: both endpoints are (0: they aren't). */
+export function googleBlockedUntil(): number {
+  const main = mainBlockedUntil();
+  const widget = widgetBlockedUntil();
+  return main && widget ? Math.min(main, widget) : 0;
 }
 
 /** For tests. */
@@ -82,16 +92,46 @@ function chunks(lines: string[]): string[][] {
 
 const splitLines = (s: string) => s.replace(/\r/g, '').split('\n');
 
+export interface GoogleResult {
+  translated: string[];
+  romanized: (string | null)[];
+  /** From the backup (Google's website widget): translation only, no romanization. */
+  backup?: true;
+}
+
 /**
  * Translates (and optionally romanizes) lines. Returns arrays aligned with the input.
- * Empty lines map to ''.
+ * Empty lines map to ''. While the main endpoint is paused, the translation comes from the
+ * backup (googleWidget.ts), without romanization; `translation: false` (romanizing only)
+ * skips the backup.
  */
 export async function googleLines(
   lines: string[],
   target: string,
   wantRomanized: boolean,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ translated: string[]; romanized: (string | null)[] }> {
+  opts: { translation?: boolean } = {},
+): Promise<GoogleResult> {
+  try {
+    return await mainLines(lines, target, wantRomanized, fetchImpl);
+  } catch (e) {
+    if (!(e instanceof RateLimited) || opts.translation === false) throw e;
+    let translated: string[];
+    try {
+      translated = await tracked('google', () => widgetTranslate(lines, target, fetchImpl));
+    } catch {
+      throw e;
+    }
+    return { translated, romanized: lines.map(() => null), backup: true };
+  }
+}
+
+async function mainLines(
+  lines: string[],
+  target: string,
+  wantRomanized: boolean,
+  fetchImpl: typeof fetch,
+): Promise<GoogleResult> {
   const idx = lines.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
   const work = idx.map((i) => lines[i].trim());
   const translated = lines.map(() => '');

@@ -3,7 +3,7 @@
 import type { Processed } from '../../shared/types';
 import { hash } from '../../shared/hash';
 import { cacheGet, cacheSet, once } from '../cache';
-import { googleLines } from './google';
+import { RateLimited, googleLines, type GoogleResult } from './google';
 import { GOOGLE_PREFERRED, romanizeLinesDetailed } from './romanize';
 import { expectedScript, songScript } from '../../shared/scripts';
 
@@ -41,9 +41,9 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
     (expectedScript([lang]) === script || (!expectedScript([lang]) && script === 'Latn'));
 
   // Shared Google call: translation (+ romanization when Google is the romanizer).
-  let googleCall: Promise<{ translated: string[]; romanized: (string | null)[] }> | null = null;
+  let googleCall: Promise<GoogleResult> | null = null;
   const google = (wantRm: boolean) => {
-    googleCall ??= googleLines(lines, req.translateTo ?? 'en', wantRm);
+    googleCall ??= googleLines(lines, req.translateTo ?? 'en', wantRm, fetch, { translation: !!trKey && !sameLanguage });
     return googleCall;
   };
   const googleRomanizes = GOOGLE_PREFERRED.has(script);
@@ -56,6 +56,9 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
           google: async (subset) => {
             // Google romanizes the whole song in the same request as the translation.
             const all = await google(true);
+            // The backup has no romanization: Google is unreachable for that, so nothing
+            // second-best is cached.
+            if (all.backup) throw new RateLimited('Google Translate is rate-limiting this network');
             return subset.map((l) => all.romanized[lines.indexOf(l)] ?? null);
           },
         });

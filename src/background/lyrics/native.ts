@@ -172,7 +172,7 @@ async function lrclibNative(meta: TrackMeta) {
 const DEFAULT_SOURCES: NativeSources = {
   lrclib: lrclibNative,
   ytm,
-  romanize: (lines, script) => romanizeLines(lines, script, { google: async (l) => (await googleLines(l, 'en', true)).romanized }),
+  romanize: (lines, script) => romanizeLines(lines, script, { google: async (l) => (await googleLines(l, 'en', true, fetch, { translation: false })).romanized }),
 };
 
 const FOUND_TTL = 30 * 24 * 3600_000;
