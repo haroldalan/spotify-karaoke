@@ -311,6 +311,26 @@ describe('processing', () => {
     vi.unstubAllGlobals();
   });
 
+  it('tries the repair again on the next play when it could not be asked', async () => {
+    let koUp = false;
+    vi.stubGlobal('fetch', (async (url: string, init?: RequestInit) => {
+      if (url.includes('translate_http') || url.includes('translate-pa')) return new Response('', { status: 500 });
+      const sl = new URL(url).searchParams.get('sl') ?? '';
+      if (sl === 'ko' && !koUp) return new Response('', { status: 503 });
+      const q = new URLSearchParams(String(init?.body)).get('q') ?? '';
+      const lines = q.split('\n');
+      const nl = (i: number) => (i < lines.length - 1 ? '\n' : '');
+      const tr = (l: string) => (sl === 'ko' ? l.replace('말해줘', 'tell me') : l);
+      return new Response(JSON.stringify({ sentences: lines.map((l, i) => ({ trans: tr(l) + nl(i), orig: l + nl(i) })) }));
+    }) as typeof fetch);
+    const { processLines } = await import('../../src/background/text/process');
+    const req = { lines: ['Baby I love you', "Don't want no riddle, 말해줘, say it back"], language: 'ko', romanize: false, translateTo: 'en' };
+    expect((await processLines(req)).translated?.[1]).toBeNull();
+    koUp = true;
+    expect((await processLines(req)).translated?.[1]).toBe("Don't want no riddle, tell me, say it back");
+    vi.unstubAllGlobals();
+  });
+
   it('keeps romanization when translation fails, and says why', async () => {
     vi.stubGlobal('fetch', googleFake({ status: 429, widget: false }).impl);
     const { processLines } = await import('../../src/background/text/process');

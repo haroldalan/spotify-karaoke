@@ -104,16 +104,17 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
   const own = expectedScript([lang]);
   const unchangedIn = (tr: string[]) =>
     own ? lines.map((_, i) => i).filter((i) => lineHas(lines[i], own) && (!tr[i] || tr[i].trim().toLowerCase() === lines[i].trim().toLowerCase())) : [];
-  const repair = async (tr: string[]): Promise<boolean> => {
+  /** 'done': asked (whether or not anything changed); 'failed': not asked, worth another try. */
+  const repair = async (tr: string[]): Promise<'none' | 'done' | 'failed'> => {
     const unchanged = unchangedIn(tr);
-    if (!unchanged.length || !lang) return false;
+    if (!unchanged.length || !lang) return 'none';
     try {
       const more = await googleLines(unchanged.map((i) => lines[i]), req.translateTo ?? 'en', false, fetch, { source: lang });
-      let changed = false;
-      unchanged.forEach((i, k) => { if (more.translated[k]) { tr[i] = sentenceCase(more.translated[k]); changed = true; } });
-      return changed;
+      if (more.incomplete) return 'failed';
+      unchanged.forEach((i, k) => { if (more.translated[k]) tr[i] = sentenceCase(more.translated[k]); });
+      return 'done';
     } catch {
-      return false; // the first answer stands
+      return 'failed'; // the first answer stands, and the repair is tried again next play
     }
   };
   const fixKey = trKey ? `fix:${trKey}` : null;
@@ -125,19 +126,22 @@ export async function processLines(req: ProcessRequest): Promise<Processed> {
           // Kept from before this repair existed: repaired once (marked, so not on every play).
           if (fixKey && unchangedIn(cached).length && !(await cacheGet<boolean>(fixKey))) {
             const out = [...cached];
-            if (await repair(out)) await cacheSet(trKey, out, TRANSLATED_TTL);
-            await cacheSet(fixKey, true, TRANSLATED_TTL);
+            if ((await repair(out)) === 'done') {
+              await cacheSet(trKey, out, TRANSLATED_TTL);
+              await cacheSet(fixKey, true, TRANSLATED_TTL);
+            }
             return out;
           }
           return cached;
         }
         const res = await google(req.romanize && googleRomanizes);
         const out = res.translated.map(sentenceCase);
-        await repair(out);
+        const fixed = await repair(out);
         // Lines left without a translation: shown as they are, and asked again another time.
+        // A repair that couldn't be asked is tried again on the next play (no marker).
         if (!res.incomplete) {
           await cacheSet(trKey, out, TRANSLATED_TTL);
-          if (fixKey) await cacheSet(fixKey, true, TRANSLATED_TTL);
+          if (fixKey && fixed !== 'failed') await cacheSet(fixKey, true, TRANSLATED_TTL);
         }
         return out;
       })
