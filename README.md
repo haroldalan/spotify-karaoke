@@ -62,6 +62,11 @@ from page start. Use it to see what Spotify changed after a redesign.
 
 ## Status (2026-11-10)
 
+A complete live pass over every feature (owner's Chrome with the dev kit, test Chrome with the
+production build) plus a code audit is in [docs/live-check-2026-11-10.md](docs/live-check-2026-11-10.md):
+11 bugs found live and fixed, the audit's confirmed findings fixed, verdict and open owner
+decisions at the top. Not yet run live: Firefox.
+
 Verified live in Chrome 156:
 - Romanized / translated main line with the original beneath, Spotify's highlighting and
   scrolling intact; switching modes from the on-page switcher.
