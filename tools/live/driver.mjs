@@ -28,11 +28,6 @@ const browser = await puppeteer.launch({
   defaultViewport: null,
   args: [
     '--no-first-run', '--no-default-browser-check', '--window-size=1400,950', '--autoplay-policy=no-user-gesture-required',
-    // SK_MOCK_GOOGLE=1: Google Translate's two hosts go to tools/live/mock-google.mjs on this
-    // machine (self-signed), so request headers can be checked without contacting Google.
-    ...(process.env.SK_MOCK_GOOGLE
-      ? ['--host-resolver-rules=MAP translate.googleapis.com 127.0.0.1:8443, MAP translate-pa.googleapis.com 127.0.0.1:8443', '--ignore-certificate-errors']
-      : []),
   ],
 });
 
