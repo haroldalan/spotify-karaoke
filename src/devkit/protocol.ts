@@ -54,6 +54,7 @@ export const HELP: Record<string, string> = {
   'popup(req)': "Sends the popup's request to this page: { sk: 'page-status' | 'search-again' | 'not-this-song', on } | { sk: 'reload', when: 'now' | 'after-song' | 'cancel' }.",
   'searchAgain()': "The popup's Search again, for the song playing.",
   'notThisSong(on = true)': "The popup's Not this song (on) or its Undo (false), for the song playing.",
+  'seedNone()': 'Puts the song playing into the "no lyrics anywhere" state (a finished lookup that found nothing), to test Search again on a song the sources do have. Reload the page after.',
   'forget(id?)': 'Forgets every cached result for one track (default: the one playing), so its next load searches afresh.',
   'fresh()': 'forget() the song playing, then reload this page so Spotify asks for its lyrics again. Reloading stops the music if this tab plays it.',
   'clearCache()': "The popup's Clear cache.",

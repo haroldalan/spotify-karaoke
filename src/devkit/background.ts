@@ -1,7 +1,9 @@
 // The dev kit's background side: extension-wide ops and a log of the requests the
 // background served. See protocol.ts.
 import type { DevAnswer, DevBackgroundReq } from './protocol';
-import { cacheClear, cacheDelete, cacheGet } from '../background/cache';
+import { cacheClear, cacheDelete, cacheGet, cacheSet } from '../background/cache';
+import { lyricsKey } from '../background/lyrics/find';
+import type { TrackMeta } from '../shared/types';
 import { resetSettings } from '../shared/settings';
 
 const LOG_MAX = 300;
@@ -77,6 +79,18 @@ const OPS: Record<string, Op> = {
     await Promise.all([resetSettings(), cacheClear()]);
     devLog('dev resetData');
     return true;
+  },
+  /** Puts a song into the "no lyrics anywhere" state, as a finished lookup that found nothing. */
+  async seedNone(args) {
+    const meta = args?.meta as TrackMeta | undefined;
+    if (!meta?.id) throw new Error('seedNone: no song');
+    const at = Date.now();
+    await cacheSet(lyricsKey(meta), { found: null, at, complete: true });
+    const ids = ((await cacheGet<Record<string, number>>('no-lyrics-ids')) ?? {});
+    ids[meta.id] = at;
+    await cacheSet('no-lyrics-ids', ids);
+    devLog(`dev seedNone ${meta.id}`);
+    return { id: meta.id, seeded: true };
   },
   cacheKeys: (args) => cacheKeys(args?.filter as string | undefined),
   cacheGet: async (args) => (await chrome.storage.local.get(String(args?.key)))[String(args?.key)] ?? (await cacheGet(String(args?.key))) ?? null,

@@ -458,6 +458,11 @@ export async function startContent(): Promise<void> {
         if (patch && typeof patch === 'object') await saveSettings(patch as Partial<typeof settings>);
         return loadSettings();
       },
+      seedNone: async () => {
+        const m = currentMeta();
+        if (!m) throw new Error('seedNone: no track playing');
+        return toBackground('seedNone', { meta: m });
+      },
       forget: async (args) => {
         const id = (args as { id?: string } | undefined)?.id ?? currentMeta()?.id;
         if (!id) throw new Error('forget: no track playing; pass an id');

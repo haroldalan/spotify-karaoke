@@ -46,6 +46,7 @@ reveals your IP address to the service that receives it.
 | **YouTube Music** (`music.youtube.com`) | Same as LRCLIB | Title and first artist; then YouTube Music's own ids for the song it found. The extension presents these requests as YouTube Music's Android app, which is the only client YouTube Music gives timed lyrics to |
 | **Google Translate** (`translate.googleapis.com`) | When you show translations, and to romanize scripts without a local romanizer (Arabic, Hebrew, Persian, Urdu and others) or Japanese words the local dictionary doesn't know | The lyric lines and your target language |
 | **Google Translate, website widget** (`translate-pa.googleapis.com`, and its script on `translate.googleapis.com`) | Only while Google Translate above asks the extension to slow down: the backup for translations | The lyric lines and your target language. The widget's public key is read from Google's widget script, which sends nothing about you or the song |
+| **LRCLIB uploader** (`lrclibup.boidu.dev`, a community tool for adding lyrics to LRCLIB) | Only when you click "Add lyrics to LRCLIB" on a song no source has lyrics for: a new tab opens at its address. The extension itself sends nothing to it | Title, artist, album and duration, in the address of the tab that opens |
 | **jsDelivr** (`cdn.jsdelivr.net`) | The first time a Japanese song is romanized | Nothing about you or the song: a public dictionary file is downloaded |
 
 ## Permissions
