@@ -504,6 +504,11 @@ export async function startContent(): Promise<void> {
         if (patch && typeof patch === 'object') await saveSettings(patch as Partial<typeof settings>);
         return loadSettings();
       },
+      sources: async () => {
+        const m = currentMeta();
+        if (!m) throw new Error('sources: no track playing');
+        return toBackground('sources', { meta: m });
+      },
       seedNone: async () => {
         const m = currentMeta();
         if (!m) throw new Error('seedNone: no track playing');

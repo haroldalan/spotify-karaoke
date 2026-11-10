@@ -42,6 +42,7 @@ export function installDevkit(win: Window & typeof globalThis = window): void {
     searchAgain: () => request('page', { sk: 'search-again' }),
     notThisSong: (on = true) => request('page', { sk: 'not-this-song', on }),
     seedNone: () => request('seedNone'),
+    sources: () => request('sources'),
     forget: (id?: string) => request('forget', { id }),
     fresh: async () => {
       const r = await request('forget', {});

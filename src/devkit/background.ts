@@ -4,6 +4,10 @@ import type { DevAnswer, DevBackgroundReq } from './protocol';
 import { cacheClear, cacheDelete, cacheGet, cacheSet } from '../background/cache';
 import { lyricsKey } from '../background/lyrics/find';
 import type { TrackMeta } from '../shared/types';
+import { expectedScript, scriptShare } from '../shared/scripts';
+import { ytm } from '../background/lyrics/ytm';
+import { lrclibCandidates } from '../background/lyrics/lrclib';
+import { parseLrc, plainLines } from '../background/lyrics/lrc';
 import { resetSettings } from '../shared/settings';
 
 const LOG_MAX = 300;
@@ -88,6 +92,26 @@ const OPS: Record<string, Op> = {
     await Promise.all([resetSettings(), cacheClear()]);
     devLog('dev resetData');
     return true;
+  },
+  /** What each source has for a song (no cache): synced, lines, share of lines in the song's script. */
+  async sources(args) {
+    const meta = args?.meta as TrackMeta | undefined;
+    if (!meta?.id) throw new Error('sources: no song');
+    const script = expectedScript(meta.languages);
+    const describe = (lines: { text: string }[], synced: boolean, source: string, duration?: number) => {
+      const worded = lines.map((l) => l.text).filter((t) => /\p{L}/u.test(t));
+      const inScript = script ? worded.filter((t) => scriptShare(t, script) >= 0.5).length / Math.max(1, worded.length) : null;
+      return { source, synced, lines: worded.length, inScript: inScript == null ? null : Math.round(inScript * 100) / 100, ...(duration != null ? { duration } : {}) };
+    };
+    const [yt, lr] = await Promise.allSettled([ytm(meta), lrclibCandidates(meta, fetch, { deep: true })]);
+    return {
+      script,
+      durationS: Math.round(meta.durationMs / 1000),
+      ytm: yt.status === 'fulfilled' ? (yt.value ? describe(yt.value.lines, yt.value.synced, yt.value.source) : null) : `failed: ${String((yt.reason as Error)?.message ?? yt.reason)}`,
+      lrclib: lr.status === 'fulfilled'
+        ? lr.value.map((r) => describe(r.syncedLyrics ? parseLrc(r.syncedLyrics) : plainLines(r.plainLyrics ?? ''), !!r.syncedLyrics, `LRCLIB ${r.id}`, r.duration))
+        : `failed: ${String((lr.reason as Error)?.message ?? lr.reason)}`,
+    };
   },
   /** Puts a song into the "no lyrics anywhere" state, as a finished lookup that found nothing. */
   async seedNone(args) {
