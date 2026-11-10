@@ -64,7 +64,7 @@ describe('page hook: integration', () => {
   it('waits for the settings before claiming lyrics, even when they arrive late', async () => {
     const page = fakePage({
       routes: { 'metadata/4': () => json(fixture('metadata-no-lyrics.json')) },
-      config: { instrumental: [NO_LYRICS_ID] },
+      config: { spotifyOnly: [NO_LYRICS_ID] },
       contentLate: true,
     });
     const pending = page.fetch(NO_LYRICS_META);

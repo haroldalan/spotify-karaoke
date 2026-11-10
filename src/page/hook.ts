@@ -51,8 +51,7 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
   if ((win as unknown as { __skHook?: boolean }).__skHook) return;
   (win as unknown as { __skHook?: boolean }).__skHook = true;
 
-  let config: PageConfig = { instrumental: [], spotifyOnly: [] };
-  let instrumental = new Set<string>();
+  let config: PageConfig = { spotifyOnly: [] };
   let spotifyOnly = new Set<string>();
   let ready = false;
   let configArrived!: () => void;
@@ -121,7 +120,6 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     const msg = e.data as Down;
     if (msg.kind === 'ready' || msg.kind === 'config') {
       config = msg.data;
-      instrumental = new Set(config.instrumental ?? []);
       spotifyOnly = new Set(config.spotifyOnly ?? []);
       configArrived();
       if (!ready) {
@@ -161,9 +159,10 @@ export function installHook(win: Window & typeof globalThis = window, timing: Ho
     note(`meta ${meta.id} has_lyrics=${meta.hasLyrics} lang=${meta.languages.join(',')}`);
     if (meta.hasLyrics) return null;
     await settled();
-    // An instrumental (Spotify: no linguistic content, or LRCLIB says so) has nothing to show:
-    // Spotify's view as it is.
-    if (meta.languages.includes('zxx') || instrumental.has(meta.id) || spotifyOnly.has(meta.id)) return null;
+    // Every song without Spotify lyrics is claimed, instrumentals and songs nothing was found for
+    // included: its lyrics view opens on our notice, so Search again and Add lyrics are always
+    // there (an "instrumental" verdict can be wrong).
+    if (spotifyOnly.has(meta.id)) return null;
     // Claim lyrics so Spotify enables its Lyrics button and asks color-lyrics for them.
     return json({ ...raw, has_lyrics: true }, res);
   }

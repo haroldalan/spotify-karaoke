@@ -24,7 +24,7 @@ export function fakePage(o: FakePageOptions) {
   const listeners: ((e: { source: unknown; data: unknown }) => void)[] = [];
   const events: { type: string; data: any }[] = [];
   const calls: { type: string; data: any }[] = [];
-  const config: PageConfig = { instrumental: [], spotifyOnly: [], ...o.config };
+  const config: PageConfig = { spotifyOnly: [], ...o.config };
   let contentListening = !o.contentLate;
   let playing = o.playing;
   const bar = { querySelector: () => ({ textContent: playing }) };

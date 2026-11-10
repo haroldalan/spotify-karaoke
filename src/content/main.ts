@@ -126,7 +126,7 @@ export async function startContent(): Promise<void> {
   /** The non-translated mode last chosen: what "Original" on a Latin-script song goes back to. */
   let lastPlain: Mode = settings.mode === 'translated' ? 'romanized' : settings.mode;
   const noLyrics = new Set<string>(known.none);
-  /** LRCLIB lists them as instrumentals: the page leaves Spotify's view as it is. */
+  /** LRCLIB lists them as instrumentals (the notice and the popup say so). */
   const instrumental = new Set<string>(known.instrumental);
   let spotifyOnly = new Set<string>(sentBack);
   /** As the page loaded: a choice undone before reloading needs no reload. */
@@ -156,7 +156,7 @@ export async function startContent(): Promise<void> {
   let reloadTimer: ReturnType<typeof setInterval> | undefined;
   let pageSeenAt = 0;
   let lyricsSeenAt = 0;
-  const pageConfig = () => ({ instrumental: [...instrumental], spotifyOnly: [...spotifyOnly] });
+  const pageConfig = () => ({ spotifyOnly: [...spotifyOnly] });
 
   const store = new LineStore((req) => call('process', req), settings);
 
@@ -167,11 +167,10 @@ export async function startContent(): Promise<void> {
         (found) => {
           if (!found) {
             noLyrics.add(meta.id);
-            // Nothing found: an instrumental, by LRCLIB's word? Then later plays leave Spotify's view alone.
+            // Nothing found: an instrumental, by LRCLIB's word? The notice says so.
             void call('knownNoLyrics', {}).then((k) => {
               if (!k.instrumental.includes(meta.id) || instrumental.has(meta.id)) return;
               instrumental.add(meta.id);
-              bridge.setConfig(pageConfig());
               render();
             }).catch(() => {});
           }
@@ -348,7 +347,11 @@ export async function startContent(): Promise<void> {
     // Back from adding lyrics: searching is the next step.
     if (added.has(meta.id)) return { key: meta.id, caption: 'Added them? Search again to show them.', actions: [{ ...search, primary: true }, add] };
     // Spotify's own message already says there are no lyrics: only the ways forward here.
-    const said = instrumental.has(meta.id) ? 'LRCLIB lists this song as an instrumental.' : '';
+    // An instrumental, by Spotify's word (no linguistic content) or LRCLIB's: said, and both ways
+    // forward stay, in case it isn't one.
+    const said = meta.languages.includes('zxx')
+      ? 'Spotify lists this as an instrumental.'
+      : instrumental.has(meta.id) ? 'LRCLIB lists this as an instrumental.' : '';
     return { key: meta.id, caption: mine?.caption || said, actions: [search, { ...add, primary: true }] };
   }
 

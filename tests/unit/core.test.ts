@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { NONE, decoration } from '../../src/content/decorate';
 import { read } from '../helpers/lines';
-import { artistScore, isMatch, normalizeTitle, parseClock, titleScore } from '../../src/background/lyrics/match';
+import { artistScore, isInstrumentalTitle, isMatch, normalizeTitle, parseClock, titleScore } from '../../src/background/lyrics/match';
 import { parseLrc } from '../../src/background/lyrics/lrc';
 import { buildColorLyrics, parseColorLyrics, parseMeta } from '../../src/page/spotifyFormat';
 import { base62ToHex, hexToBase62 } from '../../src/shared/spotifyId';
@@ -47,6 +47,19 @@ describe('matching', () => {
     expect(isMatch(meta, { title: 'Vizhi Veekura', artist: 'Sai Abhyankkar', durationS: 240 })).toBe(false);
     expect(isMatch(meta, { title: 'Other Song', artist: 'Sai Abhyankkar', durationS: 219 })).toBe(false);
     expect(isMatch(meta, { title: 'Vizhi Veekura', artist: 'Someone Else', durationS: 219 })).toBe(false);
+  });
+  it('never takes a song for its instrumental version, or the other way round', () => {
+    expect(isMatch(meta, { title: 'Vizhi Veekura (Instrumental)', artist: 'Sai Abhyankkar', durationS: 219 })).toBe(false);
+    expect(isMatch(meta, { title: 'Vizhi Veekura - Instrumental Version', artist: 'Sai Abhyankkar', durationS: 219 })).toBe(false);
+    expect(isMatch(meta, { title: 'Vizhi Veekura (Karaoke)', artist: 'Sai Abhyankkar', durationS: 219 })).toBe(false);
+    const inst = { ...meta, name: 'Vizhi Veekura (Instrumental)' };
+    expect(isMatch(inst, { title: 'Vizhi Veekura', artist: 'Sai Abhyankkar', durationS: 219 })).toBe(false);
+    expect(isMatch(inst, { title: 'Vizhi Veekura - Instrumental', artist: 'Sai Abhyankkar', durationS: 219 })).toBe(true);
+    expect(isInstrumentalTitle('夜に駆ける (Off Vocal)')).toBe(true);
+    expect(isInstrumentalTitle('夜に駆ける (オリジナル・カラオケ)')).toBe(true);
+    // Words that only contain the markers aren't versions.
+    expect(isInstrumentalTitle('Instrumentality')).toBe(false);
+    expect(isInstrumentalTitle('Institute')).toBe(false);
   });
   it('scores YouTube Music style titles', () => {
     expect(titleScore('まどろみ', 'まどろみ - Madoromi')).toBeGreaterThanOrEqual(0.8);

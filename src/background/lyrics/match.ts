@@ -54,7 +54,18 @@ export function durationOk(spotifyMs: number, candidateS: number | null | undefi
   return Math.abs(spotifyMs / 1000 - candidateS) <= DURATION_TOLERANCE_S;
 }
 
+/**
+ * A title that names a version without the singing: "(Instrumental)", "Karaoke", "Off Vocal",
+ * "Backing Track", "Minus One", カラオケ, オフボーカル.
+ */
+export function isInstrumentalTitle(s: string): boolean {
+  return /\b(instrumental|instr\.|inst\.|karaoke|off[\s-]?vocal|backing\s+track|minus\s+one)(?![\p{L}])/iu.test(s) || /カラオケ|オフボーカル|オリジナル・カラオケ/u.test(s);
+}
+
 export function isMatch(meta: { name: string; artists: string[]; durationMs: number }, c: { title: string; artist: string; durationS?: number | null }): boolean {
+  // A song and its instrumental version share a title once the brackets go, and often a length:
+  // never one for the other (the vocal song isn't an instrumental; the instrumental has no words).
+  if (isInstrumentalTitle(meta.name) !== isInstrumentalTitle(c.title)) return false;
   return titleScore(meta.name, c.title) >= 0.8 && artistScore(meta.artists, c.artist) >= 0.5 && durationOk(meta.durationMs, c.durationS);
 }
 
