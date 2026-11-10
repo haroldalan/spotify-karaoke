@@ -49,7 +49,7 @@ Spotify Connect would move playback from your own player), and mute the test pla
 `tools/probe/` is a tiny extension that records Spotify's lyrics-related network traffic
 from page start. Use it to see what Spotify changed after a redesign.
 
-## Status (2026-11-09)
+## Status (2026-11-10)
 
 Verified live in Chrome 156:
 - Romanized / translated main line with the original beneath, Spotify's highlighting and
@@ -90,6 +90,18 @@ Seamless-UI pass (2026-11-09, after a UI audit and a third-party one):
 - Popup: switches, a dropdown language picker with search, a one-line status with the
   details folded away, the playing song, footer credit. Verified with a stubbed API;
   the live check covered the capsule on Spring Day (romanized Korean, Hangul beneath).
+
+UX pass (2026-11-09/10, a persona audit with the owner's decisions; docs/ux-audit-personas.md §10):
+- Finding missing lyrics and restoring the original script are always on.
+- One "All three lines" switch: off (default), the main line with the original beneath; on,
+  original, romanization and translation in every mode, and the switcher leaves the page
+  (its popup switch greys out and keeps its setting).
+- Popup: the mode, the language (Common languages first), the two switches with a description
+  each, a status card with the playing song (Search again; "Not this song?" with Undo, sending
+  a song back to Spotify's own lyrics; Reload now / After this song), Storage with Clear cache
+  and Reset data, the Star card and the credit footer. Checked with a stubbed API.
+- Open Spotify tabs pick up the extension on install and update, without a reload.
+- Verified live: all three lines on Kesariya. Not yet live: the two-line view with the switcher.
 
 Not done yet: see the batches below.
 

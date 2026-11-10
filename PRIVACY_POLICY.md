@@ -1,11 +1,15 @@
 # Privacy Policy: Spotify Karaoke
 
-**Last updated:** November 9, 2026
+**Last updated:** November 10, 2026
 
 Spotify Karaoke is an open-source browser extension that romanizes and translates
 lyrics in Spotify's web player, finds lyrics Spotify doesn't have, and restores lyrics to
 their original script. This page says what it reads, what it stores, and what it sends
 where.
+
+These lookups are always on: they are what the extension is for, so installing it is
+the choice to use them. There is no setting to turn them off; remove the extension to stop
+them.
 
 ## What it does not do
 
@@ -25,10 +29,11 @@ to draw romanized and translated lines.
 
 | Data | Where | Kept |
 |:---|:---|:---|
-| Your settings (mode, language, toggles) | `storage.sync`: your browser syncs them across your own devices | Until you change them |
+| Your settings (mode, language, switches), and the songs you chose "Not this song" for (Spotify ids, up to 250) | `storage.sync`: your browser syncs them across your own devices | Until you change them or press Reset data |
 | Lyrics found for songs, romanized and translated lines, songs with no lyrics anywhere | `storage.local` on this device | Up to 2,000 entries, oldest dropped first; entries expire after 30 minutes to 60 days |
 
-Nothing stored is sent anywhere. Removing the extension removes it.
+Nothing stored is sent anywhere. Clear cache and Reset data in the popup remove it; so does
+removing the extension.
 
 ## What it sends, and to whom
 
@@ -47,6 +52,7 @@ reveals your IP address to the service that receives it.
 | Permission | Why |
 |:---|:---|
 | `storage`, `unlimitedStorage` | Your settings and the caches above |
+| `scripting` | When the extension is installed or updated, adds it to Spotify tabs that are already open, so they work without a reload |
 | `declarativeNetRequestWithHostAccess` | Sets the request headers YouTube Music expects, on the extension's own background requests to YouTube Music only; never on your tabs or any other site |
 | Host access to the services above and open.spotify.com | Run inside Spotify's web player and reach the listed services |
 
